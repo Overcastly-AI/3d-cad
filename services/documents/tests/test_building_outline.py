@@ -142,6 +142,12 @@ class _Part:
         assert response.status_code == 200, response.text
         return {f["name"]: f["feature"] for f in response.json()["features"]}
 
+    def rows(self) -> dict[str, Any]:
+        """Each feature's response by name, its warnings with it."""
+        response = self.client.get(f"/api/v1/parts/{self.id}/features", headers=HEADERS)
+        assert response.status_code == 200, response.text
+        return {f["name"]: f for f in response.json()["features"]}
+
     def request(self) -> EvaluateTreeRequest:
         response = self.client.get(
             f"/api/v1/parts/{self.id}/evaluation-request", headers=HEADERS
@@ -150,7 +156,9 @@ class _Part:
         return EvaluateTreeRequest.model_validate_json(response.content)
 
 
-def _house(client: TestClient) -> tuple[_Part, str]:
+def _house(
+    client: TestClient, roof: str = "1.4.0", pitch: str = "rise_6"
+) -> tuple[_Part, str]:
     part = _Part(client)
     sketch = part.add("Outline", _outline(288))
     floor = part.add(
@@ -184,9 +192,10 @@ def _house(client: TestClient) -> tuple[_Part, str]:
         "Roof",
         _custom(
             "loft.roof",
-            "1.4.0",
+            roof,
             walls=[_ref(walls)],
             slope_walls=["e1", "e3"],
+            pitch=pitch,
             rafter_profile="us_2x8",
             ridge_profile="us_2x10",
         ),
@@ -241,6 +250,60 @@ def test_one_dimension_edit_re_lays_the_walls_floor_and_roof(
         and e.feature.params.model_dump()["distance_mm"] == pytest.approx(336 * IN)
     )
     assert ridge is not None
+
+
+def test_the_ceiling_joists_follow_the_one_dimension_edit(client: TestClient) -> None:
+    """CEILING-JOISTS: a 1.6.0 roof on B7's outline ties its 11 inner common
+    pairs; the 288 dimension set to 336 re-lays them with the rafters, 13."""
+    part, sketch = _house(client, roof="1.6.0")
+    assert _roles(part.stored(), "Roof")["ceiling_joist"] == 11
+    part.edit(sketch, _outline(336))
+    after = part.stored()
+    assert _roles(after, "Roof")["ceiling_joist"] == 13
+    assert _roles(after, "Roof")["rafter"] == 30
+    assert all(e.input_error is None for e in part.request().features)
+
+
+def test_a_new_1_12_gable_builds_without_ceiling_joists_and_warns(
+    client: TestClient,
+) -> None:
+    """CEILING-JOISTS: at 1/12 a 2x8 joist would pass B7's 2x10 ridge board.
+    Chief warns rather than blocks: the roof builds, frames no joist, and
+    says why and what to pick (a 2x6 fits)."""
+    part, _ = _house(client, roof="1.6.0", pitch="rise_1")
+    roof = part.rows()["Roof"]
+    roles = Counter(m["role"] for m in roof["feature"]["params"]["expansion"])
+    assert (roles["rafter"], roles["ceiling_joist"]) == (26, 0)
+    (warning,) = roof["plugin_warnings"]
+    assert warning["code"] == "ceiling_joists_omitted"
+    assert warning["update_to"] is None
+    assert "ridge board" in warning["message"]
+    assert "2x6 or shallower" in warning["message"]
+
+
+def test_a_1_12_roof_updates_to_1_6_with_no_ceiling_joists(
+    client: TestClient,
+) -> None:
+    """The declared update maps Ceiling joists to None: a 1.4.0 gable at 1/12
+    (whose 2x8 joist would not fit) updates, frames 1.5.0's roof exactly (a
+    gable on an outline is 1.4.0's byte for byte), and carries no warning."""
+    part, _ = _house(client, roof="1.4.0", pitch="rise_1")
+    before = part.rows()["Roof"]
+    offer = before["plugin_update"]
+    assert offer is not None and offer["to_version"] == "1.6.0"
+    assert "adds nothing new" in offer["summary"]
+    response = part.client.post(
+        f"/api/v1/parts/{part.id}/features/plugin-updates",
+        json={"expected_tree_version": part.version, "feature_ids": [before["id"]]},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    after = part.rows()["Roof"]
+    params = after["feature"]["params"]
+    assert params["plugin_version"] == "1.6.0"
+    assert params["inputs"]["ceiling_joists"] == "none"
+    assert params["expansion"] == before["feature"]["params"]["expansion"]
+    assert "plugin_warnings" not in after
 
 
 def test_the_outline_cannot_be_deleted_under_its_walls(client: TestClient) -> None:

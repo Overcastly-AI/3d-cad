@@ -379,3 +379,37 @@ def test_lines_group_by_system_then_member_and_merge_across_features() -> None:
         ("other", "Brace", 1, 50.0),
     ]
     assert response.total_quantity == len(bodies)
+
+
+def test_a_header_spacer_is_cut_to_size_under_walls_not_hung_as_sheathing() -> None:
+    """OPENING-UPDATE: a window's or door's 1/2 in plywood spacers are
+    pieces cut from a sheet, listed with the walls they sit in, with no
+    panel gap; the same product hung by a wall stays under Sheathing."""
+
+    def strip(length_in: float, plugin: str) -> tuple[BodyExtent, CutListMember]:
+        body = _body(length_in * IN, 5.5 * IN, 0.5 * IN)
+        return body, CutListMember(
+            feature_id=body.base_feature_id,
+            role="spacer",
+            title="Spacer",
+            plugin_id=plugin,
+            metadata=MemberMetadata(profile="1/2 plywood", material="plywood"),
+        )
+
+    rows = [strip(41, "loft.door"), strip(39.5, "loft.window"), strip(48, "loft.wall")]
+    extents = BodyExtentsResult(
+        part_id=uuid.uuid4(), tree_version=1, bodies=[b for b, _ in rows]
+    )
+    response = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="Headers",
+        length_unit="in",
+        pieces=part_pieces(extents, [m for _, m in rows], None),
+    )
+    assert [
+        (line.system, line.quantity, line.sheet, line.stock_quantity)
+        for line in response.lines
+    ] == [("walls", 2, "4x8", 1), ("sheathing", 1, "4x8", 1)]
+    walls = response.lines[0]
+    assert round((walls.area_mm2 or 0) / IN**2, 6) == (41 + 39.5) * 5.5

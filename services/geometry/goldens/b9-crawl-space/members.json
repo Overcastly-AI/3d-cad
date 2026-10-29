@@ -2434,7 +2434,21 @@
           4597.4,
           4597.4
         ]
-      }
+      },
+      "foundation_openings": [
+        {
+          "item": "foundation_vent",
+          "width_mm": 406.4,
+          "height_mm": 203.2,
+          "quantity": 5
+        },
+        {
+          "item": "crawl_access_door",
+          "width_mm": 609.5999999999999,
+          "height_mm": 406.4,
+          "quantity": 1
+        }
+      ]
     }
   }
 ]

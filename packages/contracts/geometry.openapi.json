@@ -481,7 +481,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },
@@ -534,7 +535,8 @@
               "steel_a615",
               "steel_f1554",
               "gypsum",
-              "melamine"
+              "melamine",
+              "xps_foam"
             ],
             "title": "Material",
             "type": "string"
@@ -7114,7 +7116,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },

@@ -9,140 +9,110 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-23 (seventh pass) by the product-manager. The founder asked
-"What are we doing for foundations? Also it would be nice to be able to
-build cabinets, vanities, internal walls etc.", then "Slab and crawl
-space." Done and dropped since the sixth pass (`git log --grep=<ID>`):
-OPENING-FROM-END, CUT-LIST-PANEL, ROOF-HIP-SHEATHING-NOTCH,
-ROOF-THROUGH-SHEATHING-UPDATE and OPENING-UNITS. Items 1-4 are in flight
-and finish first. Then the house stands on something (a slab, or a crawl
-space under B7's framed floor), then it gets rooms (partitions), then a
-kitchen and baths (casework). Each item names its builder types.
+Ranked 2026-10-28 (eighth pass) by the product-manager, by "would a
+working builder use this today". The founder: "it's all needed, I don't
+care what comes first". Done in batch49 (a9b15e6, CI pending) and dropped
+(`git log --grep=<ID>`): HEADER-PLIES, FLOOR-JOIST-SPAN,
+CUT-LIST-STOCK-RULES, BODY-NAMES, SLAB, CRAWL-SPACE, INTERIOR-WALLS and
+CASEWORK. Their open ends are folded below or into Next. First a saved
+house gets the framing its version now gives; then the deck stands on
+footings; then the roof gets the ties a framer needs; then the foundation
+and casework quotes are complete. Founder-triage Notes folded into an item
+are named in it and removed from Notes.
 
-1. [ ] **HEADER-PLIES** (in flight; kernel-architect, a new wall version
-   with stored walls pinned): a 2x6 wall's header was two 1.5 in plies in a
-   5.5 in wall. The header fills its wall: 3-ply by default in 2x6, 2-ply in
-   2x4, or 2-ply with foam. _Accept:_ B7's headers list three plies per
-   opening with no interference, priced; the 2x4 goldens are byte-identical.
-   _Kernel done (2026-10-23):_ an opening option, not a wall one (RESEARCH
-   §23): `loft.window`/`loft.door` 1.4.0 add Header build, "Fill the wall"
-   (default: 2 plies in 2x4, 3 in 2x6; a 2x8 keeps 3 plies with 1-3/8 in
-   gaps) or "Two plies, foam between"; stored walls and openings are
-   untouched. Golden `b2-2x6-walls-header-plies`. _Open:_ B7's stored
-   openings are 1.1.0 and need an Update action, as roof 1.5.0's; header
-   spacers are not yet members, so they are not priced.
-2. [ ] **FLOOR-JOIST-SPAN** (in flight, merging; kernel-architect for
-   `loft.floor` 1.3.0, frontend-builder): Joists bear on Long walls
-   (default, the shorter span), Front and back, or Left and right, as Chief's
-   joist-direction arrow and Revit's span direction. _Accept:_ B7's outline,
-   drawn from any corner either way, frames 2x10 joists across the 16 ft
-   span; Left and right gives 24 ft joists; stored 1.2.0 floors are
-   byte-identical.
-3. [ ] **CUT-LIST-STOCK-RULES** (in flight; backend-builder; merges
-   SHEET-COUNT-PIECES, built as `sheets_to_cut` and merging): sheet goods
-   are counted by the sheets the modelled panels are cut from; a member a
-   framer never splices (stud, joist, rafter, jack, cripple) is never
-   spliced; a saw kerf (1/8 in default) is taken between pieces cut from
-   one sheet or stick; a panel with grain (plywood, cabinet sides and
-   doors) is not turned across it. _Accept:_ B5's walls buy 12 sheets of
-   4x9 and its subfloor 4 of 4x8; B7's re-pinned total is in
-   `test_price_book.py`; C1's 3/4 in panels (casework.md) are counted with
-   kerf and grain as the script lays them out.
-   _Built (2026-10-23, RESEARCH §27):_ sheets by the panels cut from
-   them; spanning members and columns (`ONE_PIECE_ROLES`) one piece, with
-   a `stock_note` past 24 ft; dimension stock to 24 ft; a 1/8 in kerf per
-   cut, absorbed by APA's 1/8 in panel gap; subfloor panels never turned.
-   B5 walls 12 / subfloor 4 sheets; B7 in the app $3,007.67, the 28 ft
-   house $3,386.80. _Open:_ C1's casework panels (no plugin yet).
-4. [ ] **BODY-NAMES** (in flight; frontend-builder; merges B7-BODY-NAMES
-   and DECK-BODY-NAMES): the Bodies and Material panels name member bodies
-   as the cut list does ("Front wall · Stud 12"), as Fusion shows body
-   names. _Accept:_ B7's Bodies panel has no "Body n" row.
-5. [ ] **SLAB** (founder 2026-10-23; kernel-architect for `loft.slab`
-   1.0.0 and goldens, backend-builder for concrete, rebar and anchor bolts
-   in the library and price book, frontend-builder for the Build entry):
-   a slab on grade from the building outline, as Chief Architect's and
-   Revit's foundation tools build one from the exterior wall loop. 4 in
-   thick, an optional thickened edge (12 in wide, 12 in deep overall) with
-   2 #4 bars, and 1/2 in anchor bolts by IRC R403.1.6. The slab replaces the
-   floor: outline walls stand on its top (On floor accepts a slab).
-   Concrete is listed in cubic yards and ordered with a 5% waste
-   allowance (an input) rounded up to 1/4 yd³, rebar in 20 ft sticks with
-   24 in laps, bolts Each. _Accept:_ B2's plain 144 x 120 x 4 slab is
-   69 120 in³ and lists 1.48 yd³ (1.75 bought: 1.56 with the allowance; 1.50
-   before it). B8 (buildings.md) is 308 736 in³, 6.62 yd³ (7.00 bought: 6.95
-   with the allowance; 6.75 before it), 10 sticks of #4 and 19 anchor bolts,
-   all priced; B7's walls on it have no interference, and 24 -> 28 ft is
-   still one dimension edit.
-6. [ ] **CRAWL-SPACE** (founder 2026-10-23; kernel-architect for
-   `loft.foundation` 1.0.0 and goldens, backend-builder for the new lines,
-   frontend-builder for the Build entry): a poured-concrete stem wall on a
-   continuous footing under the outline, as Chief's and Revit's foundation
-   walls, with the framed floor on top. Defaults: 8 in stem; a 16 x 8 in
-   footing centred under it with 2 #4 bars, its bottom 12 in below grade
-   (R403.1.4); crawl height (grade to joist underside) 24 in, warned below
-   the 18 in at which IRC R317.1 requires treated or durable joists. Vents
-   (R408.1: 1 ft² net per 150 ft², one within 3 ft of each corner) and a
-   24 x 16 in access (R408.4) are cut from the stem. The floor's sills sit
-   flush outside on the stem's top at Z 0, so `loft.floor` is unchanged.
-   CMU block is a later choice. _Accept:_ B9 (buildings.md) is
-   307 328 in³ (6.59 yd³; x 1.05 = 6.92, so 7.00 bought) with 5
-   vents, 1 access, 10 sticks of #4 and 18 anchor bolts through the sills
-   (`loft_wire.foundation` and the cut list's pours, rebar and bolts are
-   SLAB's, so the foundation reuses them); B7's floor and walls on it
-   have no interference; crawl height 24 -> 30 lowers the footing 6 in and
-   moves nothing above Z 0. _Kernel, wire and pricing half built
-   (2026-10-23):_ `loft.foundation` 1.0.0, golden `b9-crawl-space`,
-   `crawl-space.spec.ts`; the footing and stem are a pour each, and the
-   access is R408.4's through-wall 24 x 16 (18 x 24 is the through-floor
-   minimum).
-7. [ ] **INTERIOR-WALLS** (founder 2026-10-23; kernel-architect for
-   `loft.interior_wall` 1.0.0, a `loft.wall` version that frames T-backing
-   and offers gypsum on its inside face, and goldens; backend-builder for
-   gypsum in the library and price book; frontend-builder for the Build
-   entry): partitions on sketch lines, as Chief's Interior Wall tool and
-   Revit's interior wall type. Lines of the outline sketch off its loop, or
-   the lines of a separate sketch, each make a partition centred on the
-   line (Revit's default location line): 2x4 at 16 in o.c., no sheathing,
-   1/2 in gypsum both faces hung horizontally from 4x8 sheets (4x12 a
-   choice), counted by `sheets_to_cut`. The wall a partition meets frames
-   its backing, as it frames the openings it hosts: ladder blocking by
-   default, a three-stud corner as a choice. Doors are `loft.door` hosted in
-   the partition. _Accept:_ B10 (buildings.md) builds from B7's outline
-   sketch plus two lines: 2 partitions, a 2868 door, 4 ladder backings (12
-   blocks), no interference, studs and gypsum sheets as the script gives;
-   24 -> 28 ft leaves the partitions at X 180 and Y 132.
-   _Kernel done (2026-10-23, RESEARCH §23):_ `loft.interior_wall` 1.0.0
-   hosted on `loft.wall` 1.4.0 (backing, optional inside gypsum), a door
-   1.4.0 may stand in a partition, gypsum 1/2 and 5/8 in 4x8 and 4x12 under
-   Walls; the web picks a door's partition and lists the tool on the Build
-   row. Golden `b10-partitions` (67 bodies, 45 623.25 in³ on b7-outline,
-   20 panels, 11 sheets). _Open:_ L and crossing partitions, free ends,
-   one partition feature meeting another's, and gypsum on a partition's end.
-8. [ ] **CASEWORK** (founder 2026-10-23; kernel-architect for
-   `loft.cabinets` 1.0.0 and goldens; backend-builder for sheet products,
-   edge banding and hardware in the price book and a list input in the
-   plugin manifest; frontend-builder for the box list and the wall pick): a
-   cabinet run is ONE feature with an ordered list of boxes, as Mozaik
-   places a run along a wall: base, wall, tall and vanity boxes in US sizes
-   (widths 9-48 in, 3 in steps), frameless or face frame, a 3/4 in plywood
-   or melamine carcass, doors, drawer fronts and drawer boxes as panels,
-   and end fillers. It sits on a wall's inside face measured from either
-   end, as openings do, or at a typed position. The cut list lists panels
-   by sheet, edge banding by the foot, and hinges (Blum's count by door
-   height) and slide pairs Each, under a Casework system. _Accept:_ C1
-   (casework.md) matches the script to 1e-4 (3 526.668 in³, 23.54 ft of
-   banding, 2 hinges, one pair of 22 in slides), and 24 -> 27 in gives
-   3 820.105 in³; C2's run stands on B10's partition with no interference;
-   C3 prices to the last line.
-   _Built (2026-10-23, RESEARCH §23):_ `loft.cabinets` 1.0.0 with a generic
-   list input in the manifest (the form's add and remove list), placement on
-   a wall line from either end or typed, frameless and face frame, plywood or
-   melamine; casework sheets, banding and hardware priced (migration 0028).
-   C1 to the panel, C2 on B7's left wall, C3 priced; goldens `c1-*`, `c2-*`,
-   `c3-*`. _Open:_ C2 on B10 waits for INTERIOR-WALLS (its gypsum is the
-   1/2 in Back gap); the wall pick is the form's select, not a viewport
-   click; list rows take plain numbers in the form, formulas by API only.
+1. [ ] **OPENING-UPDATE** (kernel-architect for `loft.window`/`loft.door`
+   1.5.0; frontend-builder for the update action; backend-builder for the
+   spacer line). A house saved before HEADER-PLIES keeps 1.1.0 openings,
+   so its 2x6 headers stay two plies with a 2-1/2 in void, and its 1.3.0
+   walls cannot take partitions. Onshape marks a custom feature whose
+   Feature Studio has a newer version and updates it on request, and
+   Fusion badges out-of-date linked content. Loft does the same: each
+   out-of-date Build feature gets a tree badge and "Update to x.y.0" (the
+   roof's 1.5.0 action), and the part gets one "Update all Build features".
+   Each update is an ordinary edit with the same inputs, one undo step,
+   never silent. Opening 1.5.0 draws the header's 1/2 in plywood spacers
+   (and the foam of "Two plies, foam between") as members, so the cut
+   list and price book carry them; a 2x8 wall's 1-3/8 in gaps stay open.
+   Folds PLUGIN-UI-UPDATE, ROOF-WARNING-TREE, OUTLINE-OPENING-VERSION and
+   B7-HEADER-2X6-WALL. _Accept:_ "Update all" on `b7-outline` takes its
+   door and five windows to 1.5.0 and its walls to 1.4.0 in one undo step:
+   headers 41 x 3, 39.5 x 9, 27.5 x 6 (18 plies, was 12; the face plies
+   keep their ids), 12 spacers of 1/2 plywood 5.5 wide (2 x 41, 6 x 39.5,
+   4 x 27.5; 429 in, 2 359.5 in², 1 179.75 in³) cut from 1 sheet, and
+   264 852.3789 + 1 769.625 + 1 179.75 = 267 801.7539 in³, no
+   interference, every line priced; the walls frame what 1.3.0 framed;
+   Ctrl+Z restores 264 852.3789; stored goldens are byte-identical.
+2. [ ] **DECK-FOOTINGS** (kernel-architect for `loft.deck` 1.2.0 and
+   goldens; backend-builder for bagged concrete and post bases in the
+   library and price book). B1's posts stand on grade, so no deck plan is
+   permit-ready and its concrete is not quoted. Chief Architect's deck
+   room places a post footing under every automatic post (Deck Room
+   Defaults), and US deck builders pour piers from 80 lb bags. A round
+   pier footing centred under each post, Ø16 x 12 in deep by default
+   (inputs), its top at grade, listed in yd³ and bought by default as
+   80 lb bags (0.60 ft³ each) with SLAB's 5% allowance, the total rounded
+   up to whole bags (ready-mix a choice); one post base (ABU66 class)
+   Each per post. _Accept:_ B1 (buildings.md) has 3 footings, 3π x 8² x
+   12 = 7 238.23 in³ (0.16 yd³, 4.19 ft³; x 1.05 / 0.60 = 7.33, so
+   **8 bags**), 3 post bases, no interference, priced; 16 -> 20 ft gives 4
+   footings, 9 650.97 in³, **10 bags** (9.77), 4 post bases; stored 1.1.0
+   decks are byte-identical.
+3. [x] **CEILING-JOISTS** (kernel-architect for `loft.roof` 1.6.0 and
+   goldens). B7's gable has rafters and a ridge board but nothing tying
+   the rafter feet, so its walls would spread; no framer builds that
+   (IRC R802.5.2: ceiling joists at the plates are the rafter ties). Chief
+   Architect's Build Framing lays ceiling joists out with the roof, in the
+   rafter direction, as one framing pass. A roof option, Ceiling joists:
+   "Beside each common" (default for a new gable on outline or picked
+   walls) or "None": a joist on the bearing plates face-nailed to the +X
+   side of every inner common pair, one piece from outside face to
+   outside face, its top corners snipped to the rafters' top plane; the
+   gable-end rafters get none (the gable wall carries the ceiling edge).
+   Default 2x8 (SPF), a profile input. _Accept:_ B7 at 6/12 with 2x8
+   rafters on plates topped at Z 108.59375: 11 joists 2x8 at 192 (16 ft
+   stock), X c+0.75..c+2.25 for c = 24, 48, ..., 264; each end snipped
+   Δ = 29/3 - 7.25√1.25 = 1.560920 down and 2Δ = 3.121840 along, so each
+   joist is 2 088 - 3Δ² = 2 080.690584 in³ and the 11 add
+   22 887.596423 in³; no interference (P2 in B10 is face to face under
+   them); 24 -> 28 ft gives 13; 6/12 -> 8/12 re-snips them; stored 1.5.0
+   roofs are byte-identical. Gable-end studs follow (GABLE-END-STUDS, Next).
+4. [ ] **FOUNDATION-TAKEOFF** (backend-builder for the lines and the
+   order grouping; kernel-architect if `loft.foundation` 1.1.0 must emit
+   the units). B9's quote misses its vents and access door, and orders two
+   pours as one truck. Chief's materials list carries foundation vents
+   and the access door Each, and a crew pours and inspects the footing
+   before the stem: two deliveries, each rounded up. Each foundation vent
+   (16 x 8 in) and the access door (24 x 16 in) is a priced Each line;
+   each pour is its own order line, rounded up to 1/4 yd³ after its own
+   allowance; anchor bolts come from the plate pieces actually on the
+   concrete, with R403.1.6's end distance checked on short pieces. Folds
+   CRAWL-VENT-UNITS, CRAWL-TWO-ORDERS, SLAB-MULTI-POUR,
+   CRAWL-NO-FLOOR-BOLTS, CRAWL-SILL-SOURCE, SLAB-BOLT-SHORT-PIECE and
+   CRAWL-HEIGHT-EXPR. _Accept:_ B9 lists 5 vents and 1 access door;
+   footing 118 784 in³ (2.55 yd³; x 1.05 = 2.67, **2.75** bought) and stem
+   188 544 in³ (4.04; 4.24, **4.25**) on two lines, still 7.00 in all;
+   crawl 24 -> 30 gives 2.75 + 5.25 (233 088 in³ stem); 24 -> 28 ft gives
+   6 vents; B8's one pour still buys 7.00; 18 bolts on B9, 19 on B8; the
+   low-crawl warning follows a formula-driven crawl height.
+5. [ ] **CASEWORK-B10** (kernel-architect for goldens; backend-builder
+   for the cut list's Pieces total). The kitchen was proved on B7 with a
+   1/2 in gap standing in for gypsum, and no reference run has a drawer
+   bank in a melamine vanity, so its plywood drawer-box lines are never
+   priced. Mozaik places runs on the room's real wall faces; here C2
+   moves onto B10 with the left wall's inside gypsum on, and C4 (new,
+   casework.md) is a bath vanity on P1's +X gypsum face. The cut list's
+   Pieces total stops counting banding and hardware. Folds
+   CASEWORK-C2-B10, CASEWORK-C3-NO-DRAWER,
+   INTERIOR-WALLS-INSIDE-GYPSUM-GOLDEN and CASEWORK-PIECES-TOTAL.
+   _Accept:_ C2 on B10 keeps its 91 panels and volume, its backs touching
+   real gypsum at X 6 with no interference. C4: V3021 + VDB1521 (3
+   drawers, 6 in top front), frameless 3/4 melamine, from Y 186 toward the
+   front on X 182.25: the VDB is 2 709.796875 in² of 3/4, 1 488.375 of
+   1/2 and 750 of 1/4 plywood, 2 964.03515625 in³, 235.5 in of banding and
+   3 pairs of 20 in slides; the run is 6 036.17578125 in³, 578.75 in
+   (48.23 ft) of banding, 4 hinges and 3 slide pairs, every line priced
+   (plywood lines included); V3021 -> V3621 moves the VDB to Y 150..135,
+   clear of P2's gypsum at Y 134.25.
 
 ## Next
 
@@ -206,7 +176,8 @@ Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
 Founder, 2026-10-15: decks, sheds, rafters, windows and doors without drawing
 every member; 2026-10-23: foundations, interior walls and casework. A plugin
 registers a custom feature that expands into base features (RESEARCH §23),
-preinstalled. B1-B7 build and price; Now carries B8-B10 and C1-C3.
+preinstalled. B1-B10 and C1-C3 build and price; Now carries B1's footings,
+B7's ceiling joists, B9's full takeoff and casework on B10.
 
 - [x] **SPLICE-FEWEST-PIECES** (backend-builder; RESEARCH §27): splices
       rank fewest pieces (joints) first, then least waste, then most even,
@@ -216,12 +187,6 @@ preinstalled. B1-B7 build and price; Now carries B8-B10 and C1-C3.
       _Done:_ `stock_splice_tiers` keys on (pieces, feet); the priced-tier
       fallback is unchanged. B7's total and the 28 ft house's are unchanged
       (`test_price_book.py`, `house-b7.spec.ts`).
-- [ ] **DECK-FOOTINGS** (moved from the founder's foundations ask to Next by
-      "Slab and crawl space"; kernel-architect for a `loft.deck` version):
-      a round pier footing under each deck post, as Chief's deck tool and
-      Medeek Deck place them, Ø16 x 12 in deep by default, listed in yd³.
-      _Accept:_ B1's 3 posts stand on 3 footings, 7 238.23 in³ (0.16 yd³)
-      with no interference; 16 -> 20 ft gives 4.
 - [ ] **STAIRS** (was the note DECK-STAIRS): a straight stair of cut
       stringers and treads from the total rise, as Chief Architect's stair
       tool, with risers of at most 7.75 in and treads of at least 10 in (IRC
@@ -232,6 +197,25 @@ preinstalled. B1-B7 build and price; Now carries B8-B10 and C1-C3.
       (362S162-33 and 362T125-33), as Chief Architect's metal-stud wall
       types offer. _Accept:_ B2's walls in steel give the same layout
       counts, with Stud and Track lines in the cut list.
+- [ ] **GABLE-END-STUDS** (after CEILING-JOISTS): the gable triangle over
+      each end wall is open; Chief frames a full gable wall to the roof.
+      2x6 gable studs at 16 in o.c. on the end wall's top plate, in line
+      with its layout studs, cut to the end rafters' underside, and the
+      wall's OSB carried up to the rafters. _Accept:_ B7's two gables frame
+      with no interference, counts and cut lengths as the script gives.
+- [ ] **GYPSUM-SHEETS** (folds INTERIOR-WALLS-GYPSUM-COUNT): gypsum is
+      counted by area, against the 2026-10-23 sheets-cut decision, and only
+      partitions carry it by default. Count it by `sheets_to_cut` as OSB is,
+      offer inside gypsum on every exterior wall of an outline in one
+      choice, and hang the ceiling on CEILING-JOISTS. _Accept:_ B10's
+      partitions buy 12 sheets (nesting), not 11; B7's ceiling sheets as
+      the script gives.
+- [ ] **PARTITION-SHAPES** (INTERIOR-WALLS' open ends; folds
+      INTERIOR-WALLS-ENDS): L and crossing partitions, a free end, one
+      partition feature meeting another's, gypsum on a partition's end,
+      and ends read from the solved sketch, not the stored midpoint.
+      _Accept:_ B10 with P1 crossed by a full-width line frames with no
+      interference and the backing the script gives.
 
 ## Later
 
@@ -253,25 +237,31 @@ preinstalled. B1-B7 build and price; Now carries B8-B10 and C1-C3.
 
 ## Founder decisions
 
-None open. The foundation, partition and casework calls (2026-10-23,
-seventh pass) are in VISION's delegated log; reverse any there.
+The eighth-pass calls (2026-10-28) are in VISION's delegated log; reverse
+any there. Open for the founder:
+
+- Deck piers bought as 80 lb bags by default (ready-mix a choice), or
+  ready-mix as the slab is?
+- Triage proposal (2026-10-28). Close as done: B7-OPENING-UNITS-PRICE and
+  B7-OPENING-SIZES (OPENING-UNITS), B7-HOUSE-STRETCH (BUILDING-OUTLINE),
+  B7-OFFSET-FROM-START (OPENING-FROM-END), ROOF-HIP-TAIL and
+  ROOF-HIP-SHEATHING-NOTCH (closed in their roof releases). Close without
+  work: SLAB-PRICE-DOWNGRADE (downgrade path only), CASEWORK-FRONT-GRAIN.
+  Merge: ENV-E2E-PORT and the two `:5173` lines into E2E-PORT; the two
+  GATEWAY_ORIGIN lines into ENV-GATEWAY-ORIGIN; PLUGIN-UI-ICON and
+  BUILD-MIXED-ICONS into PLUGIN-TOOL-ICONS; HOLE-SCOPE-PATTERN into
+  HOLE-SCOPE-REPEAT; FILLET-SEVERAL-BODIES into MULTIBODY-FILLET; the two
+  "typed coordinate cannot start with 0" lines into one. Promote: none
+  beyond this pass's folds.
 
 ## Notes
 
 One line each. The founder triages weekly; most are closed without work.
 
-- SLAB-MULTI-POUR: group_pieces sums pours of one product, material and allowance and rounds the total up to 1/4 yd³, not each pour (two pours are two truck orders on site).
-- SLAB-BOLT-SHORT-PIECE: a plate piece under 24 in gets its 2 anchor bolts with no check of the 12 in end distance (foundation.anchor_bolt_count).
 - SLAB-PRICE-DOWNGRADE: migration 0027's downgrade deletes the foundation prices without bumping price_books.version, so an open draft's If-Match still matches (0025's downgrade does the same).
-- CASEWORK-PIECES-TOTAL: the cut list's Pieces total counts banding (its banded panels) and hardware quantities with the bodies (cut_list.py total_quantity).
 - CASEWORK-HARDWARE-MATERIAL: hinges and slides are keyed to steel_1018 in the price book, so a book cannot price a nickel or zinc hinge apart.
 - CASEWORK-FRONT-GRAIN: a drawer front's plywood grain is fixed vertical, like a door's; many shops run it across.
-- CASEWORK-C2-B10: C2 sits on B7's left wall with a 1/2 in Back gap for gypsum; now that INTERIOR-WALLS has landed it moves to B10's partitions.
-- CASEWORK-C3-NO-DRAWER: C3's V3021 has no drawer box, so it lists no plywood sheet line though casework.md says "melamine and plywood sheets".
-- INTERIOR-WALLS-ENDS: a partition's ends are read from the stored drawn midpoint of its line, not the solved one (interior_wall.py:263).
 - INTERIOR-WALLS-READ-PLAN: outline.read_plan now drops dangling lines for wall, roof and floor 1.1-1.3 too, so an outline sketch with a stray line reads where it used to be refused.
-- INTERIOR-WALLS-GYPSUM-COUNT: gypsum is counted by area, not by sheets_to_cut (kept so for B10's 11 sheets; nesting gives 12), and a 4x12 choice beside 4x8 walls gives mixed sheet lines.
-- INTERIOR-WALLS-INSIDE-GYPSUM-GOLDEN: loft.wall 1.4.0's inside gypsum (finish) has no geometry golden.
 - ci-apt-debs: a warm dpkg -i failure falls back to apt and never re-seeds, so that key stays slow until the image changes.
 - OPENING-NEARER-LOFT-IMPORT: a hand-made .loft storing measure_from "nearer" keeps it on import (refresh_expansions does not settle), so the opening floats with the wall until the next edit settles it (loft_file.py:131).
 - OPENING-REFUSAL-FRAME: the end-stud refusal message gives positions from the wall start even when the opening is measured from the end or centre (wall.py:601).
@@ -282,15 +272,29 @@ One line each. The founder triages weekly; most are closed without work.
 - BARE-UNIT-SAME-EDIT: one edit that changes a legacy dimension and adds a new one with the same text leaves the new one reading mm; the text match also ignores length vs angle.
 - BARE-UNIT-LIST-POINTERS: list params are matched by pointer position, so a reorder counts the moved formulas as entered and writes the unit into them.
 - BARE-UNIT-DISPLAY-NOISE: `storedLengthInput` can show a formula's value as 6.000000000000001 in the editor's form.
-- CRAWL-VENT-UNITS: the foundation's vents and access are cut but not listed; Chief's materials list carries the vent units and the access door Each.
-- CRAWL-TWO-ORDERS: the footing and stem are a pour each but the cut list orders them on one line (SLAB's grouping by allowance); crews take two deliveries, each rounded up (B9: 2.75 + 4.25, the same 7.00 here).
-- CRAWL-NO-FLOOR-BOLTS: a foundation with no Floor on it lists bolts for one sill per outline side (192, not the floor's 181), which can count one more or fewer per side than the floor built later.
-- E2E-PORT: scripts/e2e.sh and playwright.config.ts fix Vite at :5173, so a concurrent stack silently serves another worktree's e2e run; make the port configurable.
-- CRAWL-SILL-SOURCE: crawl_space.sill_lengths counts bolts from floor_v1's pieces whatever floor release is picked; a later floor that splits sills differently would miscount.
-- CRAWL-HEIGHT-EXPR: the low-crawl warning reads params.inputs only and ignores an expression-driven crawl height.
 - BUILD-MIXED-ICONS: at the band's mixed tier Wall and Deck share an icon with no label.
+- OPENING-UPDATE-FLOOR: `loft.floor` 1.2.0 is offered no update (1.3.0 replaced Joist direction with Joists bear on, and a map needs the outline), so B7's floor stays 1.2.0 after Update all.
+- OPENING-FOAM-PRICE: an insulated header's XPS foam (opening 1.5.0, "Two plies, foam between") is drawn and listed by size but unpriced: no foam sheet product exists at a header gap's 2-1/2 or 4-1/4 in.
+- OPENING-UPDATE-MIDLOOP: no test refuses an update mid-loop after an earlier feature was rewritten; rollback relies on the session closing uncommitted.
+- OPENING-UPDATE-EDITOR: Update from the editor closes it and drops unsaved form edits without asking.
+- OPENING-UPDATE-RETRY: on a stale tree_version the web silently retries an explicit-id update once.
+- OPENING-UPDATE-GW-TEST: the gateway test echoes /plugin-updates as UndoRedoRequest, so only the empty-list 422 covers its feature_ids check.
+- DECK-FOOTINGS-SYSTEM: `classify_body` sends every concrete pour to Foundation whichever plugin poured it, so a pour a future plugin wants under its own system cannot be.
+- DECK-FOOTINGS-STANDOFF: the post base's standoff is not modelled; the post still runs from grade (Z 0) to the beam, where an ABU66 raises it about 1 in.
+- DECK-FOOTINGS-OVERHANG: a corner pier (Ø16 under a post centred 2.75 in from the end) overhangs the deck's edge in plan by 5.25 in; Chief steps the end posts in.
+- DECK-FOOTINGS-LAZY-IMPORT: `group_pieces` imports `cut_list_foundation` (and `cut_list_casework`) inside the function to break the module cycle.
+- DECK-FOOTINGS-GALV: post bases are priced as `steel_1018`, casework hardware's steel; a galvanized-steel library material would name them truly.
+- DECK-FOOTINGS-UPDATE: `loft_plugins.updates` offers `loft.deck` 1.1.0 no 1.2.0 update, so a saved deck gets footings only by re-inserting it.
+- OPENING-SHEET-MEMBERS: CUT_TO_SIZE_PLUGINS sends any window/door sheet-good member to Walls with no panel gap; implicit for future opening members.
+- FOUNDATION-INSTANCE-POURS: each copy of a placed part is rounded as its own delivery, which over-orders many small identical pads placed as instances.
+- FOUNDATION-SAME-NAME-POURS: pours from separate features with the same member name share a line but round separately; untested.
+- FOUNDATION-VENT-MATERIAL: vents and access doors carry steel_1018 as a placeholder; real units are plastic or galvanized.
+- FOUNDATION-UPDATE-MAP: a stored foundation 1.0.0 lists no vents until updated to 1.1.0; add the 1.0 -> 1.1 map to the plugin-update action.
+- ROOF-NOOP-UPDATE: a stored 1.5.0 roof is offered an Update to 1.6.0 that changes nothing (joists map to None).
+- CEILING-JOISTS-SILENT-NONE: a hip or typed-bearing roof set to joists beside each common frames none and says nothing.
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
-- VISION-WASTE-LINE: VISION's "Concrete, rebar and bolts" bullet still says "no waste factor", which the 2026-10-23 5% allowance decision replaced.
+- CEILING-JOISTS-HIP: a `loft.roof` 1.6.0 hip (and a gable on its typed bearing) frames no ceiling joists; Chief stops a hip's joists at the hip jacks and frames them from rooms, so a hip house still has no rafter ties.
+- CEILING-JOISTS-LAP: a ceiling joist is one piece wall face to wall face (NO-SPLICE-SPANS), so past 24 ft it lists no stock; framers lap joists over a bearing partition instead.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.
@@ -373,7 +377,6 @@ One line each. The founder triages weekly; most are closed without work.
 - PLUGIN-UNDO-CAP: undo/redo restores a prior tree state without re-checking the expanded bound (each state was within it when written); an overflow would surface only as the evaluation's `plugin_expansion_too_large`.
 - PLUGIN-UI-BAND-1280: the Build group fills the command band at 1280: Export's format codes now shed to icons there (tooltips keep them), and the next tool or group needs the band's "more" flyout (`toolbar-overflow.spec.ts` point 4).
 - PLUGIN-UI-ICON: the manifest has no icon, so every plugin tool and tree chip wears one generic custom-feature glyph; an `icon` key from the design glyph set is a wire change.
-- PLUGIN-UI-UPDATE: a feature pinned to an older installed version edits on that version; there is no update badge or explicit update to `latest` yet (RESEARCH §23, Onshape's update).
 - PLUGIN-UI-MEMBERS: member rows are read-only labels; picking one does not select or light that member's faces alone (the custom row lights all of them), and the missing-plugin e2e stubs the catalog rather than importing a `.loft` from another server.
 - APEX-BUTTONS: Extrude and Revolve enable with only an apex (point-only) sketch present; clicking does nothing.
 - APEX-SWEEP-PATH: `defaultSweepPathId` and the sweep path picker still offer apex sketches (the kernel refuses with a typed `PathEmptyError`).
@@ -718,16 +721,13 @@ One line each. The founder triages weekly; most are closed without work.
 - B7-TAILS-THROUGH-OSB (BUILDING-OUTLINE, wrong geometry in released versions): a gable's heel sits on the framing's outside face, so on sheathed walls each 12 in tail passes through the eave wall's OSB below the plate's top. The round's typed B7 (roof 1.3.0 on walls 1.2.0) shares 43.1006 in^3 over 36 pairs, so its 264 895.4795 in^3 counts that twice. Roof 1.4.0 on an outline notches the OSB round the tails (264 852.3789 in^3, no interference); stored 1.0-1.3 roofs keep the overlap. Since roof 1.5.0 (ROOF-THROUGH-SHEATHING-UPDATE) a stored roof is warned with the overlap, and one that picks its walls offers an undoable Update to 1.5.0; a typed roof, as the round's B7 gable, is warned only.
 - ROOF-HIP-SHEATHING-NOTCH (closed in roof 1.5.0): a hip on sheathed outline or picked walls notches every common, jack and hip out of the OSB (golden `b3-outline-hip-sheathed`).
 - ROOF-VALLEY-SHEATHING-NOTCH: roof 1.5.0 refuses a roof on sheathed walls where a member's trim acts inside the OSB, since its notch would then not be the member: a valley cheek inside the OSB near an L's inside corner, or a hip whose overhang is under the sheathing's thickness. B4-like Ls frame; the cut would need the trimmed member as its tool.
-- ROOF-WARNING-TREE: `roof_through_sheathing` shows in the roof's editor only; the tree row has no badge, so a stored house's warning is found by opening the roof (Fusion badges the out-of-date feature in the browser).
 - ROOF-TYPED-THROUGH-OSB: a roof on its typed bearing picks no walls, so Update cannot notch it and it keeps the warning (the QA round's typed B7). Rebuilding the house on an outline fixes it; a gable on picked single walls (ROOF-BEARING-WALLS) would let Update fix it in place.
 - OUTLINE-ANGLES: an outline's lines must run along the sketch axes (horizontal or vertical, read without a solver), so a house turned 30 deg or with a 45 deg bay is refused. Angle dimensions are nonlinear and need the solver's answer in documents.
 - FLOOR-OUTLINE-SHAPES: floor 1.2.0 fills a rectangular outline only; an L floor needs its joists laid out per arm (Chief frames each room's floor).
-- OUTLINE-OPENING-VERSION: window and door 1.1.0 are the wall-of-an-outline pick (`wall_segment`), so OPENING-FROM-END's Measured from ships as 1.2.0.
 - OUTLINE-HOST-STANDALONE: an outline wall laps its own corners only; a later single wall butting an outline wall's end gets its corner rip, but the outline wall never emits a return for an earlier single wall.
 - B7-HOUSE-STRETCH (QA-B7): lengthening B7 24 -> 28 ft takes 8 feature edits (floor, three walls, roof and the front wall's three openings). Nothing is linked: walls do not join, floor and roof do not read the walls (ROOF-GABLE-WALLS), and openings sit at an offset from a clockwise wall's start. The front wall's door and windows therefore jump 48 in unless each offset is retyped, in an order that avoids a transient framing overlap (the door's new place is refused until the window beside it moves). In Chief Architect you drag one wall.
 - B7-OFFSET-FROM-START (QA-B7): on a front wall drawn clockwise (X 288 -> 0), the window "at X 60" needs offset 228, so every front-wall offset is mirrored by hand. Revit and Chief show temporary dimensions from the nearest wall end (see OPENING-DRAG).
 - B7-MIXED-FRACTION (QA-B7): "11 15/32" is refused ("Unexpected '15'") and "11-15/32" is accepted as 11 - 15/32 = 10.53125, so a framer's usual notation silently drops a wall 15/16 in into the subfloor (no interference check: B2-E2E-INTERFERENCE). Chief Architect reads both as 11 15/32; Fusion's expressions subtract, as Loft does.
 - B7-OPENING-UNITS-PRICE (QA-B7): the door and the four windows are not cut-list or price-book lines, so a house's price leaves out its doors and windows. Chief's materials list prices them.
-- B7-HEADER-2X6-WALL (QA-B7): in a 2x6 wall the header is still two 1.5 in plies (3 in in a 5.5 in wall) with no third ply or spacer; framers use three plies, or two plus a spacer or rigid insulation.
 - B7-OPENING-SIZES (QA-B7): Window defaults to 24 x 36 and has no size list, so each of B7's three 36 x 48 windows has two fields retyped. Chief and Revit pick from a catalogue (3048, 2436).
 - B7-TREE-STATUS-DASH (QA-B7, seen once): after editing Wall 1's start and length on a solved B7, the tree showed "—" instead of OK for Wall 4 and Window 5 until the next edit.

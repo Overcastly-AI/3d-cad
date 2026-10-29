@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
+from loft_plugins import PLUGIN_UPDATE_UNAVAILABLE
 from loft_wire.body_names import BodyName
 from loft_wire.features import (
     AuthoredEnvelope,
@@ -39,6 +40,7 @@ from loft_wire.features import (
     FeatureSuppressRequest,
     FeatureTreeResponse,
     FeatureUpdate,
+    PluginUpdateRequest,
     RollbackBarMove,
     UndoRedoRequest,
 )
@@ -65,12 +67,14 @@ from documents.custom_features import (
     host_id,
     is_body_affecting,
     member_targets,
+    plugin_update_of,
     plugin_warnings,
     prepare_custom_write,
     reexpand_hosts,
     reexpand_pickers,
     reexpand_reordered,
     stored_host_id,
+    updated_envelope,
 )
 from documents.feature_expressions import (
     enter_units,
@@ -336,6 +340,7 @@ def _to_response(
         updated_at=feature.updated_at,
         formula_warnings=formula_warnings(part, envelope),
         plugin_warnings=plugin_warnings(part, feature, rows),
+        plugin_update=plugin_update_of(feature),
     )
 
 
@@ -648,6 +653,86 @@ async def update_feature(
         feature=_to_response(feature, _bar_index(part, rows), part, rows),
         tree_version=part.tree_version,
     )
+
+
+async def _update_plugin_feature(
+    session: AsyncSession, part: db.Part, row: db.Feature
+) -> None:
+    """Re-pin *row* to its update's release (OPENING-UPDATE) as an edit of
+    its params would: the inputs carried by the update's map, re-expanded
+    against the tree as it now stands, its edges rewritten, then its hosts
+    (a door's wall) and the features that pick it (a wall's roof) re-laid.
+    Refused (422/409) exactly as that edit would be."""
+    features = await _ordered_features(session, part.id)
+    features_by_id = {feature.id: feature for feature in features}
+    hosts_before = stored_host_id(row)
+    envelope: AuthoredEnvelope = updated_envelope(row)
+    assert isinstance(envelope, CustomFeature)
+    validate_references(envelope, row.order_index, features_by_id)
+    envelope = prepare_custom_write(
+        part, envelope, row.id, row.order_index, features, row
+    )
+    target_ids = validate_references(envelope, row.order_index, features_by_id)
+    row.param_version = envelope.version
+    row.expressions = envelope.expressions
+    row.params = envelope.params.model_dump(mode="json")
+    await _rewrite_edges(session, part.id, row.id, target_ids)
+    await _reframe_hosts(session, part, [hosts_before, host_id(envelope)])
+    reexpand_pickers(part, await _ordered_features(session, part.id), row.id)
+
+
+@router.post("/{part_id}/features/plugin-updates")
+async def update_plugin_features(
+    part_id: uuid.UUID,
+    request: PluginUpdateRequest,
+    owner_id: Principal,
+    session: SessionDep,
+) -> FeatureTreeResponse:
+    """Update custom features to their newer releases (OPENING-UPDATE): the
+    named ones, or every one with ``plugin_update`` when ``feature_ids`` is
+    null ("Update all", as Onshape updates a Part Studio's custom features).
+    Each is re-pinned with its inputs carried by its plugin's explicit map
+    and re-expanded, in tree order, with its hosts and pickers. The whole
+    update is ONE edit: one ``tree_version`` bump and one history step, so
+    one Undo restores every feature as it was. A feature without an update,
+    or a refusal of any of them, writes nothing."""
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    ensure_fresh(part, request.expected_tree_version)
+    pre_op = await history.PART_HISTORY.baseline_state(session, part)
+    features = await _ordered_features(session, part.id)
+    if request.feature_ids is None:
+        targets = [row for row in features if plugin_update_of(row) is not None]
+        if not targets:
+            raise ValidationApiError(
+                "No feature of this part has a newer release to update to.",
+                code=PLUGIN_UPDATE_UNAVAILABLE,
+            )
+    else:
+        by_id = {row.id: row for row in features}
+        missing = [str(i) for i in request.feature_ids if i not in by_id]
+        if missing:
+            raise NotFoundError(
+                "Feature not found.",
+                code="feature_not_found",
+                details={"feature_ids": missing},
+            )
+        targets = sorted(
+            {by_id[i] for i in request.feature_ids}, key=lambda row: row.order_index
+        )
+    updated: list[str] = []
+    for row in targets:
+        await _update_plugin_feature(session, part, row)
+        updated.append(str(row.id))
+    part.tree_version += 1
+    await history.PART_HISTORY.record(session, part, pre_op)
+    await session.commit()
+    _logger.info(
+        "plugin_features_updated",
+        part_id=str(part.id),
+        feature_ids=updated,
+        tree_version=part.tree_version,
+    )
+    return await tree_response(session, part)
 
 
 @router.patch("/{part_id}/features/{feature_id}/suppress")

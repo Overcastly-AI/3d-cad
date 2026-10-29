@@ -9,7 +9,8 @@ import { seedSession } from "./support";
  * four hips pass through the OSB, sharing 33.2551 in^3 over 30 pairs (22 x
  * 1.22021484375 + 4 x 1.602597506, packages/loft-plugins/tests/
  * test_roof_sheathing.py), so the part counts it twice: 61 718.7499 in^3.
- * The roof's editor says so and offers "Update to 1.5.0"; nothing changes
+ * The roof's editor says so and offers "Update to 1.6.0" (the latest Roof;
+ * a hip frames no ceiling joists, so it builds as 1.5.0); nothing changes
  * until it is clicked. The update notches the OSB round every tail (61
  * 685.4948 in^3, the volume less the overlap), and Ctrl+Z restores the 1.3.0
  * roof and its warning.
@@ -104,7 +105,7 @@ async function seedHouse(page: Page, token: string): Promise<string> {
 test.describe("A stored roof through the sheathing", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
-  test("warns, updates to 1.5.0 on request, and Ctrl+Z restores it", async ({
+  test("warns, updates to 1.6.0 on request, and Ctrl+Z restores it", async ({
     page,
   }) => {
     test.setTimeout(300_000);
@@ -133,9 +134,9 @@ test.describe("A stored roof through the sheathing", () => {
     await expect
       .poll(() => partVolume(page), { timeout: 90_000 })
       .toBeCloseTo(AFTER, 2);
-    expect(await roofVersion(page, partId, account.token)).toBe("1.5.0");
+    expect(await roofVersion(page, partId, account.token)).toBe("1.6.0");
     await page.getByTestId("feature-select-4").click();
-    await expect(page.getByTestId("plugin-version")).toHaveText("v1.5.0");
+    await expect(page.getByTestId("plugin-version")).toHaveText("v1.6.0");
     await expect(page.getByTestId("plugin-warning")).toHaveCount(0);
     await page.getByTestId("plugin-cancel").click();
     await expect(editor).toBeHidden();
@@ -147,7 +148,7 @@ test.describe("A stored roof through the sheathing", () => {
     expect(await roofVersion(page, partId, account.token)).toBe("1.3.0");
     await page.getByTestId("feature-select-4").click();
     await expect(page.getByTestId("plugin-warning")).toContainText(
-      "Update to 1.5.0",
+      "Update to 1.6.0",
     );
   });
 });

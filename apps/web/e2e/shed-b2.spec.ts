@@ -44,15 +44,24 @@ const SHED: CutRow[] = [
   ["Bottom plate", "2", "113", "10 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
   ["Sill", "1", "24.5", "8 ft"],
+  // OPENING-UPDATE: a new opening is 1.5.0, whose filled header in a 2x4
+  // wall (two plies, a 1/2 in gap) draws one 1/2 plywood spacer as deep as the
+  // 2x6 header (5.5) over its length (RO + 3): 41 (door) + 27.5 (window)
+  // = 68.5 x 5.5 = 376.75 in², cut from one 4x8.
+  ["Spacer", "2", "376.75 in²", "1 × 4x8"],
   ["Rafter", "14", "82.4099", "8 ft"],
   ["Ridge", "1", "144", "12 ft"],
 ];
 
-/** 64 wall members + 14 rafters + 1 ridge. */
-const PIECES = "79";
+/** 64 wall members + 2 header spacers + 14 rafters + 1 ridge. */
+const PIECES = "81";
 
-/** 231537/8 + 10702.4084562 in³ = 39 644.5334562, at the inch readout. */
-const VOLUME = "39,644.5335";
+/**
+ * 231537/8 + 10702.4084562 in³ = 39 644.5334562, plus the two spacers'
+ * 0.5 x 376.75 = 188.375 in³ (OPENING-UPDATE): 39 832.9084562, at the inch
+ * readout.
+ */
+const VOLUME = "39,832.9085";
 
 test.describe("B2 shed — from Build features only", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });

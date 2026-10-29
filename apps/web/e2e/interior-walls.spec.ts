@@ -244,7 +244,12 @@ test.describe("Interior walls — B10's partitions", () => {
     const stored = features.find(
       (f) => f.feature.params.plugin_id === "loft.door",
     );
-    expect(stored?.feature.params.plugin_version).toBe("1.4.0");
+    expect(stored?.feature.params.plugin_version).toBe("1.5.0");
+    // OPENING-UPDATE: its filled header in the 2x4 partition is two plies
+    // with one 1/2 in gap, so 1.5.0 draws one plywood spacer.
+    expect(
+      stored?.feature.params.expansion?.filter((m) => m.role === "spacer"),
+    ).toHaveLength(1);
     expect(stored?.feature.params.inputs?.wall_segment).toEqual(["e6"]);
     expect(stored?.feature.params.inputs?.measure_from).toBe("end");
   });

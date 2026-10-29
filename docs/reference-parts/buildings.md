@@ -73,9 +73,11 @@ Volume 64 497.75 in³; mass is that volume times the library density.
 (20 ft stock), joists 16 (X 0.75, 16, ..., 224, 239.25), posts 4 equally
 spaced from X 2.75 to 237.25. Volume 80 212.5 in³.
 
-**Footings** (DECK-FOOTINGS, Next): each post stands on a round pier
-footing, Ø16, Z -12..0, centred under it: 3 footings, 3π x 64 x 12 =
-7 238.23 in³ (0.16 yd³); at 20 ft, 4.
+**Footings** (DECK-FOOTINGS): each post stands on a round pier footing,
+Ø16, Z -12..0, centred under it, with a post base: 3 footings, 3π x 64 x
+12 = 7 238.23 in³ (0.16 yd³, 4.19 ft³), bought as 80 lb bags of 0.60 ft³
+with the 5% allowance: 4.40 / 0.60 = 7.33, **8 bags**, and 3 post bases.
+At 20 ft, 4 footings, 9 650.97 in³, **10 bags** (9.77) and 4 post bases.
 
 ## B2 Shed, 10 x 12 ft (stops STUD-WALL, WINDOW-DOOR, ROOF)
 
@@ -370,6 +372,20 @@ a builder, and the numbers come from the round's independent script.
 **Edits** (each from the base house): length 24 -> 28 ft (floor, front and
 back walls, roof); the front left window moved 24 in; pitch 6/12 -> 8/12.
 
+**Headers** (HEADER-PLIES, OPENING-UPDATE): at opening 1.4.0 and later a
+2x6 wall's header is 3 plies with two 1/2 in plywood spacers, 5.5 deep:
+the door's 41, the 36 in windows' 39.5 and the 24 in windows' 27.5. From
+1.5.0 the spacers are members: 12 strips 5.5 wide (429 in, 2 359.5 in²,
+1 179.75 in³), cut from one 4x8 sheet of 1/2 plywood.
+
+**Ceiling joists** (CEILING-JOISTS): 2x8 on the front and back walls'
+plates (top Z 108.59375), one beside the +X face of each inner common
+pair (c = 24, 48, ..., 264: 11), Y 0..192 in one piece (16 ft stock). The
+rafters' top plane at the wall's outside face is 106.1770833 +
+7.25√1.25 = 114.282829, so each end's top corner is snipped Δ = 29/3 -
+7.25√1.25 = 1.560920 down and 2Δ along: 2 088 - 3Δ² = 2 080.690584 in³ a
+joist, 22 887.596423 in³ for the 11. At 28 ft, 13.
+
 The round passes or fails B7 as any building (built, edits survive with no
 interference, checked to 1e-4 on STEP), times the build and files every
 gap: expected candidates are SHEATHING-WALL-BASE, B2-E2E-INTERFERENCE,
@@ -404,7 +420,8 @@ with no Floor: the walls stand on the slab's top at Z 0 (PT bottom plates).
 - **Thickened edge:** a 12 in ring inside the outline, Z -12..-4
   (55 296 - 44 352 = 10 944 in² x 8 = 87 552 in³), square inner face.
 - **Concrete:** 308 736 in³ = **6.62 yd³; x 1.05 = 6.95, so 7.00
-  bought** (6.75 with no allowance).
+  bought** (6.75 with no allowance): one pour, so one delivery, and the
+  same under per-pour ordering (FOUNDATION-TAKEOFF).
 - **Rebar:** 2 #4 bars in the edge, one 3 in above its bottom (Z -9) and one
   3 in below the slab top (Z -3), each on the ring's centreline 6 in inside
   the outline: 2 loops of 912 (76 ft), **10 sticks**.
@@ -439,9 +456,13 @@ top at Z 0, flush with its outside face.
 - **Access:** 24 wide x 16 high, Z -16..0, centred on the back wall at
   X 144 (3 072 in³), above grade as R408.4 requires.
 - **Concrete:** the footing and the stem are a pour (and a body) each,
-  ordered together on one line as the cut list groups pours of one
-  allowance: 118 784 + (196 736 - 5 120 - 3 072) = 307 328 in³ =
-  **6.59 yd³; x 1.05 = 6.92, so 7.00 bought** (6.75 with no allowance).
+  118 784 + (196 736 - 5 120 - 3 072) = 307 328 in³ = **6.59 yd³**.
+  Each pour is its own delivery, rounded up after its allowance
+  (FOUNDATION-TAKEOFF): footing 2.55 yd³ x 1.05 = 2.67, **2.75**; stem
+  188 544 in³ = 4.04 x 1.05 = 4.24, **4.25**; 7.00 bought (CRAWL-SPACE
+  shipped them on one line: 6.92, 7.00).
+- **Vents and access** are listed Each (FOUNDATION-TAKEOFF, `loft.foundation`
+  1.1.0): 5 foundation vents 16 x 8 and 1 access door 24 x 16.
 - **Rebar:** 2 #4 bars 3 in above the footing's bottom and 3 in in from each
   face: loops of 968 (80.67 ft) and 888 (74 ft), **10 sticks**.
 - **Anchor bolts** cast into the stem for the floor's sills (288, 288, 181,
@@ -449,7 +470,7 @@ top at Z 0, flush with its outside face.
 
 **Edits:** crawl height 24 -> 30: grade Z -28.5, stem Z -32.5..0, footing
 Z -40.5..-32.5, 351 872 in³, 7.54 yd³ (x 1.05 = 7.92, 8.00 bought; 7.75
-with no allowance), nothing above Z 0
+with no allowance; as two deliveries 2.75 + 5.25), nothing above Z 0
 moves. 24 -> 28 ft: rebuilds with no interference; the 391.1 ft² crawl
 takes 6 vents (375.5 in² / 72): the four corners', one centred on the
 front wall (X 168) and one centred on the left wall (Y 96), the longest

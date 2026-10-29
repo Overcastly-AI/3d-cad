@@ -16,6 +16,7 @@ import {
   fetchFeatureTree,
   fetchPart,
 } from "../../api/parts";
+import { geometryRetry, geometryRetryDelay } from "../../api/geometryBusy";
 import { foldCustomResults } from "../../features/customFeature";
 import { useSketchStore } from "../../sketch/store";
 import { partRoute } from "../../router";
@@ -83,7 +84,10 @@ export function usePartDocument() {
   );
   const evaluation = useQuery({
     queryKey: ["evaluate", partId, treeVersion],
-    queryFn: () => evaluatePart(partId),
+    queryFn: ({ signal }) => evaluatePart(partId, undefined, undefined, signal),
+    // A busy worker's Retry-After is waited out (geometryBusy, CONC-2).
+    retry: geometryRetry,
+    retryDelay: geometryRetryDelay,
     enabled: tree.data !== undefined && tree.data.features.length > 0,
     staleTime: Infinity,
     select: foldResults,

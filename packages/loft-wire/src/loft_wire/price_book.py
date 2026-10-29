@@ -24,8 +24,10 @@ window or door item in its materials list.
 
 Foundation items (SLAB, :mod:`loft_wire.foundation`): ready-mix concrete
 (``ready_mix``) is priced per ``cubic_yard`` ordered, #4 rebar
-(``rebar_4``) ``each`` per 20 ft stick (stock length 20) and a 1/2 in anchor
-bolt (``anchor_bolt_1_2``) ``each`` with no stock length or sheet.
+(``rebar_4``) ``each`` per 20 ft stick (stock length 20), and a 1/2 in anchor
+bolt (``anchor_bolt_1_2``), an 80 lb bag of concrete (``concrete_bag_80``)
+and a post base (``post_base_6x6``, DECK-FOOTINGS) ``each`` with no stock
+length or sheet.
 Casework items (CASEWORK, :mod:`loft_wire.casework`) are priced in the one
 unit their item names: edge banding per linear foot in its material
 (``edge_banding`` in ``pvc``), a hinge or a pair of slides Each

@@ -756,3 +756,74 @@ describe("FeatureTreePanel reorder", () => {
     expect(onReorder).not.toHaveBeenCalled();
   });
 });
+
+describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
+  function custom(
+    id: string,
+    name: string,
+    update: { to_version: string; summary: string } | null,
+  ): FeatureResponse {
+    return {
+      ...sketch(id, name),
+      feature: {
+        type: "custom",
+        version: 1,
+        params: {
+          plugin_id: "loft.window",
+          plugin_version: "1.1.0",
+          inputs: {},
+        },
+      },
+      ...(update === null ? {} : { plugin_update: update }),
+    } as FeatureResponse;
+  }
+  const SPACERS = { to_version: "1.5.0", summary: "Draws the spacers." };
+
+  it("badges each out-of-date row and offers one Update all", () => {
+    const onUpdatePlugins = vi.fn();
+    renderPanel(
+      [
+        sketch("f1", "Outline"),
+        custom("f2", "Floor", null),
+        custom("f3", "Window 1", SPACERS),
+        custom("f4", "Window 2", SPACERS),
+      ],
+      undefined,
+      { onUpdatePlugins },
+    );
+    expect(screen.queryByTestId("feature-update-badge-1")).toBeNull();
+    const badge = screen.getByTestId("feature-update-badge-2");
+    expect(badge).toHaveTextContent("Update");
+    expect(badge).toHaveAttribute(
+      "title",
+      "Update to 1.5.0: Draws the spacers.",
+    );
+    expect(screen.getByTestId("feature-update-badge-3")).toBeInTheDocument();
+    expect(screen.getByTestId("feature-update-strip")).toHaveTextContent(
+      "2 Build features out of date",
+    );
+    fireEvent.click(screen.getByTestId("feature-update-all"));
+    expect(onUpdatePlugins).toHaveBeenCalledWith(null);
+  });
+
+  it("shows no Update all when every feature is current", () => {
+    renderPanel(
+      [sketch("f1", "Outline"), custom("f2", "Floor", null)],
+      undefined,
+      {
+        onUpdatePlugins: vi.fn(),
+      },
+    );
+    expect(screen.queryByTestId("feature-update-strip")).toBeNull();
+  });
+
+  it("holds Update all while an update is in flight", () => {
+    renderPanel([custom("f3", "Window 1", SPACERS)], undefined, {
+      onUpdatePlugins: vi.fn(),
+      updatingPlugins: true,
+    });
+    const button = screen.getByTestId("feature-update-all");
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("Updating…");
+  });
+});

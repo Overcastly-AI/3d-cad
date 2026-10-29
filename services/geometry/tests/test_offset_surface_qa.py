@@ -110,6 +110,10 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "b2-walls-v1.1-hole-door-moved-24": 3e-6,
     "plugin-deck-v1.1-b1-16ft-hole-end-joist": 1e-5,
     "plugin-deck-v1.1-b1-20ft-hole-end-joist": 1e-5,
+    # B1 at 1.2.0 on its pier footings and the 20 ft edit (DECK-FOOTINGS):
+    # the cylinders re-import exactly; the sum drifts 3.6e-6 mm^3 at worst.
+    "plugin-deck-v1.2-b1-footings-16ft": 1e-5,
+    "plugin-deck-v1.2-b1-footings-20ft": 1e-5,
     # Not an offset surface: the loft.roof B2 gable's sloped rafters drift
     # 3.5e-4 mm^3 through OCCT's STEP, as their build123d twin does (ROOF).
     "b2-roof-6-12": 1e-3,
@@ -174,6 +178,12 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
     # measured 3.3e-4 mm^3.
     "b10-partitions": 1e-3,
+    # B7 after Update all (OPENING-UPDATE): b7-outline's class, measured
+    # 3.2e-4 mm^3; the header plies and spacers are boxes.
+    "b7-opening-update": 1e-3,
+    # B7 with its ceiling joists (CEILING-JOISTS): b7-outline's class,
+    # measured 3.2e-4 mm^3 (the twin 3.8e-4).
+    "b7-ceiling-joists": 1e-3,
     # Casework (CASEWORK): summation drift, 1.0e-7 to 3.6e-7 mm^3 measured;
     # C1 turned 30 deg, OCCT's turned-plane STEP drift, 1.05e-4 mm^3.
     "c1-b27-frameless-casework": 5e-7,

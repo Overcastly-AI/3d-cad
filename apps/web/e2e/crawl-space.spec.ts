@@ -11,11 +11,12 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * 8 in poured stem on a 16 x 8 in footing, a 24 in crawl, five vents and the
  * access cut from the stem's top.
  *
- * The cut list leads with Foundation: the footing and the stem, a pour
- * each, 307 328 in³ together as 6.59 yd³, ordered 7.00 yd³ (6.92 with the
- * 5% allowance, rounded up to 1/4); the footing's #4 loops of 888 and
- * 968 in, 5 sticks each; and the 18 anchor bolts cast into the stem for the
- * floor's sills (5 + 5 + 4 + 4). A 17.5 in crawl then
+ * The cut list leads with Foundation (FOUNDATION-TAKEOFF): the footing,
+ * 2.55 yd³ ordered as its own delivery of 2.75 (2.67 with the 5% allowance,
+ * rounded up to 1/4), with its #4 loops of 888 and 968 in, 5 sticks each;
+ * the stem, 4.04 yd³ ordered 4.25 (4.24), 7.00 in all; the 18 anchor bolts
+ * cast into the stem for the floor's sills (5 + 5 + 4 + 4); and 5 vents
+ * 16 x 8 and 1 access door 24 x 16, Each. A 17.5 in crawl then
  * warns (IRC R317.1) and still builds. Golden `b9-crawl-space` pins the
  * geometry.
  */
@@ -81,16 +82,19 @@ async function submit(page: Page): Promise<void> {
 
 /** The Foundation group's rows: member, qty, length, stock. */
 const FOUNDATION: [string, string, string, string][] = [
-  ["Footing, Stem wall", "2", "6.59 yd³", "7.00 yd³"],
+  ["Footing", "1", "2.55 yd³", "2.75 yd³"],
   ["Rebar", "1", "888", "5 × 20 ft"],
   ["Rebar", "1", "968", "5 × 20 ft"],
+  ["Stem wall", "1", "4.04 yd³", "4.25 yd³"],
   ["Anchor bolt", "18", "—", "Each"],
+  ["Vent 16 x 8", "5", "—", "Each"],
+  ["Access door 24 x 16", "1", "—", "Each"],
 ];
 
 test.describe("Crawl space — B9 under B7's floor", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
-  test("a foundation under the floor lists its pour, rebar and the sills' bolts, and a low crawl warns", async ({
+  test("a foundation under the floor lists its pours, rebar, the sills' bolts, vents and access door, and a low crawl warns", async ({
     page,
   }) => {
     test.setTimeout(360_000);
@@ -160,7 +164,9 @@ test.describe("Crawl space — B9 under B7's floor", () => {
     const foundation = panel.locator(
       '[data-testid="cut-list-row"][data-system="foundation"]',
     );
-    await expect(foundation).toHaveCount(4, { timeout: 90_000 });
+    await expect(foundation).toHaveCount(FOUNDATION.length, {
+      timeout: 90_000,
+    });
     for (const [index, [member, qty, length, stock]] of FOUNDATION.entries()) {
       const row = foundation.nth(index);
       await expect(row.getByTestId("cut-list-member")).toHaveText(member);
@@ -198,7 +204,7 @@ test.describe("Crawl space — B9 under B7's floor", () => {
     await page.getByTestId("plugin-cancel").click();
     await expect(editor).toBeHidden();
 
-    // Stored at 1.0.0 with its allowance and the crawl as typed.
+    // Stored at 1.1.0 with its allowance and the crawl as typed.
     const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });
@@ -214,7 +220,7 @@ test.describe("Crawl space — B9 under B7's floor", () => {
         }[];
       }
     ).features;
-    expect(features[2]?.feature.params.plugin_version).toBe("1.0.0");
+    expect(features[2]?.feature.params.plugin_version).toBe("1.1.0");
     expect(features[2]?.feature.params.inputs?.waste_percent).toBe(5);
     expect(features[2]?.feature.params.inputs?.crawl_height_mm).toBeCloseTo(
       17.5 * IN,

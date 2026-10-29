@@ -23,6 +23,7 @@ from loft_wire.features import (
     FeatureResponse,
     FeatureSuppressRequest,
     FeatureTreeResponse,
+    PluginUpdateRequest,
     SketchFeature,
     UndoRedoRequest,
 )
@@ -108,7 +109,7 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         part_id = uuid.UUID(request.url.path.split("/")[4])
-        if request.url.path.endswith(("/undo", "/redo")):
+        if request.url.path.endswith(("/undo", "/redo", "/plugin-updates")):
             body = UndoRedoRequest.model_validate_json(request.content)
             return httpx.Response(
                 200,
@@ -201,6 +202,11 @@ CREATE_BODY = {
         ),
         ("POST", f"/api/v1/parts/{PART}/undo", {"expected_tree_version": 0}),
         ("POST", f"/api/v1/parts/{PART}/redo", {"expected_tree_version": 0}),
+        (
+            "POST",
+            f"/api/v1/parts/{PART}/features/plugin-updates",
+            {"expected_tree_version": 0},
+        ),
     ],
 )
 def test_unauthenticated_401_and_nothing_forwarded(
@@ -333,6 +339,65 @@ def test_undo_redo_forward_principal_and_body(
         assert upstream.headers[PRINCIPAL_HEADER] == user_id
         parsed = UndoRedoRequest.model_validate_json(upstream.content)
         assert parsed.expected_tree_version == version
+
+
+def test_plugin_updates_forward_the_ids_and_return_the_tree(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """OPENING-UPDATE: "Update all" (no ids) and one feature's update forward
+    the OCC body, the ids and the principal; the updated tree comes back."""
+    feature = uuid.uuid4()
+    path = f"/api/v1/parts/{PART}/features/plugin-updates"
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        every = client.post(path, json={"expected_tree_version": 7}, headers=bearer)
+        one = client.post(
+            path,
+            json={"expected_tree_version": 8, "feature_ids": [str(feature)]},
+            headers=bearer,
+        )
+        empty = client.post(
+            path, json={"expected_tree_version": 8, "feature_ids": []}, headers=bearer
+        )
+    assert every.status_code == 200, every.text
+    assert FeatureTreeResponse.model_validate(every.json()).tree_version == 8
+    assert one.status_code == 200, one.text
+    # An empty pick is refused at the gateway, before documents.
+    assert empty.status_code == 422
+    all_request, one_request = seen
+    assert all_request.url.path == path
+    assert all_request.headers[PRINCIPAL_HEADER] == user_id
+    assert PluginUpdateRequest.model_validate_json(all_request.content) == (
+        PluginUpdateRequest(expected_tree_version=7)
+    )
+    assert PluginUpdateRequest.model_validate_json(one_request.content) == (
+        PluginUpdateRequest(expected_tree_version=8, feature_ids=[feature])
+    )
+
+
+def test_a_refused_update_envelope_is_resurfaced(db_url: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "error": {
+                    "code": "plugin_update_unavailable",
+                    "message": "'Floor' has no newer release to update to.",
+                    "details": {"feature_id": str(PART)},
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/parts/{PART}/features/plugin-updates",
+            json={"expected_tree_version": 1, "feature_ids": [str(PART)]},
+            headers=bearer,
+        )
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "plugin_update_unavailable"
 
 
 def test_undo_stale_version_envelope_is_resurfaced(db_url: str) -> None:

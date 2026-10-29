@@ -208,7 +208,10 @@ class TestResolution:
         assert MATERIALS_BY_KEY["gypsum"].density_kg_m3 == 846.0
         # Melamine-faced particleboard, 45 pcf = 720.8 kg/m^3 (CASEWORK).
         assert MATERIALS_BY_KEY["melamine"].density_kg_m3 == 721.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 23
+        # XPS rigid foam at ASTM C578 Type IV's 1.45 pcf = 23.23 kg/m^3
+        # (OPENING-UPDATE: an insulated header's foam).
+        assert MATERIALS_BY_KEY["xps_foam"].density_kg_m3 == 23.2
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 24
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.

@@ -5,7 +5,7 @@
 #   scripts/ci-apt-debs.sh install <dir> <pkg>...   # make every <pkg> installed
 #   scripts/ci-apt-debs.sh --self-test              # stubbed dpkg/apt, no root needed
 #
-# `install` installs only what `dpkg-query` reports missing, from the first
+# `install` installs what `dpkg-query` reports missing, from the first
 # source that works:
 #   1. the .deb files in <dir>, which the calling action restores from
 #      actions/cache: `dpkg -i`, no network, no mirror;
@@ -26,6 +26,19 @@
 # record it (no `apt-get update`), so a different image or package set gets a
 # different cache. The action adds ImageOS/ImageVersion on top.
 set -euo pipefail
+
+# A cached .deb is installed when its package is missing OR older on this
+# runner than in the cache: the seeding job's `apt-get update` may have
+# pulled a newer dependency (nginx-light 7.19 needs nginx >= 7.19 while the
+# image ships nginx 7.18), and skipping it leaves the set unconfigurable.
+needs_deb() { # <deb>
+  local p v iv
+  p=$(dpkg-deb -f "$1" Package)
+  [ -z "$(missing_of "$p")" ] || return 0
+  v=$(dpkg-deb -f "$1" Version)
+  iv=$(dpkg-query -W -f='${Version}' "$p" 2>/dev/null || true)
+  [ -n "$iv" ] && dpkg --compare-versions "$iv" lt "$v"
+}
 
 missing_of() {
   local p
@@ -64,10 +77,9 @@ cmd_install() {
     fresh=0
     debs=()
     for d in "$dir"/*.deb; do
-      p=$(dpkg-deb -f "$d" Package)
-      [ -z "$(missing_of "$p")" ] || debs+=("$d")
+      if needs_deb "$d"; then debs+=("$d"); fi
     done
-    echo "deb cache: $(compgen -G "$dir/*.deb" | wc -l) files, ${#debs[@]} not yet installed"
+    echo "deb cache: $(compgen -G "$dir/*.deb" | wc -l) files, ${#debs[@]} missing or newer than installed"
     if [ ${#debs[@]} -gt 0 ] && sudo DEBIAN_FRONTEND=noninteractive timeout 180 dpkg -i "${debs[@]}" >/dev/null &&
       [ -z "$(missing_of "$@")" ]; then
       echo "installed from the deb cache in $((SECONDS - start)) s (no apt)"
@@ -83,10 +95,11 @@ cmd_install() {
   local attempt
   for attempt in 1 2 3; do
     # A timeout can kill dpkg mid-install; finish that first or the retry
-    # fails with "dpkg was interrupted".
+    # fails with "dpkg was interrupted". `-f` lets apt repair a set a failed
+    # `dpkg -i` left unconfigured instead of refusing "Unmet dependencies".
     [ "$attempt" = 1 ] || sudo timeout 180 dpkg --configure -a || true
     if sudo timeout 180 apt-get update -qq &&
-      sudo DEBIAN_FRONTEND=noninteractive timeout 180 apt-get install -y -qq --no-install-recommends \
+      sudo DEBIAN_FRONTEND=noninteractive timeout 180 apt-get install -f -y -qq --no-install-recommends \
         -o Dir::Cache::archives="$dir" -o APT::Keep-Downloaded-Packages=true \
         -o APT::Sandbox::User=root "${missing[@]}"; then
       sudo chown -R "$(id -u):$(id -g)" "$dir"
@@ -116,15 +129,24 @@ exec "$@"
 EOF
   cat >"$t/bin/dpkg-query" <<'EOF'
 #!/usr/bin/env bash
-grep -qx "${!#}" "$STUB/installed" && printf 'install ok installed' || exit 1
+grep -qx "${!#}" "$STUB/installed" || exit 1
+case "$2" in
+  *Version*) cat "$STUB/versions/${!#}" 2>/dev/null || echo 1.0 ;;
+  *) printf 'install ok installed' ;;
+esac
 EOF
   cat >"$t/bin/dpkg-deb" <<'EOF'
 #!/usr/bin/env bash
-basename "$3" | cut -d_ -f1
+# dpkg-deb -f <deb> <Field>
+basename "$2" | cut -d_ -f"$([ "$3" = Version ] && echo 2 || echo 1)"
 EOF
   cat >"$t/bin/dpkg" <<'EOF'
 #!/usr/bin/env bash
 echo "dpkg $*" >>"$STUB/log"
+if [ "$1" = --compare-versions ]; then # <a> lt <b>
+  [ "$2" != "$4" ] && [ "$(printf '%s\n%s\n' "$2" "$4" | sort -V | head -1)" = "$2" ]
+  exit
+fi
 [ "$1" = -i ] || exit 0
 [ -e "$STUB/dpkg-fails" ] && exit 1
 shift
@@ -180,6 +202,19 @@ EOF
   touch "$t/dpkg-fails"
   run_case "broken cache: apt fallback, no re-seed" 0 false "apt-get install" ""
   rm "$t/dpkg-fails"
+  # 6. A cached dependency newer than the image's (nginx 7.19 vs 7.18) is
+  #    installed with the missing packages, not skipped (run 40800450240).
+  rm -rf "$t/debs"
+  mkdir -p "$t/debs" "$t/versions"
+  printf 'a\n' >"$t/installed"
+  echo 1.0 >"$t/versions/a"
+  touch "$t/debs/a_2.0_amd64.deb" "$t/debs/b_1.0_amd64.deb" "$t/debs/c_1.0_amd64.deb"
+  run_case "newer cached dependency is installed too" 0 false "a_2.0_amd64.deb" "apt-get"
+  # 7. ...and one the image has at the same version is not.
+  printf 'a\n' >"$t/installed"
+  echo 2.0 >"$t/versions/a"
+  run_case "same-version dependency is skipped" 0 false "dpkg -i" "a_2.0_amd64.deb"
+  rm -rf "$t/versions"
   # 5. Cache gone and apt down: red, after three attempts (bounded, not hung).
   rm -rf "$t/debs"
   printf 'a\n' >"$t/installed"

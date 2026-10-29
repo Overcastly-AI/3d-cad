@@ -16,7 +16,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  *
  * In an inch part holding B2's four walls: Build ▾ > Door in the front wall
  * at 72 and Build ▾ > Window in the right side wall at 56.5 give the spec's
- * wall cut list (64 members). Then the spec's first edit: the door's distance
+ * wall cut list (64 members and, at 1.5.0, two header spacers). Then the spec's first edit: the door's distance
  * from the X 0 end 72 -> 96 (OPENING-FROM-END: a new opening measures from
  * the end nearer the origin) regenerates the front wall with 7 layout studs
  * and 3 top cripples, and the bottom plate cut moves.
@@ -46,6 +46,11 @@ const DOOR_WINDOW: CutRow[] = [
   ["Bottom plate", "2", "113", "10 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
   ["Sill", "1", "24.5", "8 ft"],
+  // OPENING-UPDATE: a new opening is 1.5.0, whose filled header in a 2x4
+  // wall (two plies, a 1/2 in gap) draws one 1/2 plywood spacer as deep as the
+  // 2x6 header (5.5) over its length (RO + 3): 41 (door) + 27.5 (window)
+  // = 68.5 x 5.5 = 376.75 in², cut from one 4x8.
+  ["Spacer", "2", "376.75 in²", "1 × 4x8"],
 ];
 
 /** "Door moved 24 in": 7 layout studs and 3 top cripples on the front wall. */
@@ -63,6 +68,11 @@ const DOOR_MOVED: CutRow[] = [
   ["Bottom plate", "2", "113", "10 ft"],
   ["Bottom plate", "1", "144", "12 ft"],
   ["Sill", "1", "24.5", "8 ft"],
+  // OPENING-UPDATE: a new opening is 1.5.0, whose filled header in a 2x4
+  // wall (two plies, a 1/2 in gap) draws one 1/2 plywood spacer as deep as the
+  // 2x6 header (5.5) over its length (RO + 3): 41 (door) + 27.5 (window)
+  // = 68.5 x 5.5 = 376.75 in², cut from one 4x8.
+  ["Spacer", "2", "376.75 in²", "1 × 4x8"],
 ];
 
 test.describe("Window and Door — hosted openings framed by B2's walls", () => {
@@ -153,7 +163,7 @@ test.describe("Window and Door — hosted openings framed by B2's walls", () => 
     await expectSolved(page);
 
     await openCutList(page);
-    await expectTable(page, DOOR_WINDOW, "64");
+    await expectTable(page, DOOR_WINDOW, "66");
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/window-door-b2.png` });
 
@@ -172,7 +182,7 @@ test.describe("Window and Door — hosted openings framed by B2's walls", () => 
     await expect(editor).toBeHidden({ timeout: 30_000 });
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, DOOR_MOVED, "64");
+    await expectTable(page, DOOR_MOVED, "66");
     await page.getByTestId("feature-unfold-0").click();
     const members = page.getByTestId("feature-member-row");
     await expect(members.filter({ hasText: "Cripple" })).toHaveCount(3);
@@ -187,6 +197,6 @@ test.describe("Window and Door — hosted openings framed by B2's walls", () => 
     await expect(rows).toHaveCount(6);
     await expectSolved(page);
     await openCutList(page);
-    await expectTable(page, DOOR_MOVED, "64");
+    await expectTable(page, DOOR_MOVED, "66");
   });
 });

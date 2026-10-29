@@ -41,7 +41,17 @@ practice; noted in RESEARCH §23):
   beam's top is flush with them and the joists are cut at it and hung.
 * Posts are the beam's supports, from grade to the beam's underside: their
   height follows from the deck height, the joist depth and the beam (Medeek
-  derives it the same way). Footings are a later rung (buildings.md).
+  derives it the same way).
+* Footings (1.2.0, DECK-FOOTINGS): Chief Architect's deck room places a post
+  footing under every automatic post (Deck Room Defaults), and US deck
+  builders pour round piers from 80 lb bags. Each post stands on a round pier
+  footing centred under it, its top at grade (Z 0), *Footing diameter* across
+  (16 in) and *Footing depth* deep (12 in), one concrete body per pier. The
+  cut list lists the piers under Foundation and buys them in whole 80 lb bags
+  over their total volume with the waste allowance (ready-mix a choice,
+  :mod:`loft_wire.foundation`), and each pier lists the post base (ABU class,
+  by post size) that ties its post down. Two piers that would overlap are
+  refused.
 * Decking runs across the joists. Boards are whole (never ripped) and start
   at the house side (``b = 0``) with the gap between them; the count is the
   fewest that cover the projection plus the overhang, so the last board may
@@ -75,6 +85,14 @@ from loft_wire.features import (
     SketchFeature,
     SketchParamsV1,
 )
+from loft_wire.foundation import (
+    DEFAULT_CONCRETE_WASTE_PERCENT,
+    FOUNDATION_ITEMS_BY_KEY,
+    MAX_CONCRETE_WASTE_PERCENT,
+    ConcreteItemKey,
+    ConcretePour,
+    PostBaseKey,
+)
 from loft_wire.lumber import (
     MM_PER_INCH,
     LumberProfile,
@@ -93,7 +111,7 @@ from loft_wire.plugins import (
     PluginManifest,
     PluginMemberRole,
 )
-from loft_wire.sketch import Point2D, SketchLine
+from loft_wire.sketch import Point2D, SketchCircle, SketchEntity, SketchLine
 
 from loft_plugins.api import ExpandInputs, Member, Plugin, PluginError, lumber_options
 
@@ -127,6 +145,8 @@ def _length(
     description: str,
     *,
     exclusive: bool = False,
+    superseded_by: str | None = None,
+    superseded_unless: str | None = None,
 ) -> LengthInput:
     return LengthInput(
         kind="length",
@@ -137,6 +157,8 @@ def _length(
         minimum=_mm(low_in),
         maximum=_mm(high_in),
         exclusive_minimum=exclusive,
+        superseded_by=superseded_by,
+        superseded_unless=superseded_unless,
     )
 
 
@@ -435,6 +457,25 @@ class _Emitter:
     ) -> Iterator[Member]:
         """One body: *rect* in plan from *z0* up to *z1* (inches), called
         *name* within its role when the emitter is named."""
+        yield from self.body(
+            role,
+            list(_rectangle(rect)),
+            MemberMetadata(profile=profile.name, material=material),
+            z0,
+            z1,
+            name,
+        )
+
+    def body(
+        self,
+        role: str,
+        entities: list[SketchEntity],
+        metadata: MemberMetadata,
+        z0: float,
+        z1: float,
+        name: str = "",
+    ) -> Iterator[Member]:
+        """One body: the plan *entities* from *z0* up to *z1* (inches)."""
         key = name if self.named else None
         plane: DatumPlaneRef | FeatureRef
         if z0 == 0.0:
@@ -468,9 +509,7 @@ class _Emitter:
             SketchFeature(
                 type="sketch",
                 version=1,
-                params=SketchParamsV1(
-                    plane=plane, entities=list(_rectangle(rect)), constraints=[]
-                ),
+                params=SketchParamsV1(plane=plane, entities=entities, constraints=[]),
             ),
             name=section_key,
         )
@@ -489,7 +528,7 @@ class _Emitter:
                     merge=False,
                 ),
             ),
-            MemberMetadata(profile=profile.name, material=material),
+            metadata,
             name=key,
         )
 
@@ -521,6 +560,52 @@ def joist_names(count: int) -> list[str]:
     return ["start", *(f"slot/{n}" for n in range(1, count - 1)), "end"]
 
 
+@dataclass(frozen=True)
+class _Footings:
+    """1.2.0's pier footings (module docstring), in inches."""
+
+    diameter: float
+    depth: float
+    concrete: ConcreteItemKey
+    waste_percent: int
+    post_bases: bool
+
+
+def _footings(inputs: ExpandInputs) -> _Footings | None:
+    if inputs.choice("footings") == "none":
+        return None
+    return _Footings(
+        diameter=_inches("footing_diameter_mm", inputs),
+        depth=_inches("footing_depth_mm", inputs),
+        concrete="ready_mix"
+        if inputs.choice("footing_concrete") == "ready_mix"
+        else "concrete_bag_80",
+        waste_percent=inputs.count("footing_waste_percent"),
+        post_bases=inputs.choice("post_bases") == "yes",
+    )
+
+
+def _post_base(post: LumberProfile) -> PostBaseKey:
+    """The post base a post of *post*'s size stands in (ABU44, ABU46, ABU66)."""
+    bases: dict[str, PostBaseKey] = {
+        "us_4x4": "post_base_4x4",
+        "us_4x6": "post_base_4x6",
+        "us_6x6": "post_base_6x6",
+    }
+    return bases[post.key]
+
+
+def _circle(cx: float, cy: float, radius: float) -> list[SketchEntity]:
+    return [
+        SketchCircle(
+            id="c1",
+            kind="circle",
+            center=Point2D(x=_mm(cx), y=_mm(cy)),
+            radius=_mm(radius),
+        )
+    ]
+
+
 def expand(inputs: ExpandInputs) -> Iterator[Member]:
     """1.0.0: members numbered in emission order."""
     yield from _expand(inputs, named=False)
@@ -533,7 +618,15 @@ def expand_v1_1(inputs: ExpandInputs) -> Iterator[Member]:
     yield from _expand(inputs, named=True)
 
 
-def _expand(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
+def expand_v1_2(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.2.0: 1.1.0's members, named as 1.1.0 names them, and a pier footing
+    under each post (DECK-FOOTINGS), named as its post, after the posts."""
+    yield from _expand(inputs, named=True, footings=_footings(inputs))
+
+
+def _expand(
+    inputs: ExpandInputs, named: bool, footings: _Footings | None = None
+) -> Iterator[Member]:
     width = _inches("width_mm", inputs)
     depth = _inches("depth_mm", inputs)
     height = _inches("height_mm", inputs)
@@ -699,9 +792,11 @@ def _expand(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
     # Posts under every beam line, grade to the beam's underside. The post's
     # thickness runs along the beam and its width across it.
     pt, pw = post.thickness_in, post.width_in
+    piers: list[tuple[float, float, str]] = []  # world centre, name
     for line, line_name in zip(beams, line_names, strict=True):
         centres_a = equal_centres(span_a, pt, post_spacing)
         for k, a in enumerate(centres_a):
+            post_name = f"{line_name}/{_ordinal(k, len(centres_a))}"
             yield from e.member(
                 "post",
                 post,
@@ -711,8 +806,13 @@ def _expand(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
                 ),
                 0.0,
                 beam_bottom,
-                f"{line_name}/{_ordinal(k, len(centres_a))}",
+                post_name,
             )
+            x, _, y, _ = world(a, a, line.centre, line.centre)
+            piers.append((x, y, post_name))
+
+    if footings is not None:
+        yield from _piers(e, piers, footings, post)
 
     # Decking across the joists, from the house side.
     pitch = board.width_in + gap
@@ -730,6 +830,43 @@ def _expand(inputs: ExpandInputs, named: bool) -> Iterator[Member]:
 
     if guard:
         yield from _guard(e, width, depth, height, attached, guard_mat)
+
+
+def _piers(
+    e: _Emitter,
+    piers: list[tuple[float, float, str]],
+    footings: _Footings,
+    post: LumberProfile,
+) -> Iterator[Member]:
+    """A round pier footing under each post, its top at grade (module
+    docstring); refused when two would overlap."""
+    for (x0, y0, _), (x1, y1, _) in itertools.combinations(piers, 2):
+        if math.hypot(x1 - x0, y1 - y0) < footings.diameter - _EPS:
+            raise _unsupported(
+                f"Footings: two {footings.diameter:g} in piers would overlap "
+                "under posts closer than that; narrow the footings or space "
+                "the posts further apart.",
+                "footing_diameter_mm",
+            )
+    concrete = FOUNDATION_ITEMS_BY_KEY[footings.concrete]
+    pour = ConcretePour(
+        item=footings.concrete,
+        waste_percent=footings.waste_percent,
+        one_delivery=True,
+        post_base=_post_base(post) if footings.post_bases else None,
+    )
+    radius = footings.diameter / 2
+    for x, y, name in piers:
+        yield from e.body(
+            "footing",
+            _circle(x, y, radius),
+            MemberMetadata(
+                profile=concrete.name, material=concrete.material, concrete=pour
+            ),
+            -footings.depth,
+            0.0,
+            name,
+        )
 
 
 def _guard(
@@ -865,3 +1002,99 @@ DECK_V1 = Plugin(MANIFEST_V1, expand, renumbered_roles=_RENUMBERED)
 _SHARED_OUT = frozenset({"post", "guard_post", "rail", "baluster"})
 
 DECK_V1_1 = Plugin(MANIFEST_V1_1, expand_v1_1, renumbered_roles=_SHARED_OUT)
+
+_PIERS = "piers"
+
+# Validated, not a model_copy: the new inputs' supersession is checked.
+MANIFEST_V1_2 = PluginManifest.model_validate(
+    {
+        **dict(MANIFEST_V1),
+        "version": "1.2.0",
+        "description": "A framed lumber deck on pier footings: ledger, beam, "
+        "posts, joists, rim and decking, with a cut list that buys the "
+        "footings' concrete and post bases (Medeek Deck, Chief Architect).",
+        "inputs": [
+            *MANIFEST_V1.inputs,
+            _choice(
+                "footings",
+                "Footings",
+                [(_PIERS, "Round pier under each post"), ("none", "None")],
+                "A round concrete pier centred under every post, its top at "
+                "grade (Chief Architect's deck room).",
+            ),
+            _length(
+                "footing_diameter_mm",
+                "Footing diameter",
+                16.0,
+                8.0,
+                48.0,
+                "Across each pier.",
+                superseded_by="footings",
+                superseded_unless=_PIERS,
+            ),
+            _length(
+                "footing_depth_mm",
+                "Footing depth",
+                12.0,
+                6.0,
+                120.0,
+                "Down from grade; take it below the frost line.",
+                superseded_by="footings",
+                superseded_unless=_PIERS,
+            ),
+            ChoiceInput(
+                kind="choice",
+                name="footing_concrete",
+                label="Footing concrete",
+                description="80 lb bags of premix (0.60 ft³ each, whole bags "
+                "over every pier), or ready-mix by the 1/4 yd³.",
+                options=[
+                    ChoiceOption(value="bags_80", label="80 lb bags"),
+                    ChoiceOption(value="ready_mix", label="Ready-mix"),
+                ],
+                default="bags_80",
+                superseded_by="footings",
+                superseded_unless=_PIERS,
+            ),
+            CountInput(
+                kind="count",
+                name="footing_waste_percent",
+                label="Concrete waste (%)",
+                description="Ordered over the piers' net volume, then rounded "
+                "up to whole bags or 1/4 yd³.",
+                default=DEFAULT_CONCRETE_WASTE_PERCENT,
+                minimum=0,
+                maximum=MAX_CONCRETE_WASTE_PERCENT,
+                superseded_by="footings",
+                superseded_unless=_PIERS,
+            ),
+            ChoiceInput(
+                kind="choice",
+                name="post_bases",
+                label="Post bases",
+                description="A galvanized post base on each pier, sized to the "
+                "post (ABU66 for a 6x6), listed Each.",
+                options=[
+                    ChoiceOption(value="yes", label="Yes"),
+                    ChoiceOption(value="no", label="No"),
+                ],
+                default="yes",
+                superseded_by="footings",
+                superseded_unless=_PIERS,
+            ),
+        ],
+        "members": [
+            *MANIFEST_V1.members,
+            PluginMemberRole(
+                role="footing",
+                title="Footing",
+                description="A round concrete pier under a post, one body each.",
+            ),
+        ],
+    }
+)
+
+#: 1.2.0 shares out the footings as it does their posts.
+DECK_V1_2 = Plugin(
+    MANIFEST_V1_2, expand_v1_2, renumbered_roles=_SHARED_OUT | {"footing"}
+)

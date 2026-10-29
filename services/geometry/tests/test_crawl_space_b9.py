@@ -2,7 +2,7 @@
 
 ``goldens/b9-crawl-space`` is B9 (docs/reference-parts/buildings.md): B7 as
 built (b7-outline's sketch, floor, walls, door, four windows and roof) and
-ONE ``loft.foundation`` 1.0.0 on its outline under its floor: an 8 in
+ONE ``loft.foundation`` 1.1.0 on its outline under its floor: an 8 in
 poured stem on a 16 x 8 in footing, a 24 in crawl, five 16 x 8 vents and a
 24 x 16 access cut from the stem's top. ``model.json`` and ``members.json``
 are pinned to the plugins by ``packages/loft-plugins/tests/test_crawl_space.py``.
@@ -20,10 +20,12 @@ QA-B7-HOUSE round), unmoved:
    b7-outline's volume plus that;
 2. interference none (the stem sits on the footing and the sills on the
    stem, face to face);
-3. the cut list: Footing and Stem wall, 2 pours of 307 328 in^3 = 6.59 yd^3,
-   ordered 7.00 with the 5% allowance (6.92 rounded up to 1/4); Rebar 888 and
-   968, 10 sticks; Anchor bolt 18 (5 + 5 + 4 + 4 for the floor's sills); each
-   priced.
+3. the cut list (FOUNDATION-TAKEOFF): the Footing, 118 784 in^3 = 2.55
+   yd^3, ordered 2.75 with the 5% allowance (2.67 rounded up to 1/4), and the
+   Stem wall, 188 544 in^3 = 4.04, ordered 4.25 (4.24), a delivery each and
+   7.00 in all; Rebar 888 and 968, 10 sticks; Anchor bolt 18 (5 + 5 + 4 + 4
+   for the floor's sills); 5 vents 16 x 8 and 1 access door 24 x 16, Each;
+   each priced.
 
 Regenerate expected.json's numbers with
 ``uv run python services/geometry/tests/test_crawl_space_b9.py``.
@@ -44,6 +46,7 @@ from loft_wire.cut_list import (
     part_pieces,
 )
 from loft_wire.cut_list_csv import cut_list_csv
+from loft_wire.price_book import PriceBookResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_outline_b7 as b7
@@ -54,6 +57,28 @@ B9 = "b9-crawl-space"
 IN = b7.IN
 CONCRETE = b8.CONCRETE
 DENSITY = b8.DENSITY
+
+#: B8's book, and $12.98 a foundation vent, $49.97 the access door.
+BOOK = PriceBookResponse.model_validate(
+    {
+        "currency": "USD",
+        "entries": [
+            *b8.BOOK.model_dump(mode="json")["entries"],
+            {
+                "material": "steel_1018",
+                "profile": "foundation_vent",
+                "unit": "each",
+                "price_cents": 1298,
+            },
+            {
+                "material": "steel_1018",
+                "profile": "crawl_access_door",
+                "unit": "each",
+                "price_cents": 4997,
+            },
+        ],
+    }
+)
 
 # --- The foundation, typed from buildings.md (inches) -------------------------------
 
@@ -186,24 +211,38 @@ def _cut_list() -> Any:
         name=B9,
         length_unit="in",
         pieces=part_pieces(extents, _members(), request.materials),
-        price_book=b8.BOOK,
+        price_book=BOOK,
     )
 
 
-def test_b9_lists_its_concrete_rebar_and_bolts_priced() -> None:
+def test_b9_lists_its_pours_rebar_bolts_vents_and_door_priced() -> None:
     cut_list = _cut_list()
     foundation = [line for line in cut_list.lines if line.system == "foundation"]
     assert [(line.member, line.item, line.quantity) for line in foundation] == [
-        ("Footing, Stem wall", "concrete", 2),
+        ("Footing", "concrete", 1),
         ("Rebar", "rebar", 1),
         ("Rebar", "rebar", 1),
+        ("Stem wall", "concrete", 1),
         ("Anchor bolt", "anchor_bolt", 18),
+        ("Vent 16 x 8", "foundation_vent", 5),
+        ("Access door 24 x 16", "access_door", 1),
     ]
-    concrete, inner, outer, bolts = foundation  # rebar lines by length
-    assert concrete.volume_mm3 == pytest.approx(307328 * IN**3, abs=1e-3)
-    assert round(concrete.volume_mm3 / IN**3 / 46656, 2) == 6.59
-    assert (concrete.order_yd3, concrete.waste_percent) == (7.0, 5)
-    assert (concrete.unit_price_cents, concrete.extended_price_cents) == (16500, 115500)
+    footing, inner, outer, stem, bolts, vents, door = foundation
+    # A delivery each: 2.55 x 1.05 = 2.67, 2.75; 4.04 x 1.05 = 4.24, 4.25.
+    assert footing.volume_mm3 == pytest.approx(118784 * IN**3, abs=1e-3)
+    assert stem.volume_mm3 == pytest.approx(188544 * IN**3, abs=1e-3)
+    assert [round(p.volume_mm3 / IN**3 / 46656, 2) for p in (footing, stem)] == [
+        2.55,
+        4.04,
+    ]
+    assert [(p.order_yd3, p.waste_percent) for p in (footing, stem)] == [
+        (2.75, 5),
+        (4.25, 5),
+    ]
+    assert footing.order_yd3 + stem.order_yd3 == 7.0  # 6.59 yd^3, 7.00 bought
+    assert [p.extended_price_cents for p in (footing, stem)] == [45375, 70125]
+    assert (vents.stock_quantity, vents.extended_price_cents) == (5, 5 * 1298)
+    assert (door.stock_quantity, door.extended_price_cents) == (1, 4997)
     # Loops of 968 (80.67 ft) and 888 (74 ft): 5 sticks each.
     assert [round(r.length_mm / IN, 6) for r in (inner, outer)] == [888, 968]
     assert [r.stock_quantity for r in (inner, outer)] == [5, 5]
@@ -218,8 +257,14 @@ def test_b9_lists_its_concrete_rebar_and_bolts_priced() -> None:
     assert sorted(sills) == [(2, 181.0), (2, 288.0)]
     assert cut_list.unclassified == 0
     csv = cut_list_csv(cut_list).split("\r\n")
-    assert csv[1].startswith('1,Foundation,"Footing, Stem wall",Ready-mix concrete,,')
-    assert csv[1].endswith(",6.59 yd3 net + 5% waste,,7.00,165.00,Per yd3,1155.00")
+    assert csv[1].startswith("1,Foundation,Footing,Ready-mix concrete,,")
+    assert csv[1].endswith(",2.55 yd3 net + 5% waste,,2.75,165.00,Per yd3,453.75")
+    assert csv[4].startswith("4,Foundation,Stem wall,Ready-mix concrete,,")
+    assert csv[4].endswith(",4.04 yd3 net + 5% waste,,4.25,165.00,Per yd3,701.25")
+    assert csv[6].startswith("6,Foundation,Vent 16 x 8,Foundation vent,,")
+    assert csv[6].endswith(",5,,,,Each,,5,12.98,Each,64.90")
+    assert csv[7].startswith("7,Foundation,Access door 24 x 16,")
+    assert csv[7].endswith(",1,,,,Each,,1,49.97,Each,49.97")
 
 
 def test_every_body_weighs_by_its_member_material() -> None:

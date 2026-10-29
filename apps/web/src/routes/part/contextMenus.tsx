@@ -24,6 +24,7 @@ import {
 
 import type { FeatureResponse } from "../../api/parts";
 import { scopeFeature } from "../../features/patternScope";
+import { featureUpdate, updateToLabel } from "../../features/pluginUpdate";
 import { useViewCommandStore } from "../../viewport/viewCommands";
 import { selectionTouchesProjected } from "../../sketch/project";
 import { useSketchStore } from "../../sketch/store";
@@ -235,6 +236,7 @@ export function treeMenuSections(
     toggleSuppress,
     requestDeleteFeature,
     openScopedVerb,
+    updatePlugins,
   }: {
     hasBody: boolean;
     deletingId: string | null;
@@ -247,9 +249,12 @@ export function treeMenuSections(
       verb: "pattern" | "mirror",
       feature: FeatureResponse,
     ) => void;
+    /** Update one feature to its newer release (OPENING-UPDATE). */
+    updatePlugins?: (featureIds: readonly string[] | null) => void;
   },
 ): ContextMenuSection[] {
   const suppressed = feature.feature.suppressed ?? false;
+  const update = featureUpdate(feature);
   // Only offered where the kernel can actually repeat this row on its own —
   // a fillet/shell/boolean has a result and no rigid tool, so naming one is a
   // rebuild error, and pattern-scope §7 rule 4 says a refused kind is not
@@ -283,6 +288,18 @@ export function treeMenuSections(
           onSelect: () => toggleSuppress(feature),
           "data-testid": "tree-ctx-suppress",
         },
+        // An out-of-date Build feature updates from its row, as Onshape's
+        // custom feature does from its context menu (OPENING-UPDATE).
+        ...(update !== null && updatePlugins !== undefined
+          ? [
+              {
+                key: "update",
+                label: updateToLabel(update.toVersion),
+                onSelect: () => updatePlugins([feature.id]),
+                "data-testid": "tree-ctx-update",
+              },
+            ]
+          : []),
         {
           key: "delete",
           label: "Delete",

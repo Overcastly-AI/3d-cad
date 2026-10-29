@@ -1,7 +1,8 @@
 # Reference casework
 
 Owned by the `product-manager`. Summarised in `docs/VISION.md`. Gaps are filed
-under CASEWORK in `docs/BACKLOG.md`; the architecture is RESEARCH §23.
+under CASEWORK and CASEWORK-B10 in `docs/BACKLOG.md`; the architecture is
+RESEARCH §23.
 
 Founder, 2026-10-23: "it would be nice to be able to build cabinets,
 vanities, internal walls etc." These targets drive the Cabinets custom
@@ -102,5 +103,31 @@ run ends at Y 57 and nothing else moves.
 One Cabinets feature at a typed position (no wall): V3021, 30 wide, 21
 deep, 34.5 high, 2 doors under a false front, 3/4 melamine carcass with
 PVC banding. Built frameless and face frame. **Passes** when every line
-(melamine and plywood sheets, banding, 4 hinges) prices from a book with
-no unpriced line, and the total equals the lines summed by hand.
+(melamine sheets, banding, 4 hinges) prices from a book with no unpriced
+line, and the total equals the lines summed by hand. It has no drawer, so
+no plywood line; C4 prices the drawer boxes.
+
+## C4 Bath vanity on B10's P1 (stops CASEWORK-B10)
+
+One Cabinets feature on P1's +X gypsum face (X 182.25, in B10's bath
+behind P2), measured from P1's back end, starting 1/2 in off the back
+wall's framing (Y 186, room for its gypsum), facing +X on the subfloor:
+C3's V3021, then a VDB1521 drawer bank (15 wide, 21 deep, 34.5 high, 3
+drawers, the top front 6), frameless 3/4 melamine with PVC banding.
+
+- **VDB1521:** sides 2 x (21 x 34.5 less 3 x 4.5) = 1 422; back 13.5 x 30;
+  bottom 13.5 x 20.25; stretchers 2 x 13.5 x 4; toe kick 13.5 x 4.5;
+  fronts 14.875 x 6 and 2 x 14.875 x 11.8125 (Z 28.4375..34.4375,
+  16.5..28.3125, 4.5625..16.375): 3/4 **2 709.796875 in²**. Drawer boxes
+  12.5 wide on 20 in slides (inside depth 20.25), Y 1..21, sides 4,
+  9.8125 and 9.8125 high: 1/2 **1 488.375 in²** (63 x 23.625), 1/4
+  **750 in²** (3 x 12.5 x 20). Volume **2 964.03515625 in³**; banding
+  60 + 13.5 + 13.5 + 41.75 + 2 x 53.375 = **235.5 in**; 3 pairs of 20 in
+  slides, no hinges.
+- **Run:** V3021 Y 186..156, VDB1521 Y 156..141; **6 036.17578125 in³**,
+  **578.75 in (48.23 ft)** of banding, 4 hinges, 3 slide pairs, melamine
+  and 1/2 and 1/4 plywood sheets as `sheets_to_cut` gives, every line
+  priced.
+
+**Edit:** V3021 -> V3621: the VDB moves to Y 150..135, 0.75 clear of P2's
+gypsum at Y 134.25, and nothing else moves.

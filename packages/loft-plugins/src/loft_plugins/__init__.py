@@ -31,12 +31,19 @@ from loft_plugins.registry import (
     settle_inputs,
     validate_members,
 )
+from loft_plugins.updates import (
+    PLUGIN_UPDATE_UNAVAILABLE,
+    PluginUpdate,
+    update_for,
+    updated_inputs,
+)
 
 #: The plugins this server runs: every released version of every built-in.
 REGISTRY = PluginRegistry(BUILTIN_PLUGINS)
 
 __all__ = [
     "BUILTIN_PLUGINS",
+    "PLUGIN_UPDATE_UNAVAILABLE",
     "REGISTRY",
     "ExpandInputs",
     "Expander",
@@ -46,10 +53,13 @@ __all__ = [
     "Plugin",
     "PluginError",
     "PluginRegistry",
+    "PluginUpdate",
     "canonical_inputs",
     "expand",
     "host_of",
     "lumber_options",
     "settle_inputs",
+    "update_for",
+    "updated_inputs",
     "validate_members",
 ]

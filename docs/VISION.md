@@ -167,8 +167,8 @@ built from Build-group plugins with no member drawn by hand:
 - **B5 shed on a floor:** B2's walls on a framed 2x8 floor, with OSB wall sheathing and a plywood subfloor, priced per sheet.
 - **B6 timber frame:** two 8x8 bents with tie beams and girts, every joint a pegged mortise and tenon.
 - **B7 small house:** 24 x 16 ft, 2x6 walls on a 2x10 floor, a door, four windows, a 6/12 gable, sheathed and priced to the last line: a gap-finding round. Round of 2026-10-22 (caf0aa8, e2e `house-b7.spec.ts`): it builds from 12 Build features. That took 87 gestures, with 37 values typed and 8 of them worked out by hand. The 217 members are exactly the independent script's, and the STEP's 217 solids measure 264 895.4795 in³ as the script gives. All three edits regenerate as the script says, with the volume 267 494.1504 in³ at 8/12. Since CUT-LIST-LONG-STOCK (30ac7b7) the members over 20 ft are spliced, and B7 prices to the last line at $2,868.87. Since BUILDING-OUTLINE (on main at fe9d2b5) B7 builds from one outline sketch, and 24 -> 28 ft is one dimension edit, down from 8 feature edits (e2e `house-b7.spec.ts`; not yet a qa-tester re-run). Doors and windows are priced as units since OPENING-UNITS (6abeb20).
-- **B8-B10 foundations and partitions** (founder 2026-10-23, `buildings.md`): B7 on a thickened-edge slab (6.62 yd³), on a crawl space with a stem wall and footing (6.59 yd³), and with two 2x4 partitions, a door and ladder backing. Not built yet (SLAB, CRAWL-SPACE, INTERIOR-WALLS).
-- **C1-C3 casework** (founder 2026-10-23, `casework.md`): a frameless B24 to the panel, a kitchen run on B10's wall, a melamine vanity, each with panels by sheet, banding by the foot and hinges and slides Each. Not built yet (CASEWORK).
+- **B8-B10 foundations and partitions** (founder 2026-10-23, `buildings.md`): B7 on a thickened-edge slab (6.62 yd³), on a crawl space with a stem wall and footing (6.59 yd³), and with two 2x4 partitions, a door and ladder backing. Built in batch49 (a9b15e6; goldens `b8-slab-house`, `b9-crawl-space`, `b10-partitions`); B9's 5 vents and access door are listed Each and its two pours ordered 2.75 + 4.25 yd³ from `loft.foundation` 1.1.0 (FOUNDATION-TAKEOFF), and no gable has ceiling joists (CEILING-JOISTS).
+- **C1-C4 casework** (founder 2026-10-23, `casework.md`): a frameless B24 to the panel, a kitchen run on B10's wall, a melamine vanity, and a bath vanity with a drawer bank on B10's partition, each with panels by sheet, banding by the foot and hinges and slides Each. C1-C3 built in batch49 (goldens `c1-*`, `c2-*`, `c3-*`), C2 on B7's wall; C2 on B10 and C4 are CASEWORK-B10.
 
 ## Daily-driver scorecard
 
@@ -203,6 +203,8 @@ main `01e49e2` on 2026-10-09 and updated from shipped commits on
 - Cloud SaaS billing. Self-hosting comes first.
 
 ## Delegated decisions
+- 2026-10-28 (founder-delegated, kernel-architect): a deck's pier footings are bought as 80 lb bags of premix by default (0.60 ft³ a bag, SLAB's 5% allowance, whole bags over every pier), as US deck builders pour them; ready-mix by the 1/4 yd³ through SLAB's concrete takeoff (`loft_wire.foundation`, priced per cubic_yard) is the Footing concrete choice on `loft.deck` 1.2.0 (DECK-FOOTINGS).
+- 2026-10-28 (orchestrator, FOUNDATION-TAKEOFF): each pour is ordered as its own delivery, rounded up to 1/4 yd³ after its own allowance, reversing CRAWL-SPACE's single concrete line (a crew pours and inspects the footing before the stem; B9 buys 2.75 + 4.25 = 7.00 yd³, B8's one pour still 7.00); a crawl space's foundation vents and access door are cut-list lines priced Each, one per size, as in Chief's materials list.
 - 2026-10-23 (orchestrator): concrete is ordered with a 5% waste allowance by default, editable on the slab and foundation (crews order over: spillage, sub-grade variance), then rounded up to 1/4 yd³; cabinets live in the house part under a Casework system for now, a separate casework part later if shops ask.
 - 2026-10-21 (founder): do not build or fork OCCT; stay on the published, pinned OCP wheels, work around OCCT faults and report them upstream with minimal repros.
 
@@ -405,6 +407,32 @@ goal and answer them"); the product-manager decided them. Each is in
   partition meets frames its backing, ladder blocking by default, as it
   frames the openings it hosts. Exterior walls get an inside-face gypsum
   option in the same wall version.
+- **Now after foundations and casework (2026-10-28, eighth pass; founder:
+  "it's all needed, I don't care what comes first"):** OPENING-UPDATE,
+  DECK-FOOTINGS, CEILING-JOISTS, FOUNDATION-TAKEOFF, CASEWORK-B10. A
+  saved house still frames its 2x6 headers short a ply, so the update
+  leads; then the deck, the founder's first goal, gets footings; then
+  the gable gets the ties no framer omits (a gap found in B7, not on the
+  candidate list); then B9's and the casework quotes are complete.
+  Gypsum sheets, gable-end studs and partition shapes go to Next; header
+  spacers merge into OPENING-UPDATE.
+- **Updating stored Build features:** per feature "Update to x.y.0" plus
+  one "Update all Build features" for the part, each an ordinary undoable
+  edit with the same inputs, never automatic (Onshape's custom-feature
+  update, Fusion's out-of-date badge). Opening 1.5.0 draws header spacers
+  and foam as members so they are priced (OPENING-UPDATE).
+- **Deck footings:** Ø16 x 12 in piers under every post, as Chief's deck
+  room places post footings; bought as 80 lb bags (0.60 ft³) after the 5%
+  allowance, ready-mix a choice; a post base Each per post (DECK-FOOTINGS).
+  The founder may reverse bags to ready-mix.
+- **Ceiling joists:** a roof option, on by default for new gables, one
+  2x8 beside each inner common, wall face to wall face in one piece and
+  snipped to the rafters' top plane, as Chief's Build Framing lays them
+  with the roof; they are the rafter ties (IRC R802.5.2). Gable-end
+  studs follow (CEILING-JOISTS).
+- **Pours are ordered one delivery each,** each rounded up after its own
+  allowance, reversing CRAWL-SPACE's one line: a crew pours and inspects
+  the footing before the stem. B9 still buys 7.00 yd³ (FOUNDATION-TAKEOFF).
 - **Casework:** a cabinet run is ONE feature with an ordered list of
   boxes, as Mozaik's runs; a single cabinet is a run of one. That needs a
   list input in the plugin manifest. Cabinets live in the house part under

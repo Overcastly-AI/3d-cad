@@ -243,12 +243,29 @@ FOUNDATION: list[dict[str, Any]] = [
         "sheet": None,
         "price_cents": 248,
     },
+    {
+        "material": "steel_1018",
+        "profile": "foundation_vent",
+        "unit": "each",
+        "stock_length_ft": None,
+        "sheet": None,
+        "price_cents": 1298,
+    },
+    {
+        "material": "steel_1018",
+        "profile": "crawl_access_door",
+        "unit": "each",
+        "stock_length_ft": None,
+        "sheet": None,
+        "price_cents": 4997,
+    },
 ]
 
 
 def test_foundation_prices_round_trip(client: TestClient) -> None:
     """SLAB: ready-mix per cubic yard, a #4 stick Each at 20 ft, an anchor
-    bolt Each with neither stock nor sheet; any other shape is refused."""
+    bolt, a foundation vent and an access door (FOUNDATION-TAKEOFF) Each with
+    neither stock nor sheet; any other shape is refused."""
     every = [*BOOK, *SHEETS, *UNITS, *FOUNDATION]
     assert _put(client, every).status_code == 200
     assert _entries(client) == every
@@ -256,6 +273,9 @@ def test_foundation_prices_round_trip(client: TestClient) -> None:
         {**FOUNDATION[0], "unit": "each"},
         {**FOUNDATION[1], "stock_length_ft": 16},
         {**FOUNDATION[2], "stock_length_ft": 8},
+        {**FOUNDATION[3], "stock_length_ft": 8},
+        {**FOUNDATION[4], "sheet": "4x8"},
+        {**FOUNDATION[4], "unit": "linear_foot"},
         {**BOOK[0], "unit": "cubic_yard", "stock_length_ft": None},
     ):
         assert _put(client, [bad]).status_code == 422, bad
@@ -378,6 +398,9 @@ def test_the_book_on_postgres_with_the_migrated_schema(pg_url: str) -> None:
         "'concrete', 'ready_mix', 'cubic_yard', 8, NULL, 1",
         "'spf_lumber', 'us_2x4', 'cubic_yard', NULL, NULL, 1",
         "'steel_f1554', 'anchor_bolt_1_2', 'each', 8, NULL, 1",
+        "'steel_1018', 'foundation_vent', 'each', 8, NULL, 1",
+        "'steel_1018', 'crawl_access_door', 'each', NULL, '4x8', 1",
+        "'steel_1018', 'foundation_vent', 'linear_foot', NULL, NULL, 1",
     ):
         with pytest.raises(IntegrityError):
             asyncio.run(

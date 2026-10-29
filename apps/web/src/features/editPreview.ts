@@ -120,7 +120,8 @@ export function useEditPreview(
   const previewed = stop === undefined ? null : featureId;
   const inputBody = useQuery({
     queryKey: editPreviewKey(partId, tree?.tree_version, previewed),
-    queryFn: () => evaluatePart(partId, undefined, previewed as string),
+    queryFn: ({ signal }) =>
+      evaluatePart(partId, undefined, previewed as string, signal),
     enabled: previewed !== null,
     staleTime: Infinity,
     retry: false,

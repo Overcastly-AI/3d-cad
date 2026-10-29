@@ -237,6 +237,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b2-walls-v1.1-hole-door-moved-24",
         "plugin-deck-v1.1-b1-16ft-hole-end-joist",
         "plugin-deck-v1.1-b1-20ft-hole-end-joist",
+        # B1 at 1.2.0 on its pier footings, and the 20 ft edit (DECK-FOOTINGS):
+        # the same summation drift over 49 and 54 solids (3.6e-6 at worst).
+        "plugin-deck-v1.2-b1-footings-16ft",
+        "plugin-deck-v1.2-b1-footings-20ft",
         # The loft.roof B2 gable at 6/12 and 8/12 (ROOF): OCCT's STEP rounds
         # the sloped rafters' coordinates; a build123d twin drifts the same.
         "b2-roof-6-12",
@@ -305,6 +309,12 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B10, B7 with two partitions (INTERIOR-WALLS): b7-outline's class,
         # 3.3e-4 at worst; the partitions and gypsum are boxes.
         "b10-partitions",
+        # B7 after Update all (OPENING-UPDATE): b7-outline's class, 3.2e-4
+        # measured; the 18 header plies and spacers are boxes.
+        "b7-opening-update",
+        # B7's gable tied by 11 ceiling joists (CEILING-JOISTS): b7-outline's
+        # class, 3.8e-4 at worst (the twin's); the joists' snips add nothing.
+        "b7-ceiling-joists",
         # Casework (CASEWORK): C1 at 27 in and in face frame, C3 in face frame
         # and C2's 91 panels, the summation drift (1.0e-7 to 3.6e-7 mm^3);
         # C1 turned 30 deg, OCCT's STEP drift on turned planes (1.05e-4).

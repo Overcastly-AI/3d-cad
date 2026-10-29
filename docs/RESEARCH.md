@@ -2736,6 +2736,55 @@ and reframe it, a material per member, and a cut list that is always current.
     with its 3068 door and 2030 window at 1.4.0: 66 bodies, all 2x6, 5479 in
     of lumber, 45 201.75 in³ by hand, the headers 3 x 41 and 3 x 27.5, and
     no interference. Golden `b2-2x6-walls-header-plies`.
+- **Decided while updating stored features** (OPENING-UPDATE, 2026-10-28;
+  Onshape's custom-feature update and Part Studio "Update all", Fusion's
+  out-of-date badge on linked content):
+  - *The map is explicit, per release pair.* A released manifest is frozen,
+    so "same names, defaults for the rest" would let a later default change
+    what an old feature means. `loft_plugins.updates` declares each update
+    a stored release may take and a pure map of its inputs. Openings
+    1.0.0-1.4.0 go to 1.5.0: every input kept, and each input a later
+    release added set to what the old one built (Measured from the wall
+    start, a Custom size reading the typed size, Rough opening only), with
+    Header build Fill the wall, the reason to update (a 2x4 wall frames
+    the same either way). A 1.4.0 opening keeps its own Header build.
+    Walls 1.2.0 and 1.3.0 go to 1.4.0, and roofs 1.2.0-1.4.0 to 1.5.0,
+    with every input as it is. A formula keeps driving its input. A release
+    with no map is offered nothing: `loft.floor` 1.2.0, whose Joist
+    direction 1.3.0 replaced and which needs the outline to map, and
+    `loft.wall` 1.0.0-1.1.0, whose ids 1.1.0 renamed.
+  - *One edit.* `POST .../features/plugin-updates` updates the named
+    features, or every one offered (`feature_ids` null), in tree order, each
+    as a params edit would be: re-pinned, re-expanded against the tree as it
+    now stands, then its hosts and pickers re-laid, refused (422/409) as
+    that edit would be. One `tree_version` bump and one history step, so one
+    Ctrl+Z restores every row byte for byte. A row's response carries
+    `plugin_update` (the release and what it changes) only where a map
+    exists; reading never re-pins. The tree badges each such row, its editor
+    and row menu offer "Update to x.y.0", and the tree offers one "Update
+    all Build features". The roof's own warning action now goes through the
+    same route when the release it names is the one offered.
+  - *Spacers are the opening's members.* `loft.window`/`loft.door` 1.5.0
+    have 1.4.0's inputs exactly and draw what fills the gaps between the
+    header's plies as their own members, since a released wall manifest
+    cannot gain a role: a 1/2 in plywood spacer in each 1/2 in gap (two in
+    2x6, one in 2x4), nothing in a 2x8's 1-3/8 in gaps (no stock spacer is
+    that thick), and an insulated header's rigid foam (XPS, ASTM C578 Type
+    IV, 23.2 kg/m³, a new library material). Each strip sits on the plies'
+    own coordinates, so it meets them face to face. The wall still frames
+    the plies, so every wall release frames a 1.5.0 opening, and 1.0.0-1.4.0
+    openings expand byte for byte. The cut list lists the spacers as pieces
+    of 1/2 plywood cut to size under Walls (no panel gap), counted by the
+    sheets they are cut from. Foam is listed by its size and is not yet
+    priced: no foam product is sold at a header gap's 2-1/2 in or 4-1/4 in.
+  - *Numbers.* `b7-outline` updated: the walls and roof expand exactly as
+    before, and the door and five windows frame 18 plies (12 before; the
+    face plies keep their ids) and draw 12 spacers 5.5 wide, 2 x 41, 6 x
+    39.5 and 4 x 27.5 (429 in, 2 359.5 in², 1 179.75 in³) from one 4x8:
+    264 852.3789 + 1 769.625 + 1 179.75 = 267 801.7539 in³, 235 bodies, no
+    interference, every line priced ($3,040.65 on B7's book with a 4x8 of
+    1/2 plywood at $32.98). Golden `b7-opening-update`, matched solid for
+    solid by `test_outline_b7.script` plus the 18 boxes typed by hand.
 - **Decided while naming member bodies** (BODY-NAMES, 2026-10-23; Fusion's
   browser and its STEP export, SolidWorks' multibody import):
   - *The name.* A member's body is `<feature> · <member>`, the member as the
@@ -2980,6 +3029,111 @@ and reframe it, a material per member, and a cut list that is always current.
     Golden `b9-crawl-space`: b7-outline's 217 bodies plus the footing (10
     faces) and the stem (33 faces), 219 in all, matched solid for solid to
     an independent build123d script on STEP.
+- **Decided for the foundation takeoff** (FOUNDATION-TAKEOFF, 2026-10-28;
+  Chief Architect's materials list carries foundation vents and the access
+  door Each, and a crew pours and inspects the footing before the stem):
+  - *A delivery per pour.* The cut list's concrete lines are one per member
+    (Footing, Stem wall, Slab), and a line orders the sum of each pour's
+    `net x (1 + waste)` rounded up to 1/4 yd³, never the sum rounded once,
+    so a placed part's copies are a truck each too. B9: 2.55 -> 2.75 and
+    4.04 -> 4.25, 7.00 in all as before; B8's one pour still 7.00.
+  - *Vents and the access door are listed, by size.* `loft.foundation`
+    1.1.0 builds exactly 1.0.0's members and adds `foundation_openings` to
+    the stem's metadata (item, width, height, quantity per size, as cut);
+    the cut list lists one Each line per item and size ("Vent 16 x 8",
+    "Access door 24 x 16"), priced by the book's `foundation_vent` and
+    `crawl_access_door` keys (steel, no stock or sheet; migration 0029).
+    The units sit on the pour, as its bolts do, because a cut makes no body
+    for the cut list to read. A stored 1.0.0 foundation is pinned byte for
+    byte (`loft-plugins/tests/goldens/foundation-v1.0.0-b9-members.json`)
+    and lists no units until it is updated to 1.1.0.
+- **Decided while building the deck's footings** (DECK-FOOTINGS,
+  2026-10-28; Chief Architect's deck room places a post footing under every
+  automatic post, Deck Room Defaults; US deck builders pour round piers from
+  80 lb bags):
+  - *A new version.* `loft.deck` 1.2.0 is 1.1.0 plus six inputs (Footings,
+    diameter, depth, concrete, waste, post bases), so a stored 1.0.0 or
+    1.1.0 deck expands byte for byte (its goldens untouched) and 1.2.0 with
+    Footings off emits 1.1.0's members exactly.
+  - *A pier is a cylinder body.* A circle sketched on a level datum at the
+    footing's bottom (Z -depth) and extruded up to grade, a NEW body: three
+    faces, three edges (two circles and the seam), so the cut list measures
+    its volume and the kernel runs no boolean. Its top meets its post's foot
+    face to face at Z 0. It is named as its post (`outer/end`), emitted
+    after the posts, and shared out with them (`renumbered_roles`). Two piers
+    that would overlap are refused (`footing_diameter_mm`).
+  - *Bought in bags.* An 80 lb bag yields 0.60 ft³ (as sold; independently,
+    80 lb of premix and ~3 qt of water make ~86 lb of fresh concrete at
+    ~144 lb/ft³: 0.599 ft³, and 27 / 0.60 = 45 bags a yd³). The cut list
+    sums a line's piers and orders `ceil(ft³ x 1.05 / 0.60)` whole bags
+    (B1: 4.19 ft³ -> 7.33 -> 8; 20 ft: 5.59 -> 9.77 -> 10), priced Each
+    (`concrete_bag_80`). Ready-mix is the Footing concrete choice and goes
+    through SLAB's 1/4 yd³ order. FOUNDATION-TAKEOFF orders each pour as its
+    own delivery (a footing, then its stem), but a deck's piers fill from
+    one truck, so they carry `ConcretePour.one_delivery` and their line rounds
+    the sum once (B1: 0.16 -> 0.25 yd³, not 3 x 0.25).
+  - *Post bases* are listed from the pour (`ConcretePour.post_base`), one
+    per pier, by post size (ABU44, ABU46, ABU66 class), priced Each in
+    `steel_1018` as casework hardware is (no galvanized-steel material yet).
+  - *Foundation.* Every pour lists under Foundation whichever plugin poured
+    it, so a deck's piers and bases sit with a slab's concrete, before the
+    Deck framing.
+  - *Goldens.* `plugin-deck-v1.2-b1-footings-16ft` and `-20ft`: B1's 46 (50)
+    boxes plus 3 (4) cylinders, every mass property analytic (768π in³ a
+    pier) and matched to 1.7e-6 mm³; each pier meshes on 126 segments.
+- **Decided while tying the gable** (CEILING-JOISTS, 2026-10-28; Chief
+  Architect's Build Framing lays ceiling joists out with the roof, in the
+  rafter direction; IRC R802.5.2 makes the joists at the plates the rafter
+  ties):
+  - *A roof option, not a feature.* `loft.roof` 1.6.0 adds Ceiling joists
+    (Beside each common, the default, or None), their size (2x8) and
+    material (SPF). 1.0.0-1.5.0 are unchanged and every stored roof expands
+    by its pin; 1.6.0 with None, a hip, or a typed bearing is 1.5.0 member
+    for member, and with joists it is 1.5.0's members, then per joist its
+    datum, section and body (role `ceiling_joist`, named by the common's
+    layout slot, so lengthening the roof renames none).
+  - *Only on picked walls.* Chief builds ceiling joists from the rooms its
+    walls enclose; a typed bearing knows no walls, so it frames none (the
+    input says so). A hip frames none yet: its joists would stop at the
+    hip jacks (BACKLOG note CEILING-JOISTS-HIP).
+  - *Placement.* One joist per INNER common pair, face to face with the
+    rafters' far face (+X for a ridge along X, +Y along Y: the side the
+    rafter is extruded to), its bottom on the plates' top, one piece from
+    one bearing wall's outside face to the other's. The gable-end rafters
+    get none (the gable wall carries the ceiling edge). A layout common too
+    near the end rafter for a joist on its far face takes it on its near
+    face.
+  - *A joist that cannot fit warns, never blocks* (Chief warns). If the
+    chosen joist's top would pass the ridge board's underside (a low pitch:
+    B7 at 1/12 with a 2x8 under a 2x10 ridge), the roof builds without
+    joists and carries `ceiling_joists_omitted`, naming both heights and the
+    deepest joist that fits (a 2x6 there), or a steeper pitch or deeper
+    ridge when none does. Documents raises it from the stored roof by
+    re-running the pure expansion (`roof_outline.ceiling_joist_note`).
+  - *An update adds nothing.* The declared update of a roof 1.2.0-1.5.0 to
+    1.6.0 (`loft_plugins.updates`) sets Ceiling joists to None, so it builds
+    1.5.0's roof exactly; its summary and the through-sheathing warning's
+    "Update to 1.6.0" say it adds nothing new. Only a new roof takes the
+    default, Beside each common; an updated roof gains joists when the user
+    chooses them.
+  - *The snip.* Each top corner is cut to the rafters' top plane, as a
+    framer snips the joist so the sheathing lies flat: at the wall's outside
+    face that plane is `plate - heel + plumb depth`, so the cut is `delta =
+    depth + heel - plumb` down the end and `delta / slope` along the top; a
+    snip under 1e-6 in is left square. The joist is ONE sketched hexagon on
+    its datum extruded its thickness: no boolean, no face shared with a
+    cutter.
+  - *Cut list.* `ceiling_joist` is a one-piece role (NO-SPLICE-SPANS): a
+    joist is never spliced, and past 24 ft it lists no stock and says why.
+    It is under Roof, its plugin's system.
+  - *Numbers.* B7 at 6/12: delta = 29/3 - 7.25 sqrt(1.25) = 1.560920, 2
+    delta along, 2 088 - 3 delta^2 = 2 080.690584 in³ a joist, 11 at X c +
+    0.75 .. c + 2.25 (c = 24 .. 264): 22 887.596423 in³, on 16 ft stock;
+    13 at 28 ft; 8/12 re-snips them (delta 0.953251, 1.5 delta along).
+    Golden `b7-ceiling-joists`: b7-outline's 217 bodies and the 11 joists
+    (228), matched solid for solid to an independent build123d script on
+    STEP; no pair interferes, in B7, at 28 ft, at 8/12 and in B10 (P2's top
+    plate face to face under them), probed exactly.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

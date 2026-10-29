@@ -977,6 +977,16 @@ PUT_PARTS_PART_ID_FEATURES_ORDER: Final = Operation(
     required_query=(),
 )
 
+POST_PARTS_PART_ID_FEATURES_PLUGIN_UPDATES: Final = Operation(
+    operation_id="update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post",
+    method="POST",
+    path="/api/v1/parts/{part_id}/features/plugin-updates",
+    request_model="PluginUpdateRequest",
+    response_model="FeatureTreeResponse",
+    path_params=("part_id",),
+    required_query=(),
+)
+
 GET_PARTS_PART_ID_FEATURES_FEATURE_ID: Final = Operation(
     operation_id="get_feature_api_v1_parts__part_id__features__feature_id__get",
     method="GET",
@@ -1268,6 +1278,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "create_feature_api_v1_parts__part_id__features_post": POST_PARTS_PART_ID_FEATURES,
         "import_step_api_v1_parts__part_id__features_import_post": POST_PARTS_PART_ID_FEATURES_IMPORT,
         "reorder_features_api_v1_parts__part_id__features_order_put": PUT_PARTS_PART_ID_FEATURES_ORDER,
+        "update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post": POST_PARTS_PART_ID_FEATURES_PLUGIN_UPDATES,
         "get_feature_api_v1_parts__part_id__features__feature_id__get": GET_PARTS_PART_ID_FEATURES_FEATURE_ID,
         "delete_feature_api_v1_parts__part_id__features__feature_id__delete": DELETE_PARTS_PART_ID_FEATURES_FEATURE_ID,
         "update_feature_api_v1_parts__part_id__features__feature_id__patch": PATCH_PARTS_PART_ID_FEATURES_FEATURE_ID,

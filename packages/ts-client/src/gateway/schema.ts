@@ -2040,6 +2040,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/features/plugin-updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Plugin Features
+         * @description Update custom features to their newer releases (OPENING-UPDATE).
+         *
+         *     The named features, or with ``feature_ids`` null every feature whose
+         *     response carries ``plugin_update`` ("Update all"), re-pinned with their
+         *     inputs carried by the plugin's explicit map. One edit: one
+         *     ``tree_version`` bump and one undo step. A feature with no update is
+         *     422 ``plugin_update_unavailable``; stale ``expected_tree_version`` 422;
+         *     both resurfaced verbatim.
+         */
+        post: operations["update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/features/{feature_id}": {
         parameters: {
             query?: never;
@@ -3127,7 +3154,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -3152,7 +3179,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
         };
         /**
          * BodyName
@@ -4504,13 +4531,25 @@ export interface components {
         ConcretePour: {
             /**
              * Item
+             * @description How it is bought: 'ready_mix' by the 1/4 yd³, or 'concrete_bag_80' in whole 80 lb bags of 0.60 ft³ (DECK-FOOTINGS).
              * @default ready_mix
-             * @constant
+             * @enum {string}
              */
-            item: "ready_mix";
+            item: "ready_mix" | "concrete_bag_80";
+            /**
+             * One Delivery
+             * @description Poured with the line's other pours from one delivery (DECK-FOOTINGS: a deck's piers, filled from one truck), so a ready-mix line rounds their sum up to 1/4 yd³ once, not each pour. Absent: each pour is its own delivery (FOUNDATION-TAKEOFF).
+             * @default false
+             */
+            one_delivery: boolean;
+            /**
+             * Post Base
+             * @description A pier footing under a post (DECK-FOOTINGS): the post base it lists, Each. Absent on every other pour.
+             */
+            post_base?: ("post_base_4x4" | "post_base_4x6" | "post_base_6x6") | null;
             /**
              * Waste Percent
-             * @description Ordered over the net volume (percent), then rounded up to 1/4 yd³.
+             * @description Ordered over the net volume (percent), then rounded up to 1/4 yd³, or to whole bags.
              * @default 5
              */
             waste_percent: number;
@@ -4636,6 +4675,11 @@ export interface components {
              */
             area_mm2?: number | null;
             /**
+             * Bags
+             * @description A bagged concrete line's order (DECK-FOOTINGS): the net volume plus waste_percent over 0.60 ft³ an 80 lb bag, rounded up to whole bags; also its stock_quantity, priced Each. Absent otherwise.
+             */
+            bags?: number | null;
+            /**
              * Casework
              * @description A casework item line (CASEWORK): 'edge_banding' (its total length in length_mm, bought in whole feet, stock_quantity), 'hinge' or a 'slide_<n>' pair (Each, quantity pieces). Its price-book key; absent on every other line.
              */
@@ -4652,9 +4696,9 @@ export interface components {
             extended_price_cents: number | null;
             /**
              * Item
-             * @description A foundation line (SLAB): 'concrete' (its pours, by volume), 'rebar' (runs of one length, bought in 20 ft sticks: stock_quantity) or 'anchor_bolt' (Each). Null otherwise.
+             * @description A foundation line (SLAB): 'concrete' (its pours, by volume), 'rebar' (runs of one length, bought in 20 ft sticks: stock_quantity), or 'anchor_bolt', 'foundation_vent', 'access_door' or 'post_base' (Each, quantity pieces; a vent or door's size in its member, 'Vent 16 x 8'). Null otherwise.
              */
-            item?: ("concrete" | "rebar" | "anchor_bolt") | null;
+            item?: ("concrete" | "rebar" | "anchor_bolt" | "foundation_vent" | "access_door" | "post_base") | null;
             /**
              * Length Mm
              * @description Measured length of each piece; for a sheet line, the sheet's length.
@@ -4664,7 +4708,7 @@ export interface components {
              * Material
              * @description Library material, or null.
              */
-            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
             /**
              * Member
              * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
@@ -4682,7 +4726,7 @@ export interface components {
             one_piece?: boolean;
             /**
              * Order Yd3
-             * @description A concrete line's order (yd³): the net volume plus waste_percent, rounded up to 1/4 yd³; its unit price is per yd³ and its extended price that times this. Null otherwise.
+             * @description A ready-mix line's order (yd³): each pour's net volume plus waste_percent, rounded up to 1/4 yd³ (a delivery each), summed; its unit price is per yd³ and its extended price that times this. Null otherwise (a bagged line orders `bags`).
              */
             order_yd3?: number | null;
             /**
@@ -7529,9 +7573,11 @@ export interface components {
              * Format: uuid
              */
             part_id: string;
+            /** @description The newer release this custom feature may be updated to (`POST .../features/plugin-updates`), with what it changes. Omitted when its release is the latest, or no newer release maps its inputs. */
+            plugin_update?: components["schemas"]["PluginUpdate"] | null;
             /**
              * Plugin Warnings
-             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.
+             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`). Omitted when there are none.
              */
             plugin_warnings?: components["schemas"]["PluginWarning"][] | null;
             /**
@@ -7976,18 +8022,18 @@ export interface components {
              * @description Price-book key, e.g. 'rebar_4'.
              * @enum {string}
              */
-            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2";
+            key: "ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6";
             /**
              * Kind
              * @enum {string}
              */
-            kind: "concrete" | "rebar" | "anchor_bolt";
+            kind: "concrete" | "rebar" | "anchor_bolt" | "foundation_vent" | "access_door" | "post_base";
             /**
              * Material
              * @description Library material the item is priced as.
              * @enum {string}
              */
-            material: "concrete" | "steel_a615" | "steel_f1554";
+            material: "concrete" | "steel_a615" | "steel_f1554" | "steel_1018";
             /**
              * Name
              * @description As listed, e.g. '#4 rebar'.
@@ -7995,7 +8041,7 @@ export interface components {
             name: string;
             /**
              * Price Unit
-             * @description How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.
+             * @description How a price-book entry prices it: ready-mix per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent, an access door, a bag of concrete or a post base Each.
              * @enum {string}
              */
             price_unit: "cubic_yard" | "each";
@@ -8004,6 +8050,31 @@ export interface components {
              * @description The stock an Each price is for (ft): 20 for a rebar stick; null for a bolt or concrete.
              */
             stock_length_ft?: number | null;
+        };
+        /**
+         * FoundationOpening
+         * @description Set on a stem wall's pour (FOUNDATION-TAKEOFF): *quantity* units of
+         *     one item and size set in the openings cut from it, a foundation vent or
+         *     the crawl-space access door, listed Each by the cut list.
+         */
+        FoundationOpening: {
+            /**
+             * Height Mm
+             * @description Tall (mm).
+             */
+            height_mm: number;
+            /**
+             * Item
+             * @enum {string}
+             */
+            item: "foundation_vent" | "crawl_access_door";
+            /** Quantity */
+            quantity: number;
+            /**
+             * Width Mm
+             * @description Along the wall (mm).
+             */
+            width_mm: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -9663,7 +9734,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -9698,7 +9769,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
         };
         /**
          * MaterialInput
@@ -9706,7 +9777,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -9918,6 +9989,11 @@ export interface components {
             /** @description Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd³. Absent otherwise. */
             concrete?: components["schemas"]["ConcretePour"] | null;
             /**
+             * Foundation Openings
+             * @description Set on a stem wall's pour (FOUNDATION-TAKEOFF): the foundation vents and the access door set in the openings cut from it, by size, each listed Each. Absent otherwise.
+             */
+            foundation_openings?: components["schemas"]["FoundationOpening"][] | null;
+            /**
              * Grain
              * @description A sheet-good panel with grain (CASEWORK: a plywood cabinet panel): the world direction its face grain runs, a unit vector [x, y, z]. The cut list lays the panel with that side along the sheet's length and never turns it. Absent: the panel may turn.
              */
@@ -9931,7 +10007,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -11554,16 +11630,57 @@ export interface components {
             title: string;
         };
         /**
+         * PluginUpdate
+         * @description A newer release a stored custom feature may be updated to
+         *     (OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio
+         *     has a newer version and Fusion badges out-of-date content. Offered only
+         *     where the plugin declares an explicit map of the stored inputs into the
+         *     newer release; the update is an ordinary edit, one undo step.
+         */
+        PluginUpdate: {
+            /**
+             * Summary
+             * @description What the update changes, in the action's words
+             */
+            summary: string;
+            /**
+             * To Version
+             * @description The release the update re-pins the feature to
+             */
+            to_version: string;
+        };
+        /**
+         * PluginUpdateRequest
+         * @description Update custom features to their newer releases (OPENING-UPDATE).
+         *
+         *     Onshape's "Update" on a custom feature and its "Update all" on the Part
+         *     Studio: each named feature (or, with ``feature_ids`` null, every feature
+         *     whose response carries ``plugin_update``) is re-pinned to that release,
+         *     its inputs carried by the plugin's explicit map, and re-expanded with its
+         *     hosts and the features that pick it. All of it is ONE edit: one
+         *     ``tree_version`` bump and one undo step. A feature with no update is
+         *     refused (422 ``plugin_update_unavailable``) and nothing is written.
+         */
+        PluginUpdateRequest: {
+            /** Expected Tree Version */
+            expected_tree_version: number;
+            /**
+             * Feature Ids
+             * @description The features to update, in any order (they are updated in tree order); null updates every feature that has an update.
+             */
+            feature_ids?: string[] | null;
+        };
+        /**
          * PluginWarning
          * @description One stored custom feature's geometry warning, with its fix if any.
          */
         PluginWarning: {
             /**
              * Code
-             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1
+             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them
              * @enum {string}
              */
-            code: "roof_through_sheathing" | "crawl_height_low";
+            code: "roof_through_sheathing" | "crawl_height_low" | "ceiling_joists_omitted";
             /**
              * Message
              * @description Names the problem and what fixes it
@@ -11774,7 +11891,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -11784,7 +11901,7 @@ export interface components {
              * Profile
              * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.
              */
-            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
@@ -18052,6 +18169,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["FeatureReorderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginUpdateRequest"];
             };
         };
         responses: {

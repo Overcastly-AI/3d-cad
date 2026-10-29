@@ -982,6 +982,7 @@ export function PartPage() {
       toggleSuppress,
       requestDeleteFeature,
       openScopedVerb,
+      updatePlugins: treeActions.updatePlugins,
     });
 
   // The breadcrumb's mode leaf: sketch step / measure / open command / model.
@@ -1160,6 +1161,7 @@ export function PartPage() {
                     datumFacePicking={datumFacePicking}
                     pluginCatalog={pluginCatalog}
                     submitCustom={pluginFeature.submitCustom}
+                    updatePlugins={treeActions.updatePlugins}
                   />
                   <ActionNotices
                     actionFlags={actionFlags}

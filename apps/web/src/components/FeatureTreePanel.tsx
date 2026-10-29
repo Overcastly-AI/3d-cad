@@ -51,6 +51,13 @@ import { featureTypeLabel } from "../features/featureLabels";
 import type { PluginManifest } from "../api/plugins";
 import { isCustomRow } from "../features/customFeature";
 import {
+  featureUpdate,
+  outOfDateFeatures,
+  outOfDateSentence,
+  UPDATE_ALL_LABEL,
+  updateToLabel,
+} from "../features/pluginUpdate";
+import {
   customFeatureBadge,
   CustomMemberRows,
   ReadOnlyBadge,
@@ -167,6 +174,14 @@ export interface FeatureTreePanelProps {
    * roles, and whether its plugin is here to edit it. Undefined while loading.
    */
   plugins?: readonly PluginManifest[] | undefined;
+  /**
+   * Update out-of-date Build features (OPENING-UPDATE): `null` is the part's
+   * one "Update all Build features". Absent = no update offered (a reuse
+   * with no write path); the rows still wear their badge.
+   */
+  onUpdatePlugins?: (featureIds: readonly string[] | null) => void;
+  /** True while an update is in flight: its button is busy. */
+  updatingPlugins?: boolean;
 }
 
 /** The pair a `reference_not_earlier` refusal named, as ids. */
@@ -248,11 +263,16 @@ export function FeatureTreePanel({
   onCancelRename,
   onReorder,
   plugins,
+  onUpdatePlugins,
+  updatingPlugins = false,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
   );
   const features = tree?.features ?? [];
+  // Build features a newer release maps (OPENING-UPDATE): badged, and the
+  // part's one Update all.
+  const outOfDate = outOfDateFeatures(features);
   // Custom features unfolded into their members (PLUGIN-UI); folded at rest.
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -540,416 +560,459 @@ export function FeatureTreePanel({
               No features yet. Start with a sketch.
             </p>
           ) : (
-            <ol className="pb-1">
-              {features.map((feature, index) => {
-                const result = resultById.get(feature.id);
-                const status = result?.status;
-                const rolledBack = index > barSlot;
-                const selected = feature.id === selectedFeatureId;
-                // The open command will change THIS row (see the prop doc).
-                const scoped = scopedFeatureIds?.includes(feature.id) ?? false;
-                // Suppressed reads from the persisted envelope flag (authoritative
-                // the instant the tree refetches, before the re-evaluate lands)
-                // OR the evaluate's dedicated `suppressed` status — either marks
-                // the row quiet-and-struck, distinct from a red error.
-                const suppressed =
-                  (feature.feature.suppressed ?? false) ||
-                  status === "suppressed";
-                const suppressBusy = feature.id === suppressingId;
-                const renaming = feature.id === renamingId;
-                // A custom feature (PLUGIN-UI) is named by its plugin and
-                // unfolds into its members; a missing plugin is read-only.
-                const custom = isCustomRow(feature) ? feature : null;
-                const customBadge =
-                  custom === null ? null : customFeatureBadge(custom, plugins);
-                const badge =
-                  customBadge?.text ?? featureBadge(feature.feature, features);
-                // This row was never attempted — and the cause is a DIFFERENT
-                // feature, so the row has to name it.
-                const blockedBy =
-                  status === "skipped" && !suppressed && !rolledBack
-                    ? (build.failure?.id ?? null)
-                    : null;
-                // A picked edge the kernel re-found only by adjacency. The row
-                // stays OK (it built); the notice under it asks for a look.
-                const moved =
-                  onRepickEdges !== undefined && !rolledBack
-                    ? movedEdgeWarning(feature, features, result)
-                    : null;
-                const showMoved =
-                  moved !== null &&
-                  !(dismissedWarnings?.has(moved.key) ?? false);
-                // A projected edge that no longer resolves: the sketch built
-                // on its last position, so the row reads OK and says so here.
-                const lost = rolledBack
-                  ? null
-                  : projectionWarning(feature, result);
-                const showLost =
-                  lost !== null && !(dismissedWarnings?.has(lost.key) ?? false);
-                return (
-                  <FeatureRowGroup key={feature.id}>
-                    {/* THE SEAT. A 2px scribe line where the dragged row would
+            <>
+              {outOfDate.length > 0 && onUpdatePlugins !== undefined ? (
+                // One action for the part, as Onshape's Update all: every
+                // out-of-date feature in one edit, which one Ctrl+Z undoes.
+                <div
+                  className="flex items-center gap-2 border-l-2 border-brass py-0.5 pr-2 pl-[10px]"
+                  data-testid="feature-update-strip"
+                >
+                  <span className="grow font-body text-xs text-brass">
+                    {outOfDateSentence(outOfDate.length)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    className="py-0.5 text-xs"
+                    disabled={updatingPlugins}
+                    aria-busy={updatingPlugins}
+                    title="Re-pin each to its newer release in one step; Ctrl+Z restores them."
+                    data-testid="feature-update-all"
+                    onClick={() => onUpdatePlugins(null)}
+                  >
+                    {updatingPlugins ? "Updating…" : UPDATE_ALL_LABEL}
+                  </Button>
+                </div>
+              ) : null}
+              <ol className="pb-1">
+                {features.map((feature, index) => {
+                  const result = resultById.get(feature.id);
+                  const status = result?.status;
+                  const rolledBack = index > barSlot;
+                  const selected = feature.id === selectedFeatureId;
+                  // The open command will change THIS row (see the prop doc).
+                  const scoped =
+                    scopedFeatureIds?.includes(feature.id) ?? false;
+                  // Suppressed reads from the persisted envelope flag (authoritative
+                  // the instant the tree refetches, before the re-evaluate lands)
+                  // OR the evaluate's dedicated `suppressed` status — either marks
+                  // the row quiet-and-struck, distinct from a red error.
+                  const suppressed =
+                    (feature.feature.suppressed ?? false) ||
+                    status === "suppressed";
+                  const suppressBusy = feature.id === suppressingId;
+                  const renaming = feature.id === renamingId;
+                  // A custom feature (PLUGIN-UI) is named by its plugin and
+                  // unfolds into its members; a missing plugin is read-only.
+                  const custom = isCustomRow(feature) ? feature : null;
+                  const update = custom === null ? null : featureUpdate(custom);
+                  const customBadge =
+                    custom === null
+                      ? null
+                      : customFeatureBadge(custom, plugins);
+                  const badge =
+                    customBadge?.text ??
+                    featureBadge(feature.feature, features);
+                  // This row was never attempted — and the cause is a DIFFERENT
+                  // feature, so the row has to name it.
+                  const blockedBy =
+                    status === "skipped" && !suppressed && !rolledBack
+                      ? (build.failure?.id ?? null)
+                      : null;
+                  // A picked edge the kernel re-found only by adjacency. The row
+                  // stays OK (it built); the notice under it asks for a look.
+                  const moved =
+                    onRepickEdges !== undefined && !rolledBack
+                      ? movedEdgeWarning(feature, features, result)
+                      : null;
+                  const showMoved =
+                    moved !== null &&
+                    !(dismissedWarnings?.has(moved.key) ?? false);
+                  // A projected edge that no longer resolves: the sketch built
+                  // on its last position, so the row reads OK and says so here.
+                  const lost = rolledBack
+                    ? null
+                    : projectionWarning(feature, result);
+                  const showLost =
+                    lost !== null &&
+                    !(dismissedWarnings?.has(lost.key) ?? false);
+                  return (
+                    <FeatureRowGroup key={feature.id}>
+                      {/* THE SEAT. A 2px scribe line where the dragged row would
                         land — brass when the tree will take it, flag with the
                         reason written underneath when it will not. In the flow
                         of the list, not a tooltip, so the pointer and the
                         keyboard reach the same words. */}
-                    {drag !== null &&
-                    drag.seat === index &&
-                    drag.seat !== drag.from ? (
-                      <li
-                        className="pr-3 pl-[10px]"
-                        data-testid="reorder-seat"
-                        data-legal={dragConflict === null || undefined}
-                      >
-                        <span
-                          className={`block h-0.5 ${
-                            dragConflict === null ? "bg-brass" : "bg-flag"
-                          }`}
-                        />
-                        {dragConflict !== null ? (
-                          <span className="mt-1 block font-body text-xs text-flag">
-                            {conflictMessage(dragConflict)}
-                          </span>
-                        ) : null}
-                      </li>
-                    ) : null}
-                    {/* A REFUSED SEAT, held after the gesture ends. */}
-                    {refused !== null && refused.seat === index ? (
-                      <RefusedSeatRow
-                        refused={refused}
-                        features={features}
-                        onRepair={() => {
-                          const legal = refused.legalIndex;
-                          setRefused(null);
-                          if (legal !== null) {
-                            attemptMove(refused.fromIndex, legal, true);
-                          }
-                        }}
-                        onDismiss={() => setRefused(null)}
-                      />
-                    ) : null}
-                    <li
-                      ref={(node) => {
-                        if (node === null) rowRefs.current.delete(feature.id);
-                        else rowRefs.current.set(feature.id, node);
-                      }}
-                      // ONE 24px BAND, the header's own tool-row height. It was
-                      // `py-1` around a `min-h-target-dense` button, i.e. a
-                      // 24px control in a 35px row — 11px of slack per feature,
-                      // on the panel a modeller scans most (founder,
-                      // 2026-08-28). `items-center` so the ordinal chip, the
-                      // name and the status badge share one centre line instead
-                      // of hanging from a baseline at the top of the band.
-                      className={`group/row flex min-h-target-dense items-center gap-2 border-l-2 py-0 pr-2 pl-[10px] ${
-                        selected || scoped
-                          ? "border-brass"
-                          : "border-transparent"
-                      } ${drag?.id === feature.id ? "bg-carbide" : ""}`}
-                      data-testid="feature-row"
-                      data-scoped={scoped || undefined}
-                      data-rolled-back={rolledBack || undefined}
-                      data-suppressed={suppressed || undefined}
-                      data-blocked-by={blockedBy ?? undefined}
-                      data-dragging={drag?.id === feature.id || undefined}
-                      onContextMenu={
-                        onRowContextMenu
-                          ? (event) => {
-                              event.preventDefault();
-                              onRowContextMenu(
-                                feature,
-                                event.clientX,
-                                event.clientY,
-                              );
-                            }
-                          : undefined
-                      }
-                    >
-                      <OrdinalCell
-                        index={index}
-                        count={features.length}
-                        name={feature.name}
-                        armed={canReorder && selected && !renaming}
-                        dragging={drag?.id === feature.id}
-                        busy={reordering}
-                        onRef={(node) => {
-                          if (node === null)
-                            gripRefs.current.delete(feature.id);
-                          else gripRefs.current.set(feature.id, node);
-                        }}
-                        onPointerDown={(event) =>
-                          startDrag(event, index, feature.id)
-                        }
-                        onPointerMove={moveDrag}
-                        onPointerUp={endDrag}
-                        onPointerCancel={() => setDrag(null)}
-                        onNudge={(delta) =>
-                          attemptMove(index, index + delta, true)
-                        }
-                      />
-                      {custom !== null ? (
-                        <UnfoldToggle
-                          open={unfolded.has(feature.id)}
-                          name={feature.name}
-                          index={index}
-                          onToggle={() => toggleUnfolded(feature.id)}
-                        />
-                      ) : null}
-                      {renaming ? (
-                        <div className="flex min-w-0 grow items-baseline gap-2">
-                          <TextField
-                            label={`Rename ${feature.name}`}
-                            hideLabel
-                            autoFocus
-                            defaultValue={feature.name}
-                            className="grow"
-                            data-testid={`feature-rename-${index}`}
-                            onFocus={(e) => e.currentTarget.select()}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                onCommitRename?.(
-                                  feature,
-                                  e.currentTarget.value,
-                                );
-                              } else if (e.key === "Escape") {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onCancelRename?.();
-                              }
-                            }}
-                            onBlur={(e) =>
-                              onCommitRename?.(feature, e.currentTarget.value)
-                            }
-                          />
-                          <span className="shrink-0 font-body text-xs text-gauge">
-                            {badge}
-                          </span>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onSelectFeature(feature)}
-                          aria-pressed={selected}
-                          aria-label={`Select ${feature.name}`}
-                          data-testid={`feature-select-${index}`}
-                          // `min-w-0` IS the fix for GEOMETRY-QA F6. A flex
-                          // item's automatic minimum width is its content, so
-                          // without it this button would not shrink below the
-                          // whole name. The row ran past the panel and the
-                          // status column was what got clipped: "Tooth gap
-                          // (twisted cut)" showed its OK cut to one glyph.
-                          className="flex min-h-target-dense min-w-0 grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                      {drag !== null &&
+                      drag.seat === index &&
+                      drag.seat !== drag.from ? (
+                        <li
+                          className="pr-3 pl-[10px]"
+                          data-testid="reorder-seat"
+                          data-legal={dragConflict === null || undefined}
                         >
-                          {/* The NAME is what gives way: `Truncated`
-                              ellipsises and keeps the whole name on `title`. */}
-                          <Truncated
-                            text={feature.name}
-                            className={`grow font-data text-sm ${
-                              suppressed
-                                ? "text-gauge line-through decoration-etch"
-                                : rolledBack
-                                  ? "text-gauge"
-                                  : "text-mist"
+                          <span
+                            className={`block h-0.5 ${
+                              dragConflict === null ? "bg-brass" : "bg-flag"
                             }`}
                           />
-                          {/* The SCOPE stamp — the same word the command band
+                          {dragConflict !== null ? (
+                            <span className="mt-1 block font-body text-xs text-flag">
+                              {conflictMessage(dragConflict)}
+                            </span>
+                          ) : null}
+                        </li>
+                      ) : null}
+                      {/* A REFUSED SEAT, held after the gesture ends. */}
+                      {refused !== null && refused.seat === index ? (
+                        <RefusedSeatRow
+                          refused={refused}
+                          features={features}
+                          onRepair={() => {
+                            const legal = refused.legalIndex;
+                            setRefused(null);
+                            if (legal !== null) {
+                              attemptMove(refused.fromIndex, legal, true);
+                            }
+                          }}
+                          onDismiss={() => setRefused(null)}
+                        />
+                      ) : null}
+                      <li
+                        ref={(node) => {
+                          if (node === null) rowRefs.current.delete(feature.id);
+                          else rowRefs.current.set(feature.id, node);
+                        }}
+                        // ONE 24px BAND, the header's own tool-row height. It was
+                        // `py-1` around a `min-h-target-dense` button, i.e. a
+                        // 24px control in a 35px row — 11px of slack per feature,
+                        // on the panel a modeller scans most (founder,
+                        // 2026-08-28). `items-center` so the ordinal chip, the
+                        // name and the status badge share one centre line instead
+                        // of hanging from a baseline at the top of the band.
+                        className={`group/row flex min-h-target-dense items-center gap-2 border-l-2 py-0 pr-2 pl-[10px] ${
+                          selected || scoped
+                            ? "border-brass"
+                            : "border-transparent"
+                        } ${drag?.id === feature.id ? "bg-carbide" : ""}`}
+                        data-testid="feature-row"
+                        data-scoped={scoped || undefined}
+                        data-rolled-back={rolledBack || undefined}
+                        data-suppressed={suppressed || undefined}
+                        data-blocked-by={blockedBy ?? undefined}
+                        data-dragging={drag?.id === feature.id || undefined}
+                        onContextMenu={
+                          onRowContextMenu
+                            ? (event) => {
+                                event.preventDefault();
+                                onRowContextMenu(
+                                  feature,
+                                  event.clientX,
+                                  event.clientY,
+                                );
+                              }
+                            : undefined
+                        }
+                      >
+                        <OrdinalCell
+                          index={index}
+                          count={features.length}
+                          name={feature.name}
+                          armed={canReorder && selected && !renaming}
+                          dragging={drag?.id === feature.id}
+                          busy={reordering}
+                          onRef={(node) => {
+                            if (node === null)
+                              gripRefs.current.delete(feature.id);
+                            else gripRefs.current.set(feature.id, node);
+                          }}
+                          onPointerDown={(event) =>
+                            startDrag(event, index, feature.id)
+                          }
+                          onPointerMove={moveDrag}
+                          onPointerUp={endDrag}
+                          onPointerCancel={() => setDrag(null)}
+                          onNudge={(delta) =>
+                            attemptMove(index, index + delta, true)
+                          }
+                        />
+                        {custom !== null ? (
+                          <UnfoldToggle
+                            open={unfolded.has(feature.id)}
+                            name={feature.name}
+                            index={index}
+                            onToggle={() => toggleUnfolded(feature.id)}
+                          />
+                        ) : null}
+                        {renaming ? (
+                          <div className="flex min-w-0 grow items-baseline gap-2">
+                            <TextField
+                              label={`Rename ${feature.name}`}
+                              hideLabel
+                              autoFocus
+                              defaultValue={feature.name}
+                              className="grow"
+                              data-testid={`feature-rename-${index}`}
+                              onFocus={(e) => e.currentTarget.select()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  onCommitRename?.(
+                                    feature,
+                                    e.currentTarget.value,
+                                  );
+                                } else if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onCancelRename?.();
+                                }
+                              }}
+                              onBlur={(e) =>
+                                onCommitRename?.(feature, e.currentTarget.value)
+                              }
+                            />
+                            <span className="shrink-0 font-body text-xs text-gauge">
+                              {badge}
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onSelectFeature(feature)}
+                            aria-pressed={selected}
+                            aria-label={`Select ${feature.name}`}
+                            data-testid={`feature-select-${index}`}
+                            // `min-w-0` IS the fix for GEOMETRY-QA F6. A flex
+                            // item's automatic minimum width is its content, so
+                            // without it this button would not shrink below the
+                            // whole name. The row ran past the panel and the
+                            // status column was what got clipped: "Tooth gap
+                            // (twisted cut)" showed its OK cut to one glyph.
+                            className="flex min-h-target-dense min-w-0 grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                          >
+                            {/* The NAME is what gives way: `Truncated`
+                              ellipsises and keeps the whole name on `title`. */}
+                            <Truncated
+                              text={feature.name}
+                              className={`grow font-data text-sm ${
+                                suppressed
+                                  ? "text-gauge line-through decoration-etch"
+                                  : rolledBack
+                                    ? "text-gauge"
+                                    : "text-mist"
+                              }`}
+                            />
+                            {/* The SCOPE stamp — the same word the command band
                               uses for the same fact, so the two surfaces teach
                               one vocabulary rather than two. It takes the badge
                               slot rather than sitting beside it: while a
                               command holds this row, what it is ABOUT TO
                               CHANGE outranks what type it is, and a 24px row
                               has no width for both. */}
-                          {scoped ? (
-                            <Stamp
-                              tone="brass"
-                              data-testid={`feature-scoped-${index}`}
-                            >
-                              Scope
-                            </Stamp>
-                          ) : customBadge?.readOnly && custom !== null ? (
-                            <ReadOnlyBadge row={custom} index={index} />
-                          ) : (
-                            // Capped, so a pattern's badge naming a long
-                            // source ("pattern · Tooth gap (twisted cut)")
-                            // cannot take the row the name gave up either.
-                            // (Not `Truncated`: its own `max-w-full` would
-                            // race this cap in the stylesheet's order.)
-                            <span
-                              title={badge}
-                              className="min-w-0 max-w-[60%] shrink-0 truncate font-body text-xs text-gauge"
-                            >
-                              {badge}
-                            </span>
-                          )}
-                        </button>
-                      )}
-                      {/* Suppress toggle — quiet by default, brass when the
+                            {update !== null && !scoped ? (
+                              // Out of date (Fusion's badge): its newer
+                              // release, and what updating it changes.
+                              <Stamp
+                                tone="brass"
+                                title={`${updateToLabel(update.toVersion)}: ${update.summary}`}
+                                aria-label={`Out of date: ${update.toVersion} available`}
+                                data-testid={`feature-update-badge-${index}`}
+                              >
+                                Update
+                              </Stamp>
+                            ) : null}
+                            {scoped ? (
+                              <Stamp
+                                tone="brass"
+                                data-testid={`feature-scoped-${index}`}
+                              >
+                                Scope
+                              </Stamp>
+                            ) : customBadge?.readOnly && custom !== null ? (
+                              <ReadOnlyBadge row={custom} index={index} />
+                            ) : (
+                              // Capped, so a pattern's badge naming a long
+                              // source ("pattern · Tooth gap (twisted cut)")
+                              // cannot take the row the name gave up either.
+                              // (Not `Truncated`: its own `max-w-full` would
+                              // race this cap in the stylesheet's order.)
+                              <span
+                                title={badge}
+                                className="min-w-0 max-w-[60%] shrink-0 truncate font-body text-xs text-gauge"
+                              >
+                                {badge}
+                              </span>
+                            )}
+                          </button>
+                        )}
+                        {/* Suppress toggle — quiet by default, brass when the
                           feature is suppressed. Struck-out row + this pressed
                           control read "held out of the build", reversibly. */}
-                      <button
-                        type="button"
-                        onClick={() => onToggleSuppress(feature)}
-                        disabled={suppressBusy}
-                        aria-pressed={suppressed}
-                        aria-busy={suppressBusy}
-                        aria-label={`Suppress ${feature.name}`}
-                        data-testid={`feature-suppress-${index}`}
-                        // Measured 18x18 before this pass — under the 24px floor
-                        // this product wrote down for itself (`target.dense`,
-                        // WCAG 2.2 SC 2.5.8). A density pass is the moment that
-                        // gets fixed, not the moment it gets worse: the row is
-                        // 24px now, so the toggle fills it rather than sitting
-                        // inside a 35px row at 18px.
-                        className={`flex min-h-target-dense min-w-target-dense shrink-0 items-center justify-center rounded-sm transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
-                          suppressed
-                            ? "text-brass"
-                            : "text-gauge opacity-60 hover:text-mist hover:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
-                        }`}
-                      >
-                        <SuppressIcon size={14} />
-                      </button>
-                      <span
-                        className={`w-8 shrink-0 text-right font-data text-xs ${
-                          status === "error" ? "text-flag" : "text-gauge"
-                        }`}
-                        // The badge is three glyphs; the CAUSE reaches the
-                        // pointer and the screen reader (N3: a SKIP with no
-                        // reason reads as "this feature is broken").
-                        title={
-                          blockedBy !== null && skipCause !== null
-                            ? `${feature.name}: ${skipCause}`
-                            : undefined
-                        }
-                        aria-label={
-                          rolledBack
-                            ? "rolled back"
-                            : suppressed
-                              ? "evaluation suppressed"
-                              : blockedBy !== null && skipCause !== null
-                                ? `evaluation skipped: ${skipCause}`
-                                : status
-                                  ? `evaluation ${status}`
-                                  : undefined
-                        }
-                      >
-                        {rolledBack
-                          ? "—"
-                          : suppressed
-                            ? STATUS_LABEL.suppressed
-                            : status
-                              ? STATUS_LABEL[status]
-                              : "—"}
-                      </span>
-                    </li>
-                    {custom !== null && unfolded.has(feature.id) ? (
-                      <CustomMemberRows
-                        row={custom}
-                        index={index}
-                        catalog={plugins}
-                        resultById={resultById}
-                        rolledBack={rolledBack}
-                      />
-                    ) : null}
-                    {status === "error" && result?.error && !rolledBack ? (
-                      <li
-                        className="border-l-2 border-flag py-1 pr-3 pl-[26px]"
-                        role="alert"
-                        data-testid={`feature-error-${index}`}
-                      >
-                        <span className="block font-display text-2xs uppercase tracking-[0.14em] text-flag">
-                          {result.error.code}
-                        </span>
-                        <span className="mt-0.5 block font-body text-xs text-mist">
-                          {friendlyFeatureError(
-                            result.error.code,
-                            result.error.message,
-                            feature.feature.type,
-                          )}
-                        </span>
-                        {onKeepAsOneBody &&
-                        offersBooleanDisjointRecovery(
-                          feature,
-                          result.error.code,
-                        ) ? (
-                          <Button
-                            variant="ghost"
-                            className="mt-1.5 py-0.5 text-xs"
-                            disabled={recoveringDisjoint}
-                            aria-busy={recoveringDisjoint}
-                            data-testid={`feature-recover-disjoint-${index}`}
-                            onClick={() => onKeepAsOneBody(feature)}
-                          >
-                            {recoveringDisjoint
-                              ? "Combining…"
-                              : KEEP_AS_ONE_BODY_ACTION}
-                          </Button>
-                        ) : null}
-                        {onRepickFace &&
-                        offersRepickFace(feature, result.error.code) ? (
-                          <Button
-                            variant="ghost"
-                            className="mt-1.5 py-0.5 text-xs"
-                            data-testid={`feature-repick-face-${index}`}
-                            onClick={() => onRepickFace(feature)}
-                          >
-                            {REPICK_FACE_ACTION}
-                          </Button>
-                        ) : null}
-                      </li>
-                    ) : null}
-                    {showMoved && moved !== null && onRepickEdges ? (
-                      <li className="py-1 pr-3 pl-[26px]">
-                        <MovedEdgeNotice
-                          warning={moved}
-                          onRepick={() => onRepickEdges(feature)}
-                          {...(onDismissWarning !== undefined
-                            ? { onDismiss: () => onDismissWarning(moved.key) }
-                            : {})}
-                          data-testid={`feature-resolution-${index}`}
-                          repickTestId={`feature-repick-edges-${index}`}
-                          dismissTestId={`feature-resolution-dismiss-${index}`}
-                        />
-                      </li>
-                    ) : null}
-                    {showLost && lost !== null ? (
-                      <li className="py-1 pr-3 pl-[26px]">
-                        <Notice
-                          role="status"
-                          label={PROJECTION_LOST_LABEL}
-                          layout="stacked"
-                          data-testid={`feature-projection-${index}`}
-                          {...(onDismissWarning !== undefined
-                            ? {
-                                onDismiss: () => onDismissWarning(lost.key),
-                                dismissTestId: `feature-projection-dismiss-${index}`,
-                              }
-                            : {})}
+                        <button
+                          type="button"
+                          onClick={() => onToggleSuppress(feature)}
+                          disabled={suppressBusy}
+                          aria-pressed={suppressed}
+                          aria-busy={suppressBusy}
+                          aria-label={`Suppress ${feature.name}`}
+                          data-testid={`feature-suppress-${index}`}
+                          // Measured 18x18 before this pass — under the 24px floor
+                          // this product wrote down for itself (`target.dense`,
+                          // WCAG 2.2 SC 2.5.8). A density pass is the moment that
+                          // gets fixed, not the moment it gets worse: the row is
+                          // 24px now, so the toggle fills it rather than sitting
+                          // inside a 35px row at 18px.
+                          className={`flex min-h-target-dense min-w-target-dense shrink-0 items-center justify-center rounded-sm transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
+                            suppressed
+                              ? "text-brass"
+                              : "text-gauge opacity-60 hover:text-mist hover:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+                          }`}
                         >
-                          {lost.sentence}
-                        </Notice>
+                          <SuppressIcon size={14} />
+                        </button>
+                        <span
+                          className={`w-8 shrink-0 text-right font-data text-xs ${
+                            status === "error" ? "text-flag" : "text-gauge"
+                          }`}
+                          // The badge is three glyphs; the CAUSE reaches the
+                          // pointer and the screen reader (N3: a SKIP with no
+                          // reason reads as "this feature is broken").
+                          title={
+                            blockedBy !== null && skipCause !== null
+                              ? `${feature.name}: ${skipCause}`
+                              : undefined
+                          }
+                          aria-label={
+                            rolledBack
+                              ? "rolled back"
+                              : suppressed
+                                ? "evaluation suppressed"
+                                : blockedBy !== null && skipCause !== null
+                                  ? `evaluation skipped: ${skipCause}`
+                                  : status
+                                    ? `evaluation ${status}`
+                                    : undefined
+                          }
+                        >
+                          {rolledBack
+                            ? "—"
+                            : suppressed
+                              ? STATUS_LABEL.suppressed
+                              : status
+                                ? STATUS_LABEL[status]
+                                : "—"}
+                        </span>
                       </li>
-                    ) : null}
-                    {/* The casualty list, stated ONCE where the build stopped:
+                      {custom !== null && unfolded.has(feature.id) ? (
+                        <CustomMemberRows
+                          row={custom}
+                          index={index}
+                          catalog={plugins}
+                          resultById={resultById}
+                          rolledBack={rolledBack}
+                        />
+                      ) : null}
+                      {status === "error" && result?.error && !rolledBack ? (
+                        <li
+                          className="border-l-2 border-flag py-1 pr-3 pl-[26px]"
+                          role="alert"
+                          data-testid={`feature-error-${index}`}
+                        >
+                          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-flag">
+                            {result.error.code}
+                          </span>
+                          <span className="mt-0.5 block font-body text-xs text-mist">
+                            {friendlyFeatureError(
+                              result.error.code,
+                              result.error.message,
+                              feature.feature.type,
+                            )}
+                          </span>
+                          {onKeepAsOneBody &&
+                          offersBooleanDisjointRecovery(
+                            feature,
+                            result.error.code,
+                          ) ? (
+                            <Button
+                              variant="ghost"
+                              className="mt-1.5 py-0.5 text-xs"
+                              disabled={recoveringDisjoint}
+                              aria-busy={recoveringDisjoint}
+                              data-testid={`feature-recover-disjoint-${index}`}
+                              onClick={() => onKeepAsOneBody(feature)}
+                            >
+                              {recoveringDisjoint
+                                ? "Combining…"
+                                : KEEP_AS_ONE_BODY_ACTION}
+                            </Button>
+                          ) : null}
+                          {onRepickFace &&
+                          offersRepickFace(feature, result.error.code) ? (
+                            <Button
+                              variant="ghost"
+                              className="mt-1.5 py-0.5 text-xs"
+                              data-testid={`feature-repick-face-${index}`}
+                              onClick={() => onRepickFace(feature)}
+                            >
+                              {REPICK_FACE_ACTION}
+                            </Button>
+                          ) : null}
+                        </li>
+                      ) : null}
+                      {showMoved && moved !== null && onRepickEdges ? (
+                        <li className="py-1 pr-3 pl-[26px]">
+                          <MovedEdgeNotice
+                            warning={moved}
+                            onRepick={() => onRepickEdges(feature)}
+                            {...(onDismissWarning !== undefined
+                              ? { onDismiss: () => onDismissWarning(moved.key) }
+                              : {})}
+                            data-testid={`feature-resolution-${index}`}
+                            repickTestId={`feature-repick-edges-${index}`}
+                            dismissTestId={`feature-resolution-dismiss-${index}`}
+                          />
+                        </li>
+                      ) : null}
+                      {showLost && lost !== null ? (
+                        <li className="py-1 pr-3 pl-[26px]">
+                          <Notice
+                            role="status"
+                            label={PROJECTION_LOST_LABEL}
+                            layout="stacked"
+                            data-testid={`feature-projection-${index}`}
+                            {...(onDismissWarning !== undefined
+                              ? {
+                                  onDismiss: () => onDismissWarning(lost.key),
+                                  dismissTestId: `feature-projection-dismiss-${index}`,
+                                }
+                              : {})}
+                          >
+                            {lost.sentence}
+                          </Notice>
+                        </li>
+                      ) : null}
+                      {/* The casualty list, stated ONCE where the build stopped:
                         the rows under here were never attempted, and several of
                         them may have nothing to do with the failure (N3 — the
                         datum plane and the far-corner dowel hole that vanished
                         with a bad hole pick). Each of those rows also names this
                         feature in its own status cell. */}
-                    {feature.id === build.failure?.id &&
-                    build.excluded.length > 0 ? (
-                      <li
-                        className="py-1 pr-3 pl-[26px]"
-                        data-testid="feature-excluded-note"
-                      >
-                        <span className="block font-body text-xs text-gauge">
-                          {excludedNote(build)}
-                        </span>
-                      </li>
-                    ) : null}
-                  </FeatureRowGroup>
-                );
-              })}
-            </ol>
+                      {feature.id === build.failure?.id &&
+                      build.excluded.length > 0 ? (
+                        <li
+                          className="py-1 pr-3 pl-[26px]"
+                          data-testid="feature-excluded-note"
+                        >
+                          <span className="block font-body text-xs text-gauge">
+                            {excludedNote(build)}
+                          </span>
+                        </li>
+                      ) : null}
+                    </FeatureRowGroup>
+                  );
+                })}
+              </ol>
+            </>
           )}
         </PanelSection>
 

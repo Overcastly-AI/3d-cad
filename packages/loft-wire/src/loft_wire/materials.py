@@ -60,6 +60,7 @@ MaterialKey = Literal[
     "steel_f1554",
     "gypsum",
     "melamine",
+    "xps_foam",
 ]
 
 
@@ -254,6 +255,15 @@ _LIBRARY: tuple[Material, ...] = (
         name="Melamine (faced particleboard)",
         density_kg_m3=721.0,
         source=f"ANSI A208.1 grade M-2 particleboard, typical 45 {_PCF}",
+    ),
+    # Rigid foam (OPENING-UPDATE, RESEARCH §23): the foam of an insulated
+    # header ("Two plies, foam between"), extruded polystyrene at ASTM C578
+    # Type IV's minimum density, the 25 psi board framers buy for it.
+    Material(
+        key="xps_foam",
+        name="Rigid foam (XPS)",
+        density_kg_m3=23.2,
+        source=f"ASTM C578 Type IV extruded polystyrene, minimum 1.45 {_PCF}",
     ),
 )
 

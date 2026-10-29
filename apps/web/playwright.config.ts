@@ -1,6 +1,14 @@
 import { defineConfig } from "@playwright/test";
 
 /**
+ * The Vite dev server's port: 5173 unless `VITE_PORT` (scripts/e2e.sh) picks
+ * another, so a concurrent worktree's stack on :5173 is never reused to serve
+ * this one's specs (E2E-PORT).
+ */
+const WEB_PORT = process.env["VITE_PORT"] ?? "5173";
+const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
+
+/**
  * First-light e2e: drives the real stack. Requires the geometry service
  * (:8002) and gateway (:8000) to be running — see README. The Vite dev
  * server is started automatically.
@@ -11,7 +19,7 @@ export default defineConfig({
   workers: 1,
   timeout: 60_000,
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL: WEB_ORIGIN,
     viewport: { width: 1600, height: 1000 },
     deviceScaleFactor: 1,
     // On failure only, so a red CI shard arrives with evidence instead of a
@@ -49,8 +57,8 @@ export default defineConfig({
     // 60000ms from config.webServer", NOT "exited early". It cannot reproduce
     // in the dev container, which has no IPv6 loopback at all, so binding the
     // literal IPv4 loopback is how the ambiguity stops mattering either way.
-    command: "pnpm dev --host 127.0.0.1 --strictPort",
-    url: "http://127.0.0.1:5173",
+    command: `pnpm dev --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
+    url: WEB_ORIGIN,
     reuseExistingServer: true,
     // 60_000 was a warm-laptop number. Measured here with the dep cache
     // DELETED: 1.3 s to index.html, 5.5 s to the entry module — so cold

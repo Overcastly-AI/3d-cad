@@ -1,0 +1,62 @@
+{
+  "description": "B1 DECK ON PIER FOOTINGS (DECK-FOOTINGS; docs/reference-parts/buildings.md B1 'Footings') from ONE loft.deck 1.2.0 custom feature, width 240 in (20 ft), projection 144 in, everything else the plugin's defaults: 1.1.0's B1 framing and decking, and a round pier footing under each of its 4 posts, 16 in across and 12 in deep, its top at grade, bought as 80 lb bags with a 6x6 post base each. model.json is EXACTLY the plugin's expansion with the member materials documents applies (pressure-treated southern pine framing, concrete piers); members.json is each body's member metadata with its plugin. packages/loft-plugins/tests/test_deck_footings.py pins both; services/geometry/tests/test_deck_footings_b1.py checks the cut list (4 footings, 10 bags, 4 post bases), the exported STEP and interference.",
+  "derivation": [
+    "Every expectation except the mesh counts is ANALYTIC, typed from buildings.md, never from the plugin: the deck's boxes are plugin-deck-v1-b1-20ft's (50 boxes, 80212.5 in^3, its derivation), and the 4 piers are cylinders of radius 8 in, Z -12..0, centred on the posts at X 2.75 + 234.5 n / 3, n = 0..3 (2.75 .. 237.25), Y 126 (the beam line).",
+    "",
+    "volume = 80212.5 + 4 x pi x 8^2 x 12 = 80212.5 + 3072 pi = 89863.472632 in^3 (the piers 9650.972632 in^3, buildings.md's 9650.97); x 25.4^3 = 1472598477.280011 mm^3.",
+    "",
+    "surface_area = the boxes' sum of 2(ab + bc + ca) plus 4 x (2 pi 8^2 + 2 pi 8 x 12) = 4 x 320 pi in^2 (bodies are separate; a pier's top touches its post, never merged) = 100833500.652979 mm^2.",
+    "",
+    "centroid = volume-weighted mean of the box centres (exact rationals) and the piers' centre (X the posts' mean, 120 in; Y 126; Z -6): 3048.000000, 2107.4555886217, 561.7011697591 mm. X is symmetric about the deck's centre.",
+    "",
+    "mass_g = the boxes' volume x 582.0 kg/m^3 (southern_pine_pt) + the piers' x 2400.0 kg/m^3 (concrete) = 1144571.024812 g; center_of_mass weights the same centres by mass.",
+    "",
+    "bounding_box: X -5.25 (the first pier, 2.75 - 8) .. 245.25 in (the last, 237.25 + 8), Y 0 .. 146.125 (the last board), Z -12 (the piers' bottoms) .. 30.",
+    "",
+    "topology: 50 boxes x (6 faces, 12 edges, 1 shell) + 4 cylinders x (3 faces: two planar discs and the lateral face; 3 edges: two circles and the seam; 1 shell) = 312 faces, 612 edges, 54 shells.",
+    "",
+    "MESH counts: the boxes are exact (24 vertices, 12 triangles each: 1200, 600); each pier is RECORDED from the kernel at linear deflection 0.1 mm and checked for structure: its circle split into 126 segments gives 4 x 126 - 4 = 500 triangles (2 x 126 on the side, 126 - 2 on each disc) on 4 x 126 + 2 = 506 vertices (the side's seam doubled); 1200 + 4 x 506 = 3224, 600 + 4 x 500 = 2600.",
+    "",
+    "Interference none (test_deck_footings_b1): each pier's top meets its post's foot face to face at Z 0, and no two piers or members overlap."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as for the 1.0.0 decks: the bounds are ABSOLUTE and the part is ~1.2e9-1.5e9 mm^3 summed over separate bodies, so the double-precision sum carries ~1e-6 mm^3 of round-off. Kernel vs this derivation, measured 2026-10-28: volume -9.5e-7 (16 ft) and +1.7e-6 (20 ft) mm^3, area <= 7.5e-8 mm^2, centroid and centre of mass <= 2.3e-12 mm, mass <= 9.3e-10 g. 1e-5 is 6x the worst; a pier 1/16 in narrower moves the volume by ~3e5 mm^3 and fails by ten orders.",
+  "roundtrip_tolerance": 1e-5,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-28: the STEP round trip re-sums the re-imported solids in another order, moving the volume by -1.2e-6 (16 ft) and -3.6e-6 (20 ft) mm^3 and the area by <= 1.1e-7 mm^2 (~2e-15 relative), below which ROUNDTRIP_TOL (1e-7 absolute) cannot reach for a sum of this size; the 1.0.0 deck drifts +3.0e-6 the same way. 1e-5 is 2.8x the worst and the 1.0.0 decks' bound; it applies to volume and area only, the centroid (<= 6.4e-12 mm) and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 1472598477.2800112,
+    "surface_area": 100833500.65297918,
+    "centroid": {
+      "x": 3048.0,
+      "y": 2107.455588621734,
+      "z": 561.7011697590651
+    },
+    "mass_g": 1144571.024812227,
+    "center_of_mass": {
+      "x": 3047.9999999999995,
+      "y": 2382.0055829693747,
+      "z": 382.31741512349623
+    },
+    "bounding_box": {
+      "min": {
+        "x": -133.35,
+        "y": 0.0,
+        "z": -304.79999999999995
+      },
+      "max": {
+        "x": 6229.349999999999,
+        "y": 3711.575,
+        "z": 762.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 312,
+    "edges": 612,
+    "shells": 54
+  },
+  "mesh": {
+    "vertices": 3224,
+    "triangles": 2600
+  }
+}

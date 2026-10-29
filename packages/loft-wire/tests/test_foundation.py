@@ -1,6 +1,7 @@
-"""Foundation takeoff (SLAB): concrete by the cubic yard, rebar sticks and
-anchor bolts, checked against docs/reference-parts/buildings.md B8, B8's
-edits, B2's plain slab and B9's pour, typed by hand.
+"""Foundation takeoff (SLAB, FOUNDATION-TAKEOFF): concrete by the cubic yard,
+each pour its own order, rebar sticks, anchor bolts, and a crawl space's vents
+and access door Each, checked against docs/reference-parts/buildings.md B8,
+B8's edits, B2's plain slab and B9's pours, typed by hand.
 
 The cut list is built from synthetic measurements (a body's extents and
 volume, as geometry measures them): the slab's pour, its two loops, and the
@@ -8,6 +9,7 @@ bottom plates its walls stand on. ``services/geometry/tests/test_slab_b8.py``
 runs the same on the kernel's measurements of the B8 golden.
 """
 
+import math
 import uuid
 from fractions import Fraction
 from typing import Any
@@ -24,11 +26,14 @@ from loft_wire.cut_list_csv import (
     cut_list_csv,
 )
 from loft_wire.foundation import (
+    CONCRETE_BAG_YIELD_FT3,
     FOUNDATION_ITEMS,
     AnchorBolts,
     ConcretePour,
+    FoundationOpening,
     RebarRun,
     anchor_bolt_count,
+    concrete_bags,
     concrete_order_yd3,
     rebar_sticks,
     volume_yd3,
@@ -47,8 +52,133 @@ def test_the_catalogue() -> None:
         ("ready_mix", "Ready-mix concrete", "concrete", "cubic_yard"),
         ("rebar_4", "#4 rebar", "steel_a615", "each"),
         ("anchor_bolt_1_2", "1/2 in anchor bolt", "steel_f1554", "each"),
+        ("foundation_vent", "Foundation vent", "steel_1018", "each"),
+        ("crawl_access_door", "Crawl-space access door", "steel_1018", "each"),
+        ("concrete_bag_80", "Concrete, 80 lb bag", "concrete", "each"),
+        ("post_base_4x4", "Post base 4x4 (ABU44)", "steel_1018", "each"),
+        ("post_base_4x6", "Post base 4x6 (ABU46)", "steel_1018", "each"),
+        ("post_base_6x6", "Post base 6x6 (ABU66)", "steel_1018", "each"),
     ]
     assert all(i.material in MATERIALS_BY_KEY for i in FOUNDATION_ITEMS)
+
+
+# --- Bagged concrete (DECK-FOOTINGS) --------------------------------------------------
+
+
+def test_a_bag_yields_0_60_ft3() -> None:
+    """Derived independently of the bag's printed yield: 80 lb of dry premix
+    and the ~3 qt (6.2 lb) of water it takes make ~86.2 lb of fresh concrete,
+    which at ~144 lb/ft³ (normal-weight concrete less its steel, ACI 211
+    fresh density 140-150) fills 86.2 / 144 = 0.599 ft³: the 0.60 ft³ the
+    bags state, and 27 / 0.60 = 45 bags to the yd³ as their charts list."""
+    assert Fraction(3, 5) == CONCRETE_BAG_YIELD_FT3
+    fresh_lb = 80 + 3 * 0.25 * 8.34  # 3 qt of water at 8.34 lb/gal
+    assert fresh_lb / 144 == pytest.approx(float(CONCRETE_BAG_YIELD_FT3), abs=0.01)
+    assert 27 / CONCRETE_BAG_YIELD_FT3 == 45
+
+
+@pytest.mark.parametrize(
+    ("piers", "bags"),
+    [
+        # B1: 3 x pi x 8^2 x 12 = 7 238.23 in^3 = 4.19 ft^3; x 1.05 / 0.60 = 7.33.
+        (3, 8),
+        # B1 at 20 ft: 4 piers, 9 650.97 in^3 = 5.59 ft^3; x 1.05 / 0.60 = 9.77.
+        (4, 10),
+    ],
+)
+def test_b1s_footings_buy_whole_bags(piers: int, bags: int) -> None:
+    volume = piers * math.pi * 8**2 * 12 * IN3
+    assert concrete_bags(volume, 5) == bags
+    assert concrete_bags(volume, 0) == (7 if piers == 3 else 10)  # 6.98, 9.31
+
+
+def test_exactly_whole_bags_buy_no_extra() -> None:
+    """Ten bags' worth (6 ft^3, 10 368 in^3) buys 10, not 11 by an ulp."""
+    assert concrete_bags(10368 * IN3, 0) == 10
+    assert concrete_bags(0.0, 5) == 0
+
+
+def test_bags_and_post_bases_are_priced_each() -> None:
+    _entry(material="concrete", profile="concrete_bag_80", unit="each", price_cents=1)
+    _entry(material="steel_1018", profile="post_base_6x6", unit="each", price_cents=1)
+    for bad in (
+        {"material": "concrete", "profile": "concrete_bag_80", "unit": "cubic_yard"},
+        {
+            "material": "concrete",
+            "profile": "concrete_bag_80",
+            "unit": "each",
+            "stock_length_ft": 8,
+        },
+        {"material": "steel_1018", "profile": "post_base_4x4", "unit": "linear_foot"},
+    ):
+        with pytest.raises(ValidationError):
+            _entry(**bad, price_cents=1)
+
+
+def _footing(post_base: str | None = "post_base_6x6") -> MemberMetadata:
+    return MemberMetadata.model_validate(
+        {
+            "profile": "Concrete, 80 lb bag",
+            "material": "concrete",
+            "concrete": {
+                "item": "concrete_bag_80",
+                "waste_percent": 5,
+                **({} if post_base is None else {"post_base": post_base}),
+            },
+        }
+    )
+
+
+def test_footings_list_bags_and_post_bases_under_foundation() -> None:
+    """Three B1 piers from a deck: one bagged line of 8 bags over their total
+    volume, one Each line of 3 post bases, both under Foundation."""
+    ids = [uuid.uuid4() for _ in range(3)]
+    pier = 768 * math.pi * IN3
+    extents = BodyExtentsResult(
+        part_id=uuid.uuid4(),
+        tree_version=1,
+        bodies=[
+            BodyExtent(
+                base_feature_id=i,
+                extents_mm=(16 * IN, 16 * IN, 12 * IN),
+                volume_mm3=pier,
+            )
+            for i in ids
+        ],
+    )
+    members = [
+        CutListMember(
+            feature_id=i,
+            role="footing",
+            title="Footing",
+            plugin_id="loft.deck",
+            metadata=_footing(),
+        )
+        for i in ids
+    ]
+    lines = cut_list_response(
+        document_id=uuid.uuid4(),
+        document_kind="part",
+        name="piers",
+        length_unit="in",
+        pieces=part_pieces(extents, members, None),
+    ).lines
+    assert [
+        (line.system, line.member, line.item, line.quantity, line.stock_quantity)
+        for line in lines
+    ] == [
+        ("foundation", "Footing", "concrete", 3, 8),
+        ("foundation", "Post base", "post_base", 3, 3),
+    ]
+    assert lines[0].bags == 8 and lines[0].order_yd3 is None
+    assert lines[1].profile == "Post base 6x6 (ABU66)"
+    assert lines[1].material == "steel_1018"
+    # A footing with no post base lists none; a stored pour reads as before.
+    assert "post_base" not in _footing(None).model_dump(mode="json")["concrete"]
+    assert ConcretePour().model_dump(mode="json") == {
+        "item": "ready_mix",
+        "waste_percent": 5,
+    }
 
 
 # --- The arithmetic ------------------------------------------------------------------
@@ -63,8 +193,12 @@ def test_the_catalogue() -> None:
         (354816, 7.60, Fraction(8)),
         # B2's plain slab: 69 120 -> 1.481; x 1.05 = 1.556, ordered 1.75.
         (69120, 1.48, Fraction(7, 4)),
-        # B9's stem and footing: 307 328 -> 6.587; x 1.05 = 6.917, ordered 7.
-        (307328, 6.59, Fraction(7)),
+        # B9's footing: 118 784 -> 2.546; x 1.05 = 2.673, ordered 2.75.
+        (118784, 2.55, Fraction(11, 4)),
+        # B9's stem: 188 544 -> 4.041; x 1.05 = 4.243, ordered 4.25.
+        (188544, 4.04, Fraction(17, 4)),
+        # B9's stem at a 30 in crawl: 233 088 -> 4.996; x 1.05 = 5.246: 5.25.
+        (233088, 5.00, Fraction(21, 4)),
     ],
 )
 def test_concrete_orders_the_allowance_rounded_up_to_a_quarter(
@@ -119,7 +253,26 @@ def test_each_item_is_priced_its_one_way() -> None:
     _entry(
         material="steel_f1554", profile="anchor_bolt_1_2", unit="each", price_cents=1
     )
+    for key in ("foundation_vent", "crawl_access_door"):
+        _entry(material="steel_1018", profile=key, unit="each", price_cents=1)
     for bad in (
+        {
+            "material": "steel_1018",
+            "profile": "foundation_vent",
+            "unit": "each",
+            "stock_length_ft": 8,
+        },
+        {
+            "material": "steel_1018",
+            "profile": "crawl_access_door",
+            "unit": "each",
+            "sheet": "4x8",
+        },
+        {
+            "material": "steel_1018",
+            "profile": "foundation_vent",
+            "unit": "linear_foot",
+        },
         {"material": "concrete", "profile": "ready_mix", "unit": "each"},
         {
             "material": "concrete",
@@ -167,6 +320,18 @@ BOOK = PriceBookResponse.model_validate(
                 "profile": "anchor_bolt_1_2",
                 "unit": "each",
                 "price_cents": 248,
+            },
+            {
+                "material": "steel_1018",
+                "profile": "foundation_vent",
+                "unit": "each",
+                "price_cents": 1298,
+            },
+            {
+                "material": "steel_1018",
+                "profile": "crawl_access_door",
+                "unit": "each",
+                "price_cents": 4997,
             },
         ],
     }
@@ -308,22 +473,21 @@ def test_the_csv_lists_the_order() -> None:
     )
 
 
-def test_a_pours_waste_is_its_own_line() -> None:
-    """Two pours of one allowance are one line (the order on their sum);
-    another allowance is another line."""
+def _with_twin(waste: int) -> Any:
+    """B8 and a second slab pour, a twin of the first, at *waste* percent."""
     extents, members = _house(288)
     twin = extents.bodies[0].model_copy(update={"base_feature_id": uuid.uuid4()})
     other = members[0].model_copy(
         update={
             "feature_id": twin.base_feature_id,
             "metadata": members[0].metadata.model_copy(
-                update={"concrete": ConcretePour(waste_percent=10), "rebar": None}
+                update={"concrete": ConcretePour(waste_percent=waste), "rebar": None}
             ),
         }
     )
     extents = extents.model_copy(update={"bodies": [*extents.bodies, twin]})
     pieces = part_pieces(extents, [*members, other], None)
-    cut_list = cut_list_response(
+    return cut_list_response(
         document_id=uuid.uuid4(),
         document_kind="part",
         name="B8",
@@ -331,17 +495,44 @@ def test_a_pours_waste_is_its_own_line() -> None:
         pieces=pieces,
         price_book=BOOK,
     )
-    pours = [line for line in cut_list.lines if line.item == "concrete"]
+
+
+def test_a_pours_waste_is_its_own_line() -> None:
+    """Another allowance is another line: 6.62 x 1.10 = 7.28, 7.50."""
+    pours = [line for line in _with_twin(10).lines if line.item == "concrete"]
     assert [(p.waste_percent, p.order_yd3) for p in pours] == [(5, 7.0), (10, 7.5)]
+
+
+def test_two_pours_of_one_member_are_ordered_one_by_one() -> None:
+    """SLAB-MULTI-POUR: two 6.62 yd³ slabs are two deliveries of 7.00 (6.95
+    each, rounded up), 14.00 on their one line."""
+    (pour,) = [line for line in _with_twin(5).lines if line.item == "concrete"]
+    assert (pour.member, pour.quantity, pour.order_yd3) == ("Slab", 2, 14.0)
+    assert pour.extended_price_cents == 14 * 16500
+    # B2's plain slab twice: 1.56 + 1.56 = 3.11 would round to 3.25 on the
+    # sum, but each truck brings 1.75: 3.50.
+    b2 = 69120 * IN3
+    assert concrete_order_yd3(2 * b2, 5) == Fraction(13, 4)
+    assert 2 * concrete_order_yd3(b2, 5) == Fraction(7, 2)
 
 
 # --- A pour that bolts another feature's plates (CRAWL-SPACE) ------------------------
 
 
-def _b9() -> tuple[BodyExtentsResult, list[CutListMember]]:
+VENTS = FoundationOpening(
+    item="foundation_vent", width_mm=16 * IN, height_mm=8 * IN, quantity=5
+)
+ACCESS = FoundationOpening(
+    item="crawl_access_door", width_mm=24 * IN, height_mm=16 * IN, quantity=1
+)
+
+
+def _b9(
+    openings: list[FoundationOpening] | None = None,
+) -> tuple[BodyExtentsResult, list[CutListMember]]:
     """B9's footing (118 784 in^3, two loops of 968 and 888) and stem
-    (188 544 in^3 less its openings, the bolts for the floor's four sills),
-    a pour each."""
+    (188 544 in^3 less its openings, the bolts for the floor's four sills,
+    and *openings*), a pour each."""
     footing = BodyExtent(
         base_feature_id=uuid.uuid4(),
         extents_mm=(296 * IN, 200 * IN, 8 * IN),
@@ -380,6 +571,7 @@ def _b9() -> tuple[BodyExtentsResult, list[CutListMember]]:
                 anchor_bolts=AnchorBolts(
                     plates_mm=[288 * IN, 288 * IN, 181 * IN, 181 * IN]
                 ),
+                foundation_openings=openings,
             ),
         ),
     ]
@@ -389,9 +581,9 @@ def _b9() -> tuple[BodyExtentsResult, list[CutListMember]]:
     return extents, members
 
 
-def test_b9s_pour_lists_the_bolts_of_the_sills_it_carries() -> None:
-    extents, members = _b9()
-    cut_list = cut_list_response(
+def _b9_cut_list(openings: list[FoundationOpening] | None = None) -> Any:
+    extents, members = _b9(openings)
+    return cut_list_response(
         document_id=uuid.uuid4(),
         document_kind="part",
         name="B9",
@@ -399,17 +591,74 @@ def test_b9s_pour_lists_the_bolts_of_the_sills_it_carries() -> None:
         pieces=part_pieces(extents, members, None),
         price_book=BOOK,
     )
+
+
+def test_b9s_pours_are_two_orders_and_list_the_sills_bolts() -> None:
+    cut_list = _b9_cut_list()
     assert _foundation(cut_list) == [
-        # 2 pours, 307 328 in^3 = 6.59 yd^3; x 1.05 = 6.92: 7 at $165.00
-        ("Footing, Stem wall", "concrete", 2, 7.0, None, 115500),
+        # 118 784 in^3 = 2.55 yd^3; x 1.05 = 2.67: 2.75 at $165.00
+        ("Footing", "concrete", 1, 2.75, None, 45375),
         # 888 (74 ft) and 968 (80.67 ft): 5 sticks each, x $14.98
         ("Rebar", "rebar", 1, None, 5, 7490),
         ("Rebar", "rebar", 1, None, 5, 7490),
+        # 188 544 in^3 = 4.04 yd^3; x 1.05 = 4.24: 4.25 at $165.00
+        ("Stem wall", "concrete", 1, 4.25, None, 70125),
         # 5 + 5 + 4 + 4 for the sills, not the stem's 288 in length
         ("Anchor bolt", "anchor_bolt", 18, None, 18, 4464),
     ]
-    volume = cut_list.lines[0].volume_mm3
-    assert volume is not None and round(volume / IN3 / 46656, 2) == 6.59
+    footing, stem = (line for line in cut_list.lines if line.item == "concrete")
+    assert footing.volume_mm3 is not None and stem.volume_mm3 is not None
+    assert round(footing.volume_mm3 / IN3 / 46656, 2) == 2.55
+    assert round(stem.volume_mm3 / IN3 / 46656, 2) == 4.04
+    # 7.00 in all, as the one line ordered before (6.92 rounded once).
+    assert footing.order_yd3 + stem.order_yd3 == 7.0
+
+
+def test_b9_lists_its_vents_and_access_door_each() -> None:
+    cut_list = _b9_cut_list([VENTS, ACCESS])
+    assert _foundation(cut_list)[-2:] == [
+        ("Vent 16 x 8", "foundation_vent", 5, None, 5, 5 * 1298),
+        ("Access door 24 x 16", "access_door", 1, None, 1, 4997),
+    ]
+    vents, door = cut_list.lines[-2:]
+    assert (vents.profile, vents.material, vents.price_unit) == (
+        "Foundation vent",
+        "steel_1018",
+        "each",
+    )
+    assert door.profile == "Crawl-space access door"
+    rows = cut_list_csv(cut_list).split("\r\n")
+    assert rows[6].startswith("6,Foundation,Vent 16 x 8,Foundation vent,,")
+    assert rows[6].endswith(",5,,,,Each,,5,12.98,Each,64.90")
+    # A second size is a line of its own.
+    small = VENTS.model_copy(update={"width_mm": 14 * IN, "quantity": 1})
+    lines = _foundation(_b9_cut_list([VENTS, small, ACCESS]))
+    assert [line[:3] for line in lines[-3:]] == [
+        ("Vent 16 x 8", "foundation_vent", 5),
+        ("Vent 14 x 8", "foundation_vent", 1),
+        ("Access door 24 x 16", "access_door", 1),
+    ]
+
+
+def test_an_opening_is_bounded_and_sized_in_inches() -> None:
+    assert VENTS.size == "16 x 8"
+    odd = FoundationOpening(
+        item="foundation_vent", width_mm=15.5 * IN, height_mm=7.75 * IN, quantity=1
+    )
+    assert odd.size == "15.5 x 7.75"
+    for bad in (
+        {"width_mm": 0.0},
+        {"height_mm": 4000.0},
+        {"quantity": 0},
+        {"quantity": 10_001},
+        {"item": "window_3040"},
+    ):
+        with pytest.raises(ValidationError):
+            FoundationOpening.model_validate({**VENTS.model_dump(), **bad})
+    with pytest.raises(ValidationError):
+        MemberMetadata(foundation_openings=[VENTS] * 17)
+    # Absent on every other member: stored metadata keeps its bytes.
+    assert "foundation_openings" not in MemberMetadata().model_dump(mode="json")
 
 
 def test_bolts_on_a_plate_count_its_measured_length() -> None:

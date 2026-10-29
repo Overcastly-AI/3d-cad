@@ -29,6 +29,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter
 from loft_plugins import (
+    PLUGIN_UPDATE_UNAVAILABLE,
     REGISTRY,
     ExpandInputs,
     Hosted,
@@ -37,11 +38,16 @@ from loft_plugins import (
     PluginRegistry,
     host_of,
     settle_inputs,
+    update_for,
+    updated_inputs,
     validate_members,
 )
 from loft_plugins import canonical_inputs as _canonical
 from loft_plugins import expand as _expand
 from loft_plugins.builtin.crawl_space import MIN_UNTREATED_CRAWL_IN
+from loft_plugins.builtin.house import stored_inputs
+from loft_plugins.builtin.roof_ceiling import CEILING_BESIDE
+from loft_plugins.builtin.roof_outline import ceiling_joist_note
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_VALUE_INVALID
@@ -75,6 +81,7 @@ from loft_wire.legacy_twist import (
 )
 from loft_wire.lumber import MM_PER_INCH
 from loft_wire.plugin_warning import (
+    CEILING_JOISTS_OMITTED,
     CRAWL_HEIGHT_LOW,
     ROOF_THROUGH_SHEATHING,
     PluginWarning,
@@ -87,8 +94,8 @@ from loft_wire.plugins import (
     PluginCatalog,
     ProfileInput,
     member_id,
-    semver_key,
 )
+from loft_wire.tree_edits import PluginUpdate as PluginUpdateOffer
 from py_kit import ConflictError, ValidationApiError, get_logger
 from pydantic import ValidationError
 
@@ -1095,14 +1102,37 @@ def plugin_warnings(
         [r for r in rows if r.order_index < row.order_index and not r.suppressed],
         parameters=values,
     )
+    out = [
+        w
+        for w in (
+            _through_sheathing_warning(envelope, earlier, values),
+            _ceiling_joists_warning(row.id, envelope, earlier, values),
+        )
+        if w is not None
+    ]
+    return out or None
+
+
+def _through_sheathing_warning(
+    envelope: CustomFeature,
+    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    values: Mapping[str, Quantity],
+) -> PluginWarning | None:
+    """A stored roof's ``roof_through_sheathing``, or None. The update it
+    offers is the declared one (``loft_plugins.updates``): it carries the
+    inputs by its map, which adds no ceiling joists, so the update changes
+    nothing but the notches (CEILING-JOISTS)."""
+    assert envelope.params.expansion is not None
     found = through_sheathing(envelope.params.expansion, earlier, values)
     if found.volume <= MIN_OVERLAP_IN3:
         return None
-    pinned = envelope.params.plugin_version
-    latest = PLUGINS.latest("loft.roof").manifest.version
+    declared = update_for("loft.roof", envelope.params.plugin_version, PLUGINS)
     picks = envelope.params.inputs.get("walls")
-    newer = semver_key(latest) > semver_key(pinned)
-    update = latest if newer and isinstance(picks, list) and picks else None
+    update = (
+        declared.to_version
+        if declared is not None and isinstance(picks, list) and picks
+        else None
+    )
     about = "about " if found.approximate else ""
     shared = (
         f"This roof's rafter tails pass through the wall sheathing: {found.pairs} "
@@ -1112,22 +1142,103 @@ def plugin_warnings(
     if update is not None:
         fix = (
             f" Update to {update} to notch the sheathing round them, as framers "
-            "do; Undo restores this roof."
+            "do; the update adds nothing new (no ceiling joists), and Undo "
+            "restores this roof."
         )
     else:
         fix = (
             " A roof on its typed bearing picks no walls, so it cannot notch "
             "them: a roof on an outline wall, or a hip on the walls it picks, does."
         )
-    return [
-        PluginWarning(
-            code=ROOF_THROUGH_SHEATHING,
-            message=shared + fix,
-            overlap_in3=found.volume,
-            pairs=found.pairs,
-            update_to=update,
+    return PluginWarning(
+        code=ROOF_THROUGH_SHEATHING,
+        message=shared + fix,
+        overlap_in3=found.volume,
+        pairs=found.pairs,
+        update_to=update,
+    )
+
+
+def _ceiling_joists_warning(
+    feature_id: uuid.UUID,
+    envelope: CustomFeature,
+    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    values: Mapping[str, Quantity],
+) -> PluginWarning | None:
+    """A 1.6.0 gable's ``ceiling_joists_omitted`` (CEILING-JOISTS), or None:
+    it asks for ceiling joists, its stored expansion frames none, and its
+    chosen joist would pass the ridge board. Advice, never a refusal: the
+    roof builds without them, as Chief warns rather than blocks."""
+    inputs = envelope.params.inputs
+    expansion = envelope.params.expansion or []
+    if inputs.get("ceiling_joists") != CEILING_BESIDE or any(
+        m.role == "ceiling_joist" for m in expansion
+    ):
+        return None
+    note = ceiling_joist_note(stored_inputs(feature_id, envelope, earlier, values))
+    if note is None:
+        return None
+    return PluginWarning(
+        code=CEILING_JOISTS_OMITTED,
+        message=note,
+        overlap_in3=0.0,
+        pairs=0,
+        update_to=None,
+    )
+
+
+def plugin_update_of(row: db.Feature) -> PluginUpdateOffer | None:
+    """The newer release a stored custom feature may be updated to
+    (OPENING-UPDATE), or None: not custom, already the newest this server
+    maps it to, or a release with no declared map (``loft_plugins.updates``).
+    Offered whether or not the feature is suppressed, as Onshape's update."""
+    if row.type != "custom":
+        return None
+    plugin_id = row.params.get("plugin_id")
+    version = row.params.get("plugin_version")
+    if not isinstance(plugin_id, str) or not isinstance(version, str):
+        return None
+    update = update_for(plugin_id, version, PLUGINS)
+    if update is None:
+        return None
+    return PluginUpdateOffer(to_version=update.to_version, summary=update.summary)
+
+
+def updated_envelope(row: db.Feature) -> CustomFeature:
+    """*row* re-pinned to its update's release, its stored inputs carried by
+    the update's explicit map and its formulas kept on the same inputs; the
+    expansion is left for :func:`prepare_custom_write`. 422
+    ``plugin_update_unavailable`` when it has none, or when a formula drives
+    an input the newer release does not have."""
+    offer = plugin_update_of(row)
+    envelope = load_feature(row)[0]
+    if offer is None or not isinstance(envelope, CustomFeature):
+        raise ValidationApiError(
+            f"{row.name!r} has no newer release to update to.",
+            code=PLUGIN_UPDATE_UNAVAILABLE,
+            details={"feature_id": str(row.id)},
         )
-    ]
+    pin = envelope.params
+    update = update_for(pin.plugin_id, pin.plugin_version, PLUGINS)
+    assert update is not None
+    target = PLUGINS.get(pin.plugin_id, update.to_version).manifest
+    names = {item.name for item in target.inputs}
+    for pointer in envelope.expressions or {}:
+        if pointer.removeprefix("/inputs/").split("/")[0] not in names:
+            raise ValidationApiError(
+                f"{row.name!r}: {target.title} {target.version} has no input "
+                f"{pointer!r} for its formula to drive.",
+                code=PLUGIN_UPDATE_UNAVAILABLE,
+                details={"feature_id": str(row.id), "pointer": pointer},
+            )
+    params = pin.model_copy(
+        update={
+            "plugin_version": update.to_version,
+            "inputs": updated_inputs(update, pin.inputs),
+            "expansion": None,
+        }
+    )
+    return envelope.model_copy(update={"params": params})
 
 
 def _crawl_height_warning(envelope: CustomFeature) -> list[PluginWarning] | None:
@@ -1175,6 +1286,7 @@ __all__ = [
     "member_targets",
     "picked_ids",
     "pickers_of",
+    "plugin_update_of",
     "plugin_warnings",
     "prepare_custom_write",
     "reexpand_hosts",
@@ -1184,4 +1296,5 @@ __all__ = [
     "remap_member_name",
     "router",
     "stored_host_id",
+    "updated_envelope",
 ]

@@ -20,11 +20,27 @@ partition conventions").
   plate piece that bears on concrete, the rest at most 72 in apart, at least 2
   per piece (:func:`anchor_bolt_count`). The count is taken from the plate's
   MEASURED length in the cut list, as every length is.
+* **Foundation vents and the crawl-space access door** (FOUNDATION-TAKEOFF)
+  are bought units set in the openings cut from a stem wall: Chief's
+  materials list carries them Each. The pour lists them by size
+  (:class:`FoundationOpening`), so the cut list prices each Each.
+
+* **Bagged concrete** (DECK-FOOTINGS): a pier footing is poured from 80 lb
+  bags of premixed concrete by default, as US deck builders pour them. A bag
+  yields 0.60 ft³ (Quikrete's and Sakrete's published yield; 45 bags to the
+  yd³), so a footing line orders ``ceil(ft³ x (1 + waste) / 0.60)`` WHOLE
+  bags over every footing it lists (:func:`concrete_bags`); ready-mix stays
+  a choice of the pour.
+* **Post bases** (DECK-FOOTINGS): a footing under a post lists the
+  galvanized post base that ties the post to it, ABU class by post size
+  (``post_base_6x6`` is an ABU66), Each.
 
 Each item is a price-book key beside the lumber, sheet and unit keys:
-``ready_mix`` per cubic yard, ``rebar_4`` Each per 20 ft stick and
-``anchor_bolt_1_2`` Each. Inches are the source of truth (exact binary
-fractions); millimetres are derived at x 25.4 exactly. Pure: no I/O.
+``ready_mix`` per cubic yard, ``rebar_4`` Each per 20 ft stick, and
+``anchor_bolt_1_2``, ``foundation_vent``, ``crawl_access_door``,
+``concrete_bag_80`` and ``post_base_<size>`` Each.
+Inches are the source of truth (exact binary fractions); millimetres are
+derived at x 25.4 exactly. Pure: no I/O.
 """
 
 import math
@@ -61,15 +77,45 @@ REBAR_LAP_IN: Final = 24
 ANCHOR_BOLT_END_IN: Final = 12
 ANCHOR_BOLT_SPACING_IN: Final = 72
 
+#: An 80 lb bag of premixed concrete yields 0.60 ft³ (exactly, as sold).
+CONCRETE_BAG_YIELD_FT3: Final = Fraction(3, 5)
+
+#: Cubic inches per cubic foot, exactly.
+IN3_PER_FT3: Final = 1_728
+
+#: The concrete a pour may be ordered as.
+ConcreteItemKey = Literal["ready_mix", "concrete_bag_80"]
+
+#: A post base's key, by the post it takes (ABU44, ABU46, ABU66 class).
+PostBaseKey = Literal["post_base_4x4", "post_base_4x6", "post_base_6x6"]
+
 #: The listed foundation items, by price-book key.
-FoundationItemKey = Literal["ready_mix", "rebar_4", "anchor_bolt_1_2"]
+FoundationItemKey = Literal[
+    "ready_mix",
+    "rebar_4",
+    "anchor_bolt_1_2",
+    "foundation_vent",
+    "crawl_access_door",
+    "concrete_bag_80",
+    "post_base_4x4",
+    "post_base_4x6",
+    "post_base_6x6",
+]
 
 #: What an item is.
-FoundationItemKind = Literal["concrete", "rebar", "anchor_bolt"]
+FoundationItemKind = Literal[
+    "concrete", "rebar", "anchor_bolt", "foundation_vent", "access_door", "post_base"
+]
+
+#: Items counted Each, by the piece: no length to list.
+EACH_ITEMS: Final = frozenset(
+    {"anchor_bolt", "foundation_vent", "access_door", "post_base"}
+)
 
 #: The library materials the items are made of (each a ``MaterialKey``;
-#: spelt here so :mod:`loft_wire.materials` can serve this catalogue).
-FoundationMaterialKey = Literal["concrete", "steel_a615", "steel_f1554"]
+#: spelt here so :mod:`loft_wire.materials` can serve this catalogue). A
+#: post base is listed as the casework hardware's steel.
+FoundationMaterialKey = Literal["concrete", "steel_a615", "steel_f1554", "steel_1018"]
 
 
 class FoundationItem(BaseModel):
@@ -82,8 +128,9 @@ class FoundationItem(BaseModel):
         description="Library material the item is priced as."
     )
     price_unit: Literal["cubic_yard", "each"] = Field(
-        description="How a price-book entry prices it: concrete per cubic "
-        "yard ordered, a rebar stick or an anchor bolt Each."
+        description="How a price-book entry prices it: ready-mix per cubic "
+        "yard ordered; a rebar stick, an anchor bolt, a foundation vent, an "
+        "access door, a bag of concrete or a post base Each."
     )
     stock_length_ft: int | None = Field(
         default=None,
@@ -116,6 +163,37 @@ FOUNDATION_ITEMS: tuple[FoundationItem, ...] = (
         material="steel_f1554",
         price_unit="each",
     ),
+    FoundationItem(
+        key="foundation_vent",
+        kind="foundation_vent",
+        name="Foundation vent",
+        material="steel_1018",
+        price_unit="each",
+    ),
+    FoundationItem(
+        key="crawl_access_door",
+        kind="access_door",
+        name="Crawl-space access door",
+        material="steel_1018",
+        price_unit="each",
+    ),
+    FoundationItem(
+        key="concrete_bag_80",
+        kind="concrete",
+        name="Concrete, 80 lb bag",
+        material="concrete",
+        price_unit="each",
+    ),
+    *(
+        FoundationItem(
+            key=f"post_base_{size}",  # pyright: ignore[reportArgumentType]
+            kind="post_base",
+            name=f"Post base {size} ({model})",
+            material="steel_1018",
+            price_unit="each",
+        )
+        for size, model in (("4x4", "ABU44"), ("4x6", "ABU46"), ("6x6", "ABU66"))
+    ),
 )
 
 #: Key -> item.
@@ -137,17 +215,40 @@ def foundation_item_for(profile: str | None) -> FoundationItem | None:
 # --- Member metadata ----------------------------------------------------------------
 
 
+def _is_false(value: object) -> bool:
+    """``exclude_if`` predicate: a false flag is not serialized."""
+    return value is False
+
+
 class ConcretePour(BaseModel):
     """Set on a concrete body (a pour): the cut list lists its MEASURED volume
     in cubic yards and orders it with this allowance."""
 
-    item: Literal["ready_mix"] = "ready_mix"
+    item: ConcreteItemKey = Field(
+        default="ready_mix",
+        description="How it is bought: 'ready_mix' by the 1/4 yd³, or "
+        "'concrete_bag_80' in whole 80 lb bags of 0.60 ft³ (DECK-FOOTINGS).",
+    )
     waste_percent: int = Field(
         default=DEFAULT_CONCRETE_WASTE_PERCENT,
         ge=0,
         le=MAX_CONCRETE_WASTE_PERCENT,
         description="Ordered over the net volume (percent), then rounded up "
-        "to 1/4 yd³.",
+        "to 1/4 yd³, or to whole bags.",
+    )
+    one_delivery: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        description="Poured with the line's other pours from one delivery "
+        "(DECK-FOOTINGS: a deck's piers, filled from one truck), so a "
+        "ready-mix line rounds their sum up to 1/4 yd³ once, not each pour. "
+        "Absent: each pour is its own delivery (FOUNDATION-TAKEOFF).",
+    )
+    post_base: PostBaseKey | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="A pier footing under a post (DECK-FOOTINGS): the post "
+        "base it lists, Each. Absent on every other pour.",
     )
 
 
@@ -189,6 +290,32 @@ class AnchorBolts(BaseModel):
         return sum(anchor_bolt_count(mm / MM_PER_INCH) for mm in self.plates_mm)
 
 
+#: The most opening sizes one pour lists, and the most of one size.
+MAX_FOUNDATION_OPENINGS: Final = 16
+MAX_OPENINGS_OF_A_SIZE: Final = 10_000
+
+#: The largest opening a pour lists (mm): 10 ft either way.
+MAX_OPENING_MM: Final = 3048.0
+
+
+class FoundationOpening(BaseModel):
+    """Set on a stem wall's pour (FOUNDATION-TAKEOFF): *quantity* units of
+    one item and size set in the openings cut from it, a foundation vent or
+    the crawl-space access door, listed Each by the cut list."""
+
+    item: Literal["foundation_vent", "crawl_access_door"]
+    width_mm: float = Field(gt=0, le=MAX_OPENING_MM, description="Along the wall (mm).")
+    height_mm: float = Field(gt=0, le=MAX_OPENING_MM, description="Tall (mm).")
+    quantity: int = Field(ge=1, le=MAX_OPENINGS_OF_A_SIZE)
+
+    @property
+    def size(self) -> str:
+        """Its size as sold, width by height in inches: ``16 x 8``."""
+        return " x ".join(
+            f"{round(mm / MM_PER_INCH, 4):g}" for mm in (self.width_mm, self.height_mm)
+        )
+
+
 # --- The arithmetic -----------------------------------------------------------------
 
 
@@ -198,12 +325,22 @@ def volume_yd3(volume_mm3: float) -> float:
 
 
 def concrete_order_yd3(volume_mm3: float, waste_percent: int) -> Fraction:
-    """The cubic yards ordered for a net *volume_mm3*: plus the allowance,
-    rounded UP to 1/4 yd³ (buildings.md B8: 6.62 yd³ net, x 1.05 = 6.95,
-    orders 7)."""
+    """The cubic yards ordered for ONE pour of net *volume_mm3*: plus the
+    allowance, rounded UP to 1/4 yd³ (buildings.md B8: 6.62 yd³ net, x 1.05 =
+    6.95, orders 7). Each pour is its own delivery (FOUNDATION-TAKEOFF), so
+    pours are rounded one by one, never on their sum."""
     wanted = volume_yd3(volume_mm3) * (100 + waste_percent) / 100
     steps = math.ceil(wanted / CONCRETE_ORDER_STEP_YD3 - ORDER_SLACK)
     return max(steps, 0) * CONCRETE_ORDER_STEP_YD3
+
+
+def concrete_bags(volume_mm3: float, waste_percent: int) -> int:
+    """The 80 lb bags a net *volume_mm3* takes: plus the allowance, over the
+    bag's 0.60 ft³ yield, rounded UP to a whole bag (buildings.md B1's
+    footings: 4.19 ft³ x 1.05 / 0.60 = 7.33, so 8 bags)."""
+    ft3 = volume_mm3 / (IN3_PER_FT3 * MM_PER_INCH**3)
+    wanted = ft3 * (100 + waste_percent) / 100 / CONCRETE_BAG_YIELD_FT3
+    return max(math.ceil(wanted - ORDER_SLACK), 0)
 
 
 def rebar_sticks(length_in: float, closed: bool) -> int:

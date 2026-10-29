@@ -156,6 +156,10 @@ from loft_wire.sketch_3d import (
     Sketch3DVertexSnap,
     SolvedSketch3DData,
 )
+from loft_wire.tree_edits import MAX_TREE_FEATURES as MAX_TREE_FEATURES
+from loft_wire.tree_edits import PLUGIN_UPDATE_FIELD, PluginUpdate
+from loft_wire.tree_edits import PluginUpdateRequest as PluginUpdateRequest
+from loft_wire.tree_edits import UndoRedoRequest as UndoRedoRequest
 from loft_wire.twist import MAX_TWIST_ANGLE_DEG as MAX_TWIST_ANGLE_DEG
 from loft_wire.twist import MIN_TWIST_ANGLE_DEG as MIN_TWIST_ANGLE_DEG
 from loft_wire.twist import is_none as _is_none
@@ -182,13 +186,6 @@ MAX_INLINE_STEP_CHARS = 16 * 1024 * 1024
 # a working engineer's part, so a user never feels them, while an attacker
 # cannot OOM or monopolize a geometry worker with one request. Over-bound is a
 # typed 422 at parse (contract-visible), never a kernel blow-up.
-
-#: Ceiling on the features of ONE evaluate/export/measure/overlay/drawing tree
-#: request. Every feature is at least one kernel operation (usually a boolean);
-#: real parts run tens-to-low-hundreds of features, so 1000 is far above
-#: legitimate use while bounding the per-request kernel work + the buffered
-#: JSON body (audit G2 hole 4).
-MAX_TREE_FEATURES = 1000
 
 #: Ceiling on a pattern's TOTAL instance count (seed included). Every instance
 #: past the seed is a rigid kernel copy feeding one variadic boolean fuse/cut —
@@ -2954,6 +2951,7 @@ class FeatureResponse(BaseModel):
     updated_at: datetime
     formula_warnings: FormulaWarnings = FORMULA_WARNINGS_FIELD
     plugin_warnings: PluginWarnings = PLUGIN_WARNINGS_FIELD
+    plugin_update: PluginUpdate | None = PLUGIN_UPDATE_FIELD
 
 
 class FeatureTreeResponse(BaseModel):
@@ -3075,21 +3073,6 @@ class RollbackBarMove(BaseModel):
 
     expected_tree_version: int = Field(ge=0)
     rollback_feature_id: uuid.UUID | None
-
-
-class UndoRedoRequest(BaseModel):
-    """Restore the adjacent history snapshot (docs/design/undo-redo.md).
-
-    Undo/redo ARE document edits: each bumps ``tree_version`` under the same
-    optimistic-concurrency guard as every other write (stale → 422), and the
-    response is the restored tree (ids preserved VERBATIM — the load-bearing
-    snapshot decision). At a boundary — undo at the ring's floor, redo at its
-    top — the op is a CLEAN no-op, not an error: 200 with the current tree,
-    version unchanged. ``can_undo``/``can_redo`` on the tree response let the
-    UI disable the controls, so a click racing that state is harmless.
-    """
-
-    expected_tree_version: int = Field(ge=0)
 
 
 # --- §4 Evaluation contract (documents → geometry) ---------------------------------

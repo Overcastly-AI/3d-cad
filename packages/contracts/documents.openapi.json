@@ -780,7 +780,8 @@
               "steel_a615",
               "steel_f1554",
               "gypsum",
-              "melamine"
+              "melamine",
+              "xps_foam"
             ],
             "title": "Material",
             "type": "string"
@@ -1616,14 +1617,41 @@
         "description": "Set on a concrete body (a pour): the cut list lists its MEASURED volume\nin cubic yards and orders it with this allowance.",
         "properties": {
           "item": {
-            "const": "ready_mix",
             "default": "ready_mix",
+            "description": "How it is bought: 'ready_mix' by the 1/4 yd\u00b3, or 'concrete_bag_80' in whole 80 lb bags of 0.60 ft\u00b3 (DECK-FOOTINGS).",
+            "enum": [
+              "ready_mix",
+              "concrete_bag_80"
+            ],
             "title": "Item",
             "type": "string"
           },
+          "one_delivery": {
+            "default": false,
+            "description": "Poured with the line's other pours from one delivery (DECK-FOOTINGS: a deck's piers, filled from one truck), so a ready-mix line rounds their sum up to 1/4 yd\u00b3 once, not each pour. Absent: each pour is its own delivery (FOUNDATION-TAKEOFF).",
+            "title": "One Delivery",
+            "type": "boolean"
+          },
+          "post_base": {
+            "anyOf": [
+              {
+                "enum": [
+                  "post_base_4x4",
+                  "post_base_4x6",
+                  "post_base_6x6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A pier footing under a post (DECK-FOOTINGS): the post base it lists, Each. Absent on every other pour.",
+            "title": "Post Base"
+          },
           "waste_percent": {
             "default": 5,
-            "description": "Ordered over the net volume (percent), then rounded up to 1/4 yd\u00b3.",
+            "description": "Ordered over the net volume (percent), then rounded up to 1/4 yd\u00b3, or to whole bags.",
             "maximum": 25.0,
             "minimum": 0.0,
             "title": "Waste Percent",
@@ -5135,6 +5163,17 @@
             "title": "Part Id",
             "type": "string"
           },
+          "plugin_update": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newer release this custom feature may be updated to (`POST .../features/plugin-updates`), with what it changes. Omitted when its release is the latest, or no newer release maps its inputs."
+          },
           "plugin_warnings": {
             "anyOf": [
               {
@@ -5147,7 +5186,7 @@
                 "type": "null"
               }
             ],
-            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.",
+            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`). Omitted when there are none.",
             "title": "Plugin Warnings"
           },
           "rolled_back": {
@@ -5774,7 +5813,13 @@
             "enum": [
               "ready_mix",
               "rebar_4",
-              "anchor_bolt_1_2"
+              "anchor_bolt_1_2",
+              "foundation_vent",
+              "crawl_access_door",
+              "concrete_bag_80",
+              "post_base_4x4",
+              "post_base_4x6",
+              "post_base_6x6"
             ],
             "title": "Key",
             "type": "string"
@@ -5783,7 +5828,10 @@
             "enum": [
               "concrete",
               "rebar",
-              "anchor_bolt"
+              "anchor_bolt",
+              "foundation_vent",
+              "access_door",
+              "post_base"
             ],
             "title": "Kind",
             "type": "string"
@@ -5793,7 +5841,8 @@
             "enum": [
               "concrete",
               "steel_a615",
-              "steel_f1554"
+              "steel_f1554",
+              "steel_1018"
             ],
             "title": "Material",
             "type": "string"
@@ -5804,7 +5853,7 @@
             "type": "string"
           },
           "price_unit": {
-            "description": "How a price-book entry prices it: concrete per cubic yard ordered, a rebar stick or an anchor bolt Each.",
+            "description": "How a price-book entry prices it: ready-mix per cubic yard ordered; a rebar stick, an anchor bolt, a foundation vent, an access door, a bag of concrete or a post base Each.",
             "enum": [
               "cubic_yard",
               "each"
@@ -5833,6 +5882,47 @@
           "price_unit"
         ],
         "title": "FoundationItem",
+        "type": "object"
+      },
+      "FoundationOpening": {
+        "description": "Set on a stem wall's pour (FOUNDATION-TAKEOFF): *quantity* units of\none item and size set in the openings cut from it, a foundation vent or\nthe crawl-space access door, listed Each by the cut list.",
+        "properties": {
+          "height_mm": {
+            "description": "Tall (mm).",
+            "exclusiveMinimum": 0.0,
+            "maximum": 3048.0,
+            "title": "Height Mm",
+            "type": "number"
+          },
+          "item": {
+            "enum": [
+              "foundation_vent",
+              "crawl_access_door"
+            ],
+            "title": "Item",
+            "type": "string"
+          },
+          "quantity": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "width_mm": {
+            "description": "Along the wall (mm).",
+            "exclusiveMinimum": 0.0,
+            "maximum": 3048.0,
+            "title": "Width Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "item",
+          "width_mm",
+          "height_mm",
+          "quantity"
+        ],
+        "title": "FoundationOpening",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -8527,7 +8617,8 @@
               "steel_a615",
               "steel_f1554",
               "gypsum",
-              "melamine"
+              "melamine",
+              "xps_foam"
             ],
             "title": "Key",
             "type": "string"
@@ -8589,7 +8680,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },
@@ -8633,7 +8725,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },
@@ -8819,6 +8912,22 @@
             ],
             "description": "Set on a concrete body, one per pour (SLAB): the cut list lists its measured volume in cubic yards and orders it with the pour's waste allowance, rounded up to 1/4 yd\u00b3. Absent otherwise."
           },
+          "foundation_openings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FoundationOpening"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a stem wall's pour (FOUNDATION-TAKEOFF): the foundation vents and the access door set in the openings cut from it, by size, each listed Each. Absent otherwise.",
+            "title": "Foundation Openings"
+          },
           "grain": {
             "anyOf": [
               {
@@ -8878,7 +8987,8 @@
                   "steel_a615",
                   "steel_f1554",
                   "gypsum",
-                  "melamine"
+                  "melamine",
+                  "xps_foam"
                 ],
                 "type": "string"
               },
@@ -10936,14 +11046,71 @@
         "title": "PluginMemberRole",
         "type": "object"
       },
+      "PluginUpdate": {
+        "description": "A newer release a stored custom feature may be updated to\n(OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio\nhas a newer version and Fusion badges out-of-date content. Offered only\nwhere the plugin declares an explicit map of the stored inputs into the\nnewer release; the update is an ordinary edit, one undo step.",
+        "properties": {
+          "summary": {
+            "description": "What the update changes, in the action's words",
+            "maxLength": 400,
+            "title": "Summary",
+            "type": "string"
+          },
+          "to_version": {
+            "description": "The release the update re-pins the feature to",
+            "maxLength": 32,
+            "title": "To Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to_version",
+          "summary"
+        ],
+        "title": "PluginUpdate",
+        "type": "object"
+      },
+      "PluginUpdateRequest": {
+        "description": "Update custom features to their newer releases (OPENING-UPDATE).\n\nOnshape's \"Update\" on a custom feature and its \"Update all\" on the Part\nStudio: each named feature (or, with ``feature_ids`` null, every feature\nwhose response carries ``plugin_update``) is re-pinned to that release,\nits inputs carried by the plugin's explicit map, and re-expanded with its\nhosts and the features that pick it. All of it is ONE edit: one\n``tree_version`` bump and one undo step. A feature with no update is\nrefused (422 ``plugin_update_unavailable``) and nothing is written.",
+        "properties": {
+          "expected_tree_version": {
+            "minimum": 0.0,
+            "title": "Expected Tree Version",
+            "type": "integer"
+          },
+          "feature_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The features to update, in any order (they are updated in tree order); null updates every feature that has an update.",
+            "title": "Feature Ids"
+          }
+        },
+        "required": [
+          "expected_tree_version"
+        ],
+        "title": "PluginUpdateRequest",
+        "type": "object"
+      },
       "PluginWarning": {
         "description": "One stored custom feature's geometry warning, with its fix if any.",
         "properties": {
           "code": {
-            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1",
+            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them",
             "enum": [
               "roof_through_sheathing",
-              "crawl_height_low"
+              "crawl_height_low",
+              "ceiling_joists_omitted"
             ],
             "title": "Code",
             "type": "string"
@@ -11213,7 +11380,8 @@
               "steel_a615",
               "steel_f1554",
               "gypsum",
-              "melamine"
+              "melamine",
+              "xps_foam"
             ],
             "title": "Material",
             "type": "string"
@@ -11275,7 +11443,13 @@
                 "enum": [
                   "ready_mix",
                   "rebar_4",
-                  "anchor_bolt_1_2"
+                  "anchor_bolt_1_2",
+                  "foundation_vent",
+                  "crawl_access_door",
+                  "concrete_bag_80",
+                  "post_base_4x4",
+                  "post_base_4x6",
+                  "post_base_6x6"
                 ],
                 "type": "string"
               },
@@ -19562,6 +19736,78 @@
           }
         },
         "summary": "Reorder Features",
+        "tags": [
+          "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/features/plugin-updates": {
+      "post": {
+        "description": "Update custom features to their newer releases (OPENING-UPDATE): the\nnamed ones, or every one with ``plugin_update`` when ``feature_ids`` is\nnull (\"Update all\", as Onshape updates a Part Studio's custom features).\nEach is re-pinned with its inputs carried by its plugin's explicit map\nand re-expanded, in tree order, with its hosts and pickers. The whole\nupdate is ONE edit: one ``tree_version`` bump and one history step, so\none Undo restores every feature as it was. A feature without an update,\nor a refusal of any of them, writes nothing.",
+        "operationId": "update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Plugin Features",
         "tags": [
           "features"
         ]
