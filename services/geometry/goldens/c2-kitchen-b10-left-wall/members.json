@@ -1,0 +1,1368 @@
+[
+  {
+    "feature_id": "ed228136-ed5b-51f8-81e7-8a33d703819e",
+    "role": "filler",
+    "title": "Filler",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "0c56df85-74ba-5418-add2-2fa47fc03ed1",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2019.3,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "4b210e87-e1f8-59a2-b414-f43ccc0ed56d",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2019.3,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "6ae33ab0-5b87-5772-9c7e-7d6ac41fbf25",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "06cd25aa-e1d3-559b-82ba-517461d54c5b",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 419.09999999999997,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "acdaceec-b7ac-53a3-a990-f766c90b48b6",
+    "role": "top",
+    "title": "Top",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 419.09999999999997,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "f21cc6e4-8dc9-52a0-b4d2-c66f33dd30d5",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "bc51c2e0-cb3e-522a-9c00-6e94e1f708d4",
+    "role": "shelf",
+    "title": "Shelf",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 417.5125,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "0c9b1ffb-7361-5a4a-af2d-dc0baeff7aee",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 3727.45,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 3
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "ac679bd7-fbdf-5544-98d9-cf4ce627ccbf",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2114.5499999999997,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "b815a722-2dc0-5731-9b07-a5456eb4c840",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "a469326b-33fd-5dd8-b954-516ef6a84245",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "8b1d6c23-702c-524c-b6e8-51a8ade1a382",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "59abaa65-5cfc-5801-921e-d15a70d7c2fc",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 571.5,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "94597329-3ae3-509f-8866-426455f4a368",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 571.5,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "c700107f-abb7-5f76-80b2-22e6504bdae4",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "1546d8c2-4df3-5e2d-99fe-7693fce9adee",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "cc34dbbf-927c-533a-a563-105a5241f4a8",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 1517.6499999999999,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "1eaa02a0-38be-54fc-b17a-65b746edb82e",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 1812.925,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "6fe791bf-7137-5fca-8c31-6a7d9fa55e53",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 1812.925,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "81990b03-81d0-545a-9f95-1b0d9a1b56b8",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "b015a5af-c51d-5822-bbdd-483b83b9cf20",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "3e4a0884-a362-5323-93f2-5b57c5fbe901",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "e8bcd8c5-8840-51cd-8c41-ffe7b2601299",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "628a2d08-9f45-560b-86af-3e3d5f95d0bc",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_22",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "368d4650-1040-5c9b-93e1-ca6e70b9eadc",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "0b63f3f6-f121-5386-b144-f25384620250",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "f6a64cc3-944f-5b9e-9caf-89a46dab4c83",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "32204387-1b9f-5623-b43b-fff888b82bde",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "dab3c7dd-9f22-5b73-9767-74b94ee521df",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_22",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "12650b44-520c-50bc-ad8d-a43d50a5a4f3",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "f83037c9-5029-512d-86b8-d68f72bd9167",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "fdb3e309-39f9-5a27-9ac4-cffba192a1b0",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "56322f26-62b7-50cf-bb70-81997f72745c",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "6264db17-be27-5d99-927d-eab0ebddaf07",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_22",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "6b124d54-03e5-5753-bdad-b2e67958ef65",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "3240b903-a160-5144-98cc-c7935e853451",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "aaed7285-228d-5e8c-873d-c557945578a6",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "1fefdcaa-7ac6-5ff5-ba70-d9872e083078",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 647.6999999999999,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "97be5d42-b826-520f-a1c7-ce6d05da2621",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 647.6999999999999,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "37eed993-00f1-5462-b6af-f70c3154dfcc",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "324f8f42-9554-5d03-9802-9fbe4e548aae",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "407e75b9-42a2-5696-a9ba-2ceace8d7e40",
+    "role": "shelf",
+    "title": "Shelf",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 646.1125,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "c6aa5112-8350-52f4-996e-6cc341f0b6d6",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 1670.05,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "66efbcb5-155d-5635-94fb-160182522a81",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2571.75,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "44c2f8af-4a1a-5e87-9cfa-d281d1621706",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "116325e5-893c-5fa1-864b-94efb9e3b232",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "ccde30ce-bd1c-50cc-a456-cd4da757ed17",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "49f0b21c-f7d2-5574-a685-8986847ae775",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "793d3e3d-ace7-5436-947f-78e24ebb306f",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_22",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "d63b2c33-ce24-5a9a-a766-ebc28d02a6e9",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "3a2746a2-d3f7-5f8d-acc9-5189390df679",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "573dc98e-10d8-5c12-9595-47c9a276de76",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "fdf684ee-d1d3-516b-92cb-8897015e86e0",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 876.3,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "0e21a391-2ca9-5e03-9ab2-ca14682c21f6",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 876.3,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "3dfb8cf6-12b7-5bd1-9f7c-aedf908c0726",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "ad5ca458-5dfa-5055-82f9-2131dd73da8b",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "a9170be8-c0ec-5a7b-a3c8-e883081ea615",
+    "role": "false_front",
+    "title": "False front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2127.25,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "547844b3-f38a-5959-bdfc-f0457b8f2cff",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2114.5499999999997,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "30d44e35-9d6e-59a0-a858-78fb48c79a4f",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2114.5499999999997,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "e322604c-9edd-5180-9bb5-17a2af8a21e5",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "44a97eb0-50c9-557f-bce0-f68fc9bd47c4",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "d5fca503-f213-5967-a9e2-a7759d571d95",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "a513eca8-7ca4-5abb-a030-058d2a68588a",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 571.5,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "a3b81def-bda0-574c-9dca-68e7c440c689",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 571.5,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "cba8bca6-4d71-55a5-91a8-883fda51450e",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "b1b37dc9-6a05-5d40-852d-bdd5221047d1",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "710e5ddf-34f1-549b-afc4-d525bb48dd11",
+    "role": "shelf",
+    "title": "Shelf",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 569.9125,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "fe030c00-e0f1-5a81-afbb-2c34aa40dc33",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 1517.6499999999999,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "4c252cbc-bdf9-53de-8554-9a9899a0f29d",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2419.35,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "2ac879cd-c445-5f90-b8b7-57ce15f81ba4",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "5d751c13-351d-5546-983a-263ee6ca2b81",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "a475210e-7f53-59ee-9a29-90d55f684f42",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "aace09d1-dcfe-5b4a-8f99-9a7261f17a92",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "4f5a65ea-a556-5c19-b42b-697ea0f90f77",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_22",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "44a49ac5-6267-598f-a807-02e1c4a782d6",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "0052a2ce-cf13-53a2-88fd-e8ccca688377",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "a3c805c6-dccf-59d6-8995-a965f2eb293a",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "1a4b19dd-83ca-5754-ae0b-21ac0148a211",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 571.5,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "ff6c9be1-e0ae-529d-b1e3-f52d662bdbb8",
+    "role": "top",
+    "title": "Top",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 571.5,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "c9749399-7dc4-53fc-aeb3-52ec4fdca2f4",
+    "role": "shelf",
+    "title": "Shelf",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 569.9125,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "eff17024-605b-56dd-97b5-7a5c47f6448c",
+    "role": "shelf",
+    "title": "Shelf",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 569.9125,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "4dab03cc-5d07-555c-a85f-ac4509b7f10a",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2730.5,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "d6bcf574-431c-5a66-ab05-e123b9fc7009",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "efb410f5-af07-519f-8d57-b441ed32c0ae",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 762.0,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "e728fb84-15a5-506a-b60a-b95b1699c86b",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0]
+    }
+  },
+  {
+    "feature_id": "88bcf2af-e4ed-5e07-af07-ca667225c0ec",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 647.6999999999999,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "929e21c4-0049-5544-b9aa-94dcac90c81e",
+    "role": "top",
+    "title": "Top",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 647.6999999999999,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "b7e5506f-c7b2-5d52-8605-28c96a97a51f",
+    "role": "shelf",
+    "title": "Shelf",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 646.1125,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "bbf119da-bf60-5e24-aff6-92cf36c13ed8",
+    "role": "shelf",
+    "title": "Shelf",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "banding": {
+        "length_mm": 646.1125,
+        "material": "plywood"
+      }
+    }
+  },
+  {
+    "feature_id": "d712aa5f-c35d-5a25-9f83-cfdc25c11b17",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, 0.0, 1.0],
+      "banding": {
+        "length_mm": 2882.8999999999996,
+        "material": "plywood"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  }
+]

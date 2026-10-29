@@ -1,0 +1,52 @@
+{
+  "description": "CASEWORK-B10 C2 (casework.md) on B10's left wall with the walls' inside gypsum on (b10-inside-gypsum), loft.cabinets 1.1.0: the backs on the left wall's board at X 6, the base run from the back wall's board at Y 186 to Y 54 (filler 3, T1884 with stacked doors, DB24 with 3 drawers, B27, SB36 with a false front and 2 doors centred on the window at Y 96, B24) and the wall run W2430 + W2730 at Y 165..114 (21 in from the board), bottom 54 above the subfloor (Z 11.46875). 91 panels; c2-kitchen-b7-left-wall less 1/2 of its filler (the back board takes it). test_casework_b10.py probes it against every solid of b10-inside-gypsum. model.json is the plugin's expansion with the member materials documents applies; members.json each body's member metadata (packages/loft-plugins/tests/test_casework_b10.py pins both).",
+  "derivation": [
+    "Every expectation is ANALYTIC, from services/geometry/tests/test_casework_b10.py's independent script (test_casework's script of casework.md's conventions, never the plugin): each panel a box, a notched side its box less its 3 x 4.5 toe notch; summed in exact rational arithmetic (x 25.4 = mm exactly).",
+    "",
+    "volume = c2-kitchen-b7-left-wall's 26 295.921875 in^3 less 1/2 x 3/4 x 79.5 = 29.8125 in^3 of filler, 26 266.109375 in^3: the 75 base-run and 16 wall-run panels in each run's frame, mapped to the world as X = 6 + y, Y = 186.5 - x (the filler's 3 x 79.5 at Y 183..186), Z = 11.46875 + z.",
+    "",
+    "surface_area = each panel's box area, a notched side's less twice its notch's face; bodies are separate.",
+    "",
+    "topology: a box 6 faces, 12 edges, 1 shell; a notched side 8 faces, 18 edges. MESH: a box 24 vertices and 12 triangles, a notched side 36 and 20 (two hexagons of 4 triangles, six quads of 2)."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-29: volume 2.4e-7 mm^3 and area 1.5e-8 mm^2 off the exact sums over 91 bodies (4.3e8 mm^3), centroid 2.3e-12 mm; 1e-6 is 4.2x the worst, as c2-kitchen-b7-left-wall.",
+  "roundtrip_tolerance": 2.5e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-29: the STEP round trip re-sums the 91 solids and moves the VOLUME by 6.0e-7 mm^3 (1.4e-15 relative); 2.5e-6 is 4.2x; volume and area only.",
+  "properties": {
+    "volume": 430424415.359125,
+    "surface_area": 51827739.08625,
+    "centroid": {
+      "x": 442.3898179450587,
+      "y": 3353.9991646198077,
+      "z": 1127.9790684574675
+    },
+    "mass_g": 248354.88766221513,
+    "center_of_mass": {
+      "x": 442.3898179450587,
+      "y": 3353.9991646198077,
+      "z": 1127.9790684574675
+    },
+    "bounding_box": {
+      "min": {
+        "x": 152.39999999999998,
+        "y": 1371.6,
+        "z": 291.30625
+      },
+      "max": {
+        "x": 781.05,
+        "y": 4724.4,
+        "z": 2424.90625
+      }
+    }
+  },
+  "topology": {
+    "faces": 566,
+    "edges": 1152,
+    "shells": 91
+  },
+  "mesh": {
+    "vertices": 2304,
+    "triangles": 1172
+  }
+}

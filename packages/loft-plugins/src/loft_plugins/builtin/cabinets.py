@@ -40,7 +40,7 @@ hinges by Blum's count for the door's height and a pair of slides per drawer
 """
 
 import math
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 
@@ -1238,17 +1238,25 @@ def style_of(inputs: ExpandInputs) -> Style:
     )
 
 
-def expand(inputs: ExpandInputs) -> Iterator[Member]:
+def expand_placed(
+    inputs: ExpandInputs, place_of: Callable[[ExpandInputs, float], Placement]
+) -> Iterator[Member]:
+    """The run's members, its frame placed by *place_of* (its inputs and the
+    run's length): 1.0.0's :func:`placement`, or a later release's."""
     boxes = read_boxes(inputs, _inches(inputs, "wall_bottom_mm"))
     style = style_of(inputs)
     panels = run_panels(boxes, style)
-    place = placement(inputs, sum(box.width for box in boxes))
+    place = place_of(inputs, sum(box.width for box in boxes))
     emitter = _Emitter(inputs, place)
     ordinal: dict[tuple[int, str], int] = {}
     for box, panel in panels:
         k = ordinal.get((box, panel.role), 0)
         ordinal[(box, panel.role)] = k + 1
         yield from emitter.panel(panel, f"box/{box}/{k}")
+
+
+def expand(inputs: ExpandInputs) -> Iterator[Member]:
+    return expand_placed(inputs, placement)
 
 
 CABINETS_V1 = Plugin(MANIFEST, expand)

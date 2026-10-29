@@ -1,0 +1,56 @@
+{
+  "description": "B10 WITH ITS WALLS' INSIDE GYPSUM (INTERIOR-WALLS-INSIDE-GYPSUM-GOLDEN, CASEWORK-B10; buildings.md B10): b10-partitions' tree with loft.wall 1.4.0's Inside gypsum set to 1/2 gypsum: 27 panels on the four walls' inside faces, and the partitions' 20 boards stopped at the walls' boards. model.json is EXACTLY the sketch and the expansions with their member materials; members.json each body's member metadata with its plugin (packages/loft-plugins/tests/test_casework_b10.py pins both; services/geometry/tests/test_casework_b10.py checks the STEP solid for solid and probes every pair).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_casework_b10.py's house_members() is test_outline_b7.script() (B7, 217 solids), test_partitions_b10's framing (45) and door unit (2), and every gypsum board typed from buildings.md B10 and the interior-wall corner rules: 1/2 in, two 48 in courses down from the top plate (Z +1.125..+97.125 above the subfloor), 96 in strips from each face's start. The walls' boards: the front (Y 5.5..6) and back (Y 186..186.5) run between the side walls' framing, X 5.5..282.5, the front's strips from X 282.5 and the back's from X 5.5; the left (X 5.5..6) and right (X 282..282.5) stop at them, Y 6..186, from Y 6 and from Y 186; cut at B7's rough openings (the door 38 x 82.5 at X 144, 36.5 x 48.5 at X 60, 228 and the back's 144, the sides' 24.5 x 36.5 at Y 96) and at the partitions meeting them (P1 at the front and back, P2 at the right): 20 panels, 7 split where a cut crosses them, 27 solids. The partitions' boards stop at the walls' boards: P1's faces Y 6..186 (strips from Y 186), its +X cut at P2; P2's from X 282 to P1's board at X 182.25, its door's rough opening cut out: 20 solids. 311 solids.",
+    "",
+    "volume (analytic): b7-outline's 264 852.3788656 in^3, B10's framing and door 21 558 in^3, and the boards in exact rationals, 23 921.25 + 38 272.25 in^3: the partitions' (2 x 180 x 96 - 3.5 x 96 + 2 x (99.75 x 96 - 34 x 81.375)) / 2 and the walls' ((2 x 277 + 2 x 180) x 96 - 3 x 36.5 x 48.5 - 2 x 24.5 x 36.5 - 38 x 81.375 - 3 x 3.5 x 96) / 2 in^3 (test_the_boards_by_hand); 348 603.8788656 in^3 in all.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (house_expected()): spf_lumber 450, southern_pine_pt 582, osb 641, plywood 577 and gypsum 846 kg/m^3.",
+    "",
+    "bounding_box: b7-outline's: the boards lie inside the walls and under the roof.",
+    "",
+    "topology and MESH from the script's B-rep: every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_the_house_is_the_script_and_nothing_interferes probes every pair whose boxes overlap, exactly): the boards only touch the framing and the boards they meet."
+  ],
+  "tolerance": 3e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-29: b10-partitions' class. The bounds are ABSOLUTE and the part is ~5.4e9 mm^3 summed over 311 bodies, so the double-precision sum carries round-off near the ULP of the sum: the kernel differs from the script by -7.6e-06 mm^3 on the volume, -3.6e-07 mm^2 on the area, <= 6.4e-12 mm on the centroid and centre of mass and 4.7e-10 g on the mass. 3e-5 is 3.9x that and ~6e-15 relative; one inside board missed takes over 1e6 mm^3, so it fails by ten orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline's class, measured 2026-10-29: OCCT's STEP writer rounds the 26 sloped rafters' and the notched OSB panels' irrational coordinates. Round-trip drift here: volume -3.22e-4 mm^3, area -2.23e-5 mm^2, centroid <= 1.2e-10 mm: the boards are boxes and add nothing to it. 1e-3 is 3.1x the worst; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 5712594073.618349,
+    "surface_area": 572527001.9567758,
+    "centroid": {
+      "x": 3844.077991166639,
+      "y": 2495.3938908528676,
+      "z": 1354.006986910758
+    },
+    "mass_g": 3203533.037438033,
+    "center_of_mass": {
+      "x": 3867.9923644982446,
+      "y": 2513.040086393682,
+      "z": 1342.5214120210173
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 4112.45887569496
+      }
+    }
+  },
+  "topology": {
+    "faces": 2140,
+    "edges": 4554,
+    "shells": 311
+  },
+  "mesh": {
+    "vertices": 9108,
+    "triangles": 4832
+  }
+}

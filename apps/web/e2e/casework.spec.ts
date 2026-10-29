@@ -18,6 +18,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * total the lines summed by hand (golden c3-v3021-melamine-frameless).
  *
  * On a wall: a run picked onto a typed wall's inside face, from its end.
+ * The Pieces total counts bodies and Each items, never banding
+ * (CASEWORK-B10); a new run is `loft.cabinets` 1.1.0.
  */
 
 const IN = 25.4;
@@ -110,6 +112,9 @@ test.describe("Cabinets", () => {
     ).toContainText("282");
     await expectLine(page, "Concealed hinge", "2", "Each");
     await expectLine(page, "Drawer slides 22 in, pair", "1", "Each");
+    // Pieces (CASEWORK-B10): the 15 panels, 2 hinges and 1 slide pair; the
+    // banding line's 7 banded panels are not counted again.
+    await expect(page.getByTestId("cut-list-total")).toHaveText("18");
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/casework-c1-b24.png` });
 
@@ -170,6 +175,8 @@ test.describe("Cabinets", () => {
     await expectLine(page, "3/4 melamine", "10", "2 × 4x8");
     await expectLine(page, "Edge banding 7/8 in", "7", "29 ft");
     await expectLine(page, "Concealed hinge", "4", "Each");
+    // Pieces: 10 panels and 4 hinges, never the banding.
+    await expect(page.getByTestId("cut-list-total")).toHaveText("14");
     const panel = page.getByTestId("cut-list-panel");
     const total = panel.getByTestId("cut-list-price-total");
     await expect(total).toHaveText("");
@@ -253,6 +260,18 @@ test.describe("Cabinets", () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/casework-wall-run.png` });
     const stored = await inputs(page, account.token, partId);
     expect(stored?.measure_from).toBe("end");
+    // A new run is loft.cabinets 1.1.0 (CASEWORK-B10); a line wall's
+    // inside face is its framing, so it sits where 1.0.0 put it.
+    const rows = (
+      (await (
+        await page.request.get(`/api/v1/parts/${partId}/features`, {
+          headers: { Authorization: `Bearer ${account.token}` },
+        })
+      ).json()) as {
+        features: { feature: { params: { plugin_version?: string } } }[];
+      }
+    ).features;
+    expect(rows[rows.length - 1]?.feature.params.plugin_version).toBe("1.1.0");
     expect(stored?.boxes).toHaveLength(2);
   });
 });

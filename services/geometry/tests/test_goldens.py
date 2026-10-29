@@ -323,6 +323,13 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "c1-b24-turned-30-casework",
         "c2-kitchen-b7-left-wall",
         "c3-v3021-melamine-face-frame",
+        # Casework on B10's finished faces (CASEWORK-B10): C2's 91 panels and
+        # C4's 35 and its V3621 edit, the summation drift (2.1e-7 to 6.0e-7
+        # mm^3); B10 with its walls' inside gypsum, b7-outline's class, 3.2e-4.
+        "c2-kitchen-b10-left-wall",
+        "c4-vanity-b10-p1",
+        "c4-v3621-b10-p1",
+        "b10-inside-gypsum",
     }
 )
 

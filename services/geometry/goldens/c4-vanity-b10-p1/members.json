@@ -1,0 +1,488 @@
+[
+  {
+    "feature_id": "0500adbe-3008-55f9-9cd3-8cc78a6913ac",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 762.0,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "1ef55c88-648b-5f5f-813a-b81cad3d881e",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 762.0,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "fab9f2d2-81a4-5f41-ab77-e00acc79a6f5",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "36232838-db1d-5c3f-9d9b-ab8de6b5264c",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 723.9,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "2ac53600-0203-5f98-a6c6-1d6c6d863267",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 723.9,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "2b848084-5a2c-5120-9f13-9bf997aabfff",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5e177bbb-d51b-51d3-abf9-1ef8baac16db",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "10fd774b-835b-54af-9127-2877e264055e",
+    "role": "false_front",
+    "title": "False front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1822.4499999999998,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "dd8e833f-98c8-58df-91e3-285115821503",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1962.1499999999999,
+        "material": "pvc"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "0c9bc06d-41e8-5019-926c-288fd8f67387",
+    "role": "door",
+    "title": "Door",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1962.1499999999999,
+        "material": "pvc"
+      },
+      "hardware": [
+        {
+          "key": "hinge",
+          "quantity": 2
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "890d434e-bfbc-5c13-b868-4dcccbdf88dc",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 762.0,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "17a0a3c2-c85c-5429-b1b8-cb51b22efdcb",
+    "role": "side",
+    "title": "Side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 762.0,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "6f3aa022-b2fe-50ca-ab80-46d9de46bcee",
+    "role": "back",
+    "title": "Back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "16a51c12-57b9-5a6a-8e93-9756b973f698",
+    "role": "bottom",
+    "title": "Bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 342.9,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "9c96b866-2630-54dd-b217-a62f1ec809d7",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 342.9,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "0a0c6889-bd1f-5eac-a936-54db821930db",
+    "role": "stretcher",
+    "title": "Stretcher",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d897f7f9-805f-5231-99c9-28d2a8f494ef",
+    "role": "toe_kick",
+    "title": "Toe kick",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "393b95fe-132b-59cb-a9cf-369e3bf773fc",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1060.45,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "a8649090-a1ef-557a-8c14-3d4b6bfd34b5",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1355.725,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "2fc670c4-5b63-53ec-b297-457a06061a94",
+    "role": "drawer_front",
+    "title": "Drawer front",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "3/4 melamine",
+      "material": "melamine",
+      "nominal_size": null,
+      "banding": {
+        "length_mm": 1355.725,
+        "material": "pvc"
+      }
+    }
+  },
+  {
+    "feature_id": "60b57a33-bc41-5b7f-9836-06e54d6b4e4d",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "69151477-ec9d-5f1c-a986-e405fd752108",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "f4b8e016-021b-5114-90e6-d40b0d4ec6b0",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "880f60fc-cb4a-5bd3-a013-540e4585eb92",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "b003e608-39e2-5fe1-afe5-a1e95c65caab",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_20",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "1655bb3a-fc37-5d23-b90f-408ba8ab0a34",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "7079a21f-d95f-57db-a63a-7e8e18e915d7",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "421f029b-1d21-5a02-afad-a7259646abb5",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "646b5772-e4fe-536a-bd1f-9ebf987bb88c",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "028c5abe-804d-5f19-8536-78ac9b66778a",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_20",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "feature_id": "dd6c2f98-4288-57f5-bd69-ceb08a087763",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "82563983-d9a7-5ae8-b0c6-e7daa21e806b",
+    "role": "drawer_side",
+    "title": "Drawer side",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [1.0, 0.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "fafe5e90-e572-543a-bd69-d7e914f628ed",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "70552960-bdc5-5201-b29b-7a313fe72527",
+    "role": "drawer_end",
+    "title": "Drawer front and back",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/2 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0]
+    }
+  },
+  {
+    "feature_id": "3b9454cc-5d80-5bc5-99eb-2cfb26d751de",
+    "role": "drawer_bottom",
+    "title": "Drawer bottom",
+    "plugin_id": "loft.cabinets",
+    "metadata": {
+      "profile": "1/4 plywood",
+      "material": "plywood",
+      "nominal_size": null,
+      "grain": [0.0, -1.0, 0.0],
+      "hardware": [
+        {
+          "key": "slide_20",
+          "quantity": 1
+        }
+      ]
+    }
+  }
+]

@@ -86,17 +86,23 @@ wall's inside face measured from the back wall, with the left wall's
 inside gypsum turned on (the runs' backs at X 6), facing +X, standing on
 the subfloor.
 
-- **Base run** from Y 186.5 toward the front: filler 3.5, T1884 (two
-  doors, the lower in line with the base doors), DB24 (3 drawers), B27,
-  SB36 (2 doors, a false front, no shelf) centred under the window at
-  Y 96, B24; 132.5 long, ending at Y 54.
+- **Base run** from the back wall's gypsum at Y 186 toward the front
+  (the walls' inside gypsum is on all four walls, so the back wall's board
+  takes 1/2 in of the corner): filler 3, T1884 (two doors, the lower in
+  line with the base doors), DB24 (3 drawers), B27, SB36 (2 doors, a false
+  front, no shelf) centred under the window at Y 96, B24; 132 long, ending
+  at Y 54.
 - **Wall run** above it from the pantry to the window: W2430 and W2730
   (Y 165..114), bottom 54 above the subfloor, clear of the window's casing.
 
-Panel, banding and hardware counts, sheets and volume come from the
-script. **Passes** when the runs touch the gypsum and the subfloor and
-interfere with nothing, and B24 -> B21 at the front end is one edit: the
-run ends at Y 57 and nothing else moves.
+91 panels, **26 266.109375 in³**: the run first proved on B7 (backs at
+X 6 behind a 1/2 in gap, from the back wall's framing at Y 186.5, a 3.5
+filler) less 1/2 x 3/4 x 79.5 of filler. Corrected 2026-10-29
+(CASEWORK-B10): the PM's "keeps its volume" missed the back wall's board;
+keeping the 3.5 filler would move the sink 1/2 off the window. Banding,
+hardware and sheets come from the script. **Passes** when the runs touch
+the gypsum and the subfloor and interfere with nothing, and B24 -> B21 at
+the front end is one edit: the run ends at Y 57 and nothing else moves.
 
 ## C3 Vanity V3021 (stops CASEWORK)
 
@@ -110,8 +116,9 @@ no plywood line; C4 prices the drawer boxes.
 ## C4 Bath vanity on B10's P1 (stops CASEWORK-B10)
 
 One Cabinets feature on P1's +X gypsum face (X 182.25, in B10's bath
-behind P2), measured from P1's back end, starting 1/2 in off the back
-wall's framing (Y 186, room for its gypsum), facing +X on the subfloor:
+behind P2; P1's left face, P1 drawn from the back), measured from P1's back
+end, starting 1/2 in off the back wall's framing (Y 186, room for its
+gypsum), facing +X on the subfloor:
 C3's V3021, then a VDB1521 drawer bank (15 wide, 21 deep, 34.5 high, 3
 drawers, the top front 6), frameless 3/4 melamine with PVC banding.
 
@@ -130,4 +137,7 @@ drawers, the top front 6), frameless 3/4 melamine with PVC banding.
   priced.
 
 **Edit:** V3021 -> V3621: the VDB moves to Y 150..135, 0.75 clear of P2's
-gypsum at Y 134.25, and nothing else moves.
+gypsum at Y 134.25, and nothing else moves (6 452.42578125 in³).
+
+The C4 numbers were re-derived on 2026-10-29 by an independent
+exact-fraction script (CASEWORK-B10) and stand as written.

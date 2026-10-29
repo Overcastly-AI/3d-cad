@@ -3134,6 +3134,53 @@ and reframe it, a material per member, and a cut list that is always current.
     (228), matched solid for solid to an independent build123d script on
     STEP; no pair interferes, in B7, at 28 ft, at 8/12 and in B10 (P2's top
     plate face to face under them), probed exactly.
+- **Decided while putting casework in B10** (CASEWORK-B10, 2026-10-29;
+  Mozaik places a run on the room's walls, partitions among them, at their
+  finished faces, and a wall's length is measured inside them):
+  - *A new release for the placement only.* `loft.cabinets` 1.1.0 is 1.0.0
+    box for box, panel for panel and name for name; only the run's frame
+    moves. 1.0.0 keeps its own placement and expands byte for byte (its
+    goldens, pinned by `test_cabinets.py`, are unchanged). The drawer boxes
+    did NOT need a release: 1.0.0 already sizes them as Mozaik and Cabinet
+    Vision do for side-mount slides (1/2 plywood sides, front and back on a
+    1/4 bottom, 1 in narrower than the opening, as long as the longest
+    slide that fits the inside depth, sides 2 in under the front), and C4's
+    numbers are 1.0.0's.
+  - *Wall* may be a `loft.wall` or a `loft.interior_wall` (Wall line the
+    partition, as a door picks it), and **Face** left or right of a
+    partition looking along it from its start (its gypsum's `left` and
+    `right`; a wall's run is on its inside face).
+  - *On the finished face.* The backs sit on the face's gypsum when it has
+    one (a 1.4.0 wall's Inside gypsum, a partition's Gypsum), on the framing
+    otherwise, plus the Back gap (0 now means on the board, not on the
+    studs). Distance runs from the end of the finished face: the face's
+    board runs from the board of the wall it meets (`interior_wall`'s
+    corner rules), so a run at 0 stands in the finished corner and never
+    cuts the other wall's board. At a room corner the face ends at the
+    finished face of the wall it meets: a through wall's own board runs on
+    under the side wall's board to the framing, so its finished face stops
+    a wall's depth plus that board in from its end (with no board, a wall's
+    depth; 1.0.0 measured from the end). Tested with a B24 at Distance 0
+    from both ends of every wall and partition face, with and without the
+    walls' gypsum, probed exactly. The
+    run must fit between the finished ends, and a run that would pass a
+    partition meeting its face (the partition with its boards) is refused,
+    naming it: Mozaik will not place a cabinet through a wall.
+  - *Numbers.* C2 on B10 with the walls' gypsum: the back wall's board takes
+    1/2 in of the corner, so the filler is 3 (1.0.0's on B7 was 3.5): the
+    sink stays centred on the window and the run still ends at Y 54
+    (casework.md corrected: 91 panels, 26 266.109375 in^3, 29.8125 less).
+    C4 on P1's +X board: 6 036.17578125 in^3, 578.75 in of banding, 4
+    hinges, 3 pairs of 20 in slides, its melamine on 2 sheets and its 1/2
+    and 1/4 plywood on one each; V3621 ends 3/4 clear of P2's board. The
+    PM's C4 numbers were re-derived by an exact-fraction script and stand.
+    Goldens `c2-kitchen-b10-left-wall`, `c4-vanity-b10-p1`,
+    `c4-v3621-b10-p1` and `b10-inside-gypsum` (the walls' 27 inside boards,
+    typed independently); every cabinet probed exactly against every house
+    solid.
+  - *Pieces.* The cut list's Pieces total is every line's quantity but
+    banding's: each body once and each Each item by its count. A banding
+    line's quantity is the panels it bands, already counted.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

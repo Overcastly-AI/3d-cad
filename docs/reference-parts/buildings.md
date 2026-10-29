@@ -79,6 +79,15 @@ spaced from X 2.75 to 237.25. Volume 80 212.5 in³.
 with the 5% allowance: 4.40 / 0.60 = 7.33, **8 bags**, and 3 post bases.
 At 20 ft, 4 footings, 9 650.97 in³, **10 bags** (9.77) and 4 post bases.
 
+**Stair** (STAIRS): centred on the rim at X 96, 36 in wide, from the
+decking top (Z 30) to grade. 4 risers of 7.5 (ceil(30 / 7.75) = 4) and 3
+treads of 11 in run (33 in); 3 cut 2x12 stringers, X 78..79.5, 95.25..96.75
+and 112.5..114 (17.25 o.c.), 6 ft stock, throat 11.25 - 7.5 x 11 /
+√(7.5² + 11²) = 5.0533 in (at least 5, DCA6); 6 tread boards 5/4x6 x 36; a
+handrail (4 risers, R311.7.8); the guard opens at the stair. At a 36 in
+decking top: 5 risers of 7.2, 4 treads (44 in), throat 5.2258. Interior
+check, free stair, rise 107.09375: 14 risers of 7.649554, 13 treads.
+
 ## B2 Shed, 10 x 12 ft (stops STUD-WALL, WINDOW-DOOR, ROOF)
 
 A 4 in concrete slab, X 0..144, Y 0..120, Z -4..0. Four 2x4 walls at 16 in
@@ -385,6 +394,25 @@ rafters' top plane at the wall's outside face is 106.1770833 +
 7.25√1.25 = 114.282829, so each end's top corner is snipped Δ = 29/3 -
 7.25√1.25 = 1.560920 down and 2Δ along: 2 088 - 3Δ² = 2 080.690584 in³ a
 joist, 22 887.596423 in³ for the 11. At 28 ft, 13.
+
+**Gable ends** (GABLE-END-STUDS): 2x6 studs on each side wall's top plate
+at its 16 in layout centres, cut on the slope to the rafters' underside,
+106.1770833 + d/2 at distance d from the nearer eave wall's outside face;
+a stud's long point is d/2 - 2.416667 at its higher face. Laid out from
+the front: 11 a gable, Y 21.5, 37.5, ..., 181.5, long points 262.791667
+in in all. OSB carried up: 2 x 91.1667² / 4 = 4 155.68 in² a gable.
+
+**Siding and trim** (SIDING-TRIM): fibre-cement lap 8.25 at 7 in exposure
+(1 008 in² a 12 ft board) from Z 0 to the top plate: 960 x 108.59375 =
+104 250 in², less cased openings 13 351.5 (5/4x4 picture frame: 43 x 55,
+31 x 43, door 43 x 83.5), 90 898.5 in² x 1.10 / 1 008 = 99.19, **100
+boards**; 8 corner boards 5/4x4 x 108.59375; casing 1 094 in. Vinyl:
+6.94, **7 squares**.
+
+**Drawings** (HOUSE-DRAWINGS): plan cut 48 in above the subfloor, 24'-0" x
+16'-0" overall; front string 5'-0", 7'-0", 7'-0", 5'-0", back 12'-0" +
+12'-0", sides 8'-0" + 8'-0"; elevations: plate 8'-1 1/8", window heads
+6'-10 1/2" above the subfloor.
 
 The round passes or fails B7 as any building (built, edits survive with no
 interference, checked to 1e-4 on STEP), times the build and files every

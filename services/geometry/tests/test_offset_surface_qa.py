@@ -191,6 +191,13 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "c1-b24-turned-30-casework": 5e-4,
     "c2-kitchen-b7-left-wall": 1.5e-6,
     "c3-v3021-melamine-face-frame": 5e-7,
+    # Casework on B10's finished faces (CASEWORK-B10): summation drift, 6.0e-7,
+    # 4.5e-7 and 2.1e-7 mm^3 measured; B10 with its walls' inside gypsum,
+    # b7-outline's class, measured 3.2e-4 mm^3.
+    "c2-kitchen-b10-left-wall": 2.5e-6,
+    "c4-vanity-b10-p1": 1.8e-6,
+    "c4-v3621-b10-p1": 1e-6,
+    "b10-inside-gypsum": 1e-3,
     # B9 on its crawl space (CRAWL-SPACE): b7-outline's class, measured
     # 3.4e-4 mm^3; the foundation alone drifts 1.1e-5.
     "b9-crawl-space": 1e-3,
