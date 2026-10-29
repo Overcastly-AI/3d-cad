@@ -299,6 +299,7 @@ describe("PluginFeatureEditor — an out-of-date release (OPENING-UPDATE)", () =
       "Adds 2 header spacers and 1 header ply. Draws the header's 1/2 in plywood spacers.",
     adds: ["2 header spacers", "1 header ply"],
     quiet: false,
+    separate: false,
   };
 
   function renderOutOfDate(withWarning: boolean, onUpdate?: () => void) {

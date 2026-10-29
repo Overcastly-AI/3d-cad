@@ -6,6 +6,7 @@ import {
   featureUpdate,
   outOfDateFeatures,
   outOfDateSentence,
+  updateAllTakesAny,
   updateBadgeTitle,
   updateToLabel,
 } from "./pluginUpdate";
@@ -15,6 +16,8 @@ interface Offer {
   summary: string;
   adds?: string[];
   quiet: boolean;
+  relays?: string[];
+  separate: boolean;
 }
 
 function row(id: string, update?: Offer): FeatureResponse {
@@ -45,12 +48,14 @@ describe("out-of-date Build features (OPENING-UPDATE, PLUGIN-UPDATE-ALL)", () =>
     summary: "Adds 2 header spacers and 1 header ply. Draws the spacers.",
     adds: ["2 header spacers", "1 header ply"],
     quiet: false,
+    separate: false,
   };
   const floor: Offer = {
     to_version: "1.3.0",
     summary: "Joists bear on replaces Joist direction.",
     adds: [],
     quiet: true,
+    separate: false,
   };
 
   it("reads a row's update, or null for a current one", () => {
@@ -59,6 +64,8 @@ describe("out-of-date Build features (OPENING-UPDATE, PLUGIN-UPDATE-ALL)", () =>
       summary: "Adds 2 header spacers and 1 header ply. Draws the spacers.",
       adds: ["2 header spacers", "1 header ply"],
       quiet: false,
+      relays: [],
+      separate: false,
     });
     expect(featureUpdate(row("b"))).toBeNull();
     // An offer from before PLUGIN-UPDATE-ALL names nothing it adds.
@@ -66,6 +73,7 @@ describe("out-of-date Build features (OPENING-UPDATE, PLUGIN-UPDATE-ALL)", () =>
       to_version: spacers.to_version,
       summary: spacers.summary,
       quiet: false,
+      separate: false,
     };
     expect(featureUpdate(row("c", bare))?.adds).toEqual([]);
   });
@@ -98,6 +106,28 @@ describe("out-of-date Build features (OPENING-UPDATE, PLUGIN-UPDATE-ALL)", () =>
     );
     expect(updateBadgeTitle(floorUpdate)).toBe(
       "Update to 1.3.0: Joists bear on replaces Joist direction.",
+    );
+  });
+
+  it("badges one that re-lays as an update on its own, which Update all leaves", () => {
+    const relaying: Offer = {
+      to_version: "1.3.0",
+      summary: "Re-lays 19 joists and 20 subfloor panels.",
+      adds: [],
+      quiet: false,
+      relays: ["19 joists", "20 subfloor panels"],
+      separate: true,
+    };
+    const update = featureUpdate(row("f", relaying));
+    if (update === null) throw new Error();
+    expect(updateBadgeTitle(update)).toBe(
+      "Update to 1.3.0 on its own: re-lays 19 joists and 20 subfloor panels",
+    );
+    expect(outOfDateFeatures([row("f", relaying)])).toHaveLength(1);
+    expect(updateAllTakesAny([row("f", relaying)])).toBe(false);
+    expect(updateAllTakesAny([row("f", relaying), row("g", floor)])).toBe(true);
+    expect(outOfDateSentence(3, 1)).toBe(
+      "3 Build features out of date · 1 to update on its own",
     );
   });
 

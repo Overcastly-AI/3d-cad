@@ -10,7 +10,6 @@ import { gatewayClient } from "./client";
 import { envelopeCode, envelopeMessage } from "./envelope";
 import {
   type FeatureCreate,
-  type FeatureTreeResponse,
   type FeatureUpdate,
   StaleTreeVersionError,
 } from "./parts";
@@ -24,6 +23,11 @@ export type CustomParams = components["schemas"]["CustomParamsV1"];
 /** One stored input value: a number, an option or material key, or a feature. */
 export type CustomInputValue = CustomParams["inputs"][string];
 export type ExpandedMember = components["schemas"]["ExpandedMember"];
+/** A feature Update all left out of date, and why (PLUGIN-UPDATE-ALL). */
+export type SkippedPluginUpdate = components["schemas"]["SkippedPluginUpdate"];
+/** The tree after an update, and what Update all left out of date. */
+export type PluginUpdateResponse =
+  components["schemas"]["PluginUpdateResponse"];
 
 /** Every released version of every installed plugin (newest first per id). */
 export async function fetchPlugins(
@@ -91,7 +95,7 @@ export async function updatePluginFeatures(
   featureIds: readonly string[] | null,
   expectedTreeVersion: number,
   client: GatewayClient = gatewayClient,
-): Promise<FeatureTreeResponse> {
+): Promise<PluginUpdateResponse> {
   const { data, error } = await client.POST(
     "/api/v1/parts/{part_id}/features/plugin-updates",
     {
