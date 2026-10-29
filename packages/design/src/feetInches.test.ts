@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { formatFeetInches } from "./feetInches";
+import VECTORS from "./feetInches.vectors.json";
 
 const IN = 25.4;
 
@@ -18,6 +19,9 @@ const CASES: [number, string][] = [
   [12.03125, `1'-0 1/16"`],
   [11.99, `1'-0"`],
   [-30, `-2'-6"`],
+  [11 + 31 / 32, `1'-0"`],
+  [1 / 32, `1/16"`],
+  [60 + 3 / 32, `5'-0 1/8"`],
 ];
 
 describe("formatFeetInches", () => {
@@ -25,8 +29,10 @@ describe("formatFeetInches", () => {
     expect(formatFeetInches(inches * IN)).toBe(text);
   });
 
-  it("rounds half up to the sixteenth", () => {
-    expect(formatFeetInches((60 + 0.035) * IN)).toBe(`5'-0 1/16"`);
-    expect(formatFeetInches((60 + 0.03) * IN)).toBe(`5'-0"`);
+  it("prints the sheet's text for all 10,000 shared vectors", () => {
+    const rows = VECTORS as [number, string, number | null][];
+    expect(rows).toHaveLength(10_000);
+    const wrong = rows.filter(([mm, text]) => formatFeetInches(mm) !== text);
+    expect(wrong).toEqual([]);
   });
 });

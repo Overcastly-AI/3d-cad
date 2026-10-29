@@ -9,7 +9,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
  * HOUSE-DRAWINGS on B7 (docs/reference-parts/buildings.md): a builder takes the
- * house to a permit desk or a crew. The part editor's Export ▾ > Drawing opens
+ * house to a permit desk or a crew. The part editor's Create ▾ > Drawing opens
  * a sheet drafting the part (QA-PART-DRAWING-CMD); House set lays out, as
  * Revit and Chief Architect do,
  *
@@ -140,18 +140,18 @@ test.describe("house drawings (HOUSE-DRAWINGS)", () => {
     await seedPriceBook(page, account.token);
     const partId = await seedSavedB7(page, account.token, "B7 house");
 
-    // The part editor's Export ▾ > Drawing (QA-PART-DRAWING-CMD).
+    // The part editor's Create ▾ > Drawing (QA-PART-DRAWING-CMD).
     await page.goto(`/parts/${partId}`);
     await expectSolved(page);
-    const exportMore = page.getByTestId("part-export-band-more");
-    await expect(exportMore).toBeEnabled({ timeout: 60_000 });
-    await exportMore.click();
+    const createMore = page.getByTestId("create-more");
+    await expect(createMore).toBeEnabled({ timeout: 60_000 });
+    await createMore.click();
     const drawingCommand = page.getByTestId("part-drawing");
     await expect(drawingCommand).toBeEnabled({ timeout: 60_000 });
     await expect(drawingCommand).toHaveAccessibleName(/Drawing/);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/house-drawings-part-command.png`,
-      clip: { x: 800, y: 0, width: 800, height: 240 },
+      clip: { x: 0, y: 0, width: 800, height: 420 },
     });
     await drawingCommand.click();
     await expect(page).toHaveURL(/\/drawings\/[^?]+\?source=/, {

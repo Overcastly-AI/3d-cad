@@ -336,5 +336,6 @@ def test_the_section_holds_on_a_450_body_house(evaluation: TreeEvaluation) -> No
     print(
         f"\n450-body house: plan {plan_s:.2f} s, four elevations {elevations_s:.2f} s"
     )
-    # A tripwire, not a benchmark: the cut measured ~0.5 s here (CI is slower).
-    assert plan_s < 20.0
+    # A tripwire at ~3x the measured 0.5-0.65 s (dev box under load): a cut that
+    # booleaned the compound, or every body, would take tens of seconds.
+    assert plan_s < 2.0

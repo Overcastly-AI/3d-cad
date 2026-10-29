@@ -725,23 +725,6 @@ export function CreateStrip({
   const alongPathReady =
     canPipe && treeReady && onNewPlaneAlongPath !== undefined;
   const sketch3DReady = treeReady && onNewSketch3D !== undefined;
-  // Export ▾ > Drawing (QA-PART-DRAWING-CMD): the way out of the part and onto
-  // paper, as the assembly band's Drawing is. A drawing is a deliverable like a
-  // STEP, and the band takes a new low-frequency verb in a ▾ menu, not a cell.
-  const drawingMore: FlyoutItem[] | undefined =
-    onOpenDrawing === undefined
-      ? undefined
-      : [
-          {
-            key: "drawing",
-            icon: <DrawingSheetIcon />,
-            label: drawingBusy ? "Creating the sheet…" : "Drawing",
-            onSelect: onOpenDrawing,
-            disabled: locked || !treeReady || drawingBusy,
-            "data-testid": "part-drawing",
-            "aria-label": "Drawing — draft this part on a sheet",
-          },
-        ];
   const createMore: FlyoutItem[] = [
     {
       key: "sketch-3d",
@@ -778,6 +761,21 @@ export function CreateStrip({
       disabled: locked || !alongPathReady,
       onSelect: () => onNewPlaneAlongPath?.(),
     },
+    // Create ▾ > Drawing (QA-PART-DRAWING-CMD): Onshape's "create Drawing" —
+    // the way out of the part and onto paper, as the assembly band's Drawing.
+    ...(onOpenDrawing === undefined
+      ? []
+      : [
+          {
+            key: "drawing",
+            icon: <DrawingSheetIcon />,
+            label: drawingBusy ? "Creating the sheet…" : "Drawing",
+            onSelect: onOpenDrawing,
+            disabled: locked || !treeReady || drawingBusy,
+            "data-testid": "part-drawing",
+            "aria-label": "Drawing — draft this part on a sheet",
+          },
+        ]),
   ];
   /**
    * MODIFY ▾ — Draft (in Fusion's Modify menu, not on its toolbar; mold
@@ -1402,7 +1400,6 @@ export function CreateStrip({
             partial={exportPartial}
             partialQualifier={exportPartialQualifier}
             state={exportState}
-            more={drawingMore}
           />
         ) : null}
       </div>

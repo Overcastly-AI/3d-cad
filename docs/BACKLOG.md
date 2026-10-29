@@ -767,3 +767,9 @@ One line each. The founder triages weekly; most are closed without work.
 - B7-OPENING-UNITS-PRICE (QA-B7): the door and the four windows are not cut-list or price-book lines, so a house's price leaves out its doors and windows. Chief's materials list prices them.
 - B7-OPENING-SIZES (QA-B7): Window defaults to 24 x 36 and has no size list, so each of B7's three 36 x 48 windows has two fields retyped. Chief and Revit pick from a catalogue (3048, 2436).
 - B7-TREE-STATUS-DASH (QA-B7, seen once): after editing Wall 1's start and length on a solved B7, the tree showed "—" instead of OK for Wall 4 and Window 5 until the next edit.
+- DRAWINGS-ELEVATION-SPEED (HOUSE-DRAWINGS): the four elevations take 6.8 s on a 458-body house (exact HLR of the whole compound, once per view); the plan's cut takes 0.5 s.
+- DRAWINGS-PLAN-FLOOR-ITEMS (HOUSE-DRAWINGS): the plan draws only plates and rough sills below the cut, so base cabinets and steps under 48 in are not shown.
+- DRAWINGS-IMPERIAL-ALL-SHEETS (HOUSE-DRAWINGS): feet-inch prints only on sheets with a plan, elevation or materials view; an ordinary drawing of an imperial part still prints mm.
+- DRAWINGS-ELEVATION-WIDTHS (HOUSE-DRAWINGS): elevations dimension heights (heads, plate) only, with no width strings.
+- DRAWINGS-PLAN-RECT-ONLY (HOUSE-DRAWINGS): the plan's exterior strings read the four sides of the framing's bounding box, so an L-shaped house gets its bounding box's strings.
+- DRAWINGS-YARD-ORDER-MERGE (HOUSE-DRAWINGS): the yard order keeps the cut list's lines, so one stock size cut to three lengths shows as three lines.
