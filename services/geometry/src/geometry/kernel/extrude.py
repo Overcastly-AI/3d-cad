@@ -50,8 +50,18 @@ from loft_wire.sketch import (
     SketchPoint,
     SketchSpline,
 )
+from OCP.BRepClass import (  # pyright: ignore[reportMissingTypeStubs]
+    BRepClass_FaceClassifier,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+)
 from OCP.BRepPrimAPI import (  # pyright: ignore[reportMissingTypeStubs]
     BRepPrimAPI_MakePrism,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+)
+from OCP.gp import (  # pyright: ignore[reportMissingTypeStubs]
+    gp_Pnt,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+)
+from OCP.TopAbs import (  # pyright: ignore[reportMissingTypeStubs]
+    TopAbs_IN,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+    TopAbs_ON,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
 )
 from OCP.TopoDS import TopoDS  # pyright: ignore[reportMissingTypeStubs]
 
@@ -286,12 +296,27 @@ def _wire_strictly_inside(inner: Wire, outer_face: Face) -> bool:
     geometry-exact backstop for anything between samples.
     """
     return all(
-        outer_face.is_inside(
-            inner.position_at(index / _INNER_CONTAINMENT_SAMPLES),
-            tolerance=PROFILE_WIRE_TOLERANCE,
-        )
+        _on_face(outer_face, inner.position_at(index / _INNER_CONTAINMENT_SAMPLES))
         for index in range(_INNER_CONTAINMENT_SAMPLES)
     )
+
+
+def _on_face(face: Face, point: Vector) -> bool:
+    """Whether *point* (on *face*'s plane) is inside *face* or on its
+    boundary, to :data:`PROFILE_WIRE_TOLERANCE`.
+
+    OCCT's 2D face classifier, not build123d's ``Face.is_inside``: that runs
+    ``BRepClass3d_SolidClassifier`` on the bare face, which reports every
+    point OUTSIDE once the face's plane lies more than about 300 in (7.6 m)
+    from the origin along its normal (a 28 ft house's end wall at X 336 in:
+    every window unit drawn there was refused as "not enclosed",
+    SIDING-TRIM); the face classifier works in the face's own UV and holds
+    at any distance."""
+    classifier = BRepClass_FaceClassifier(  # pyright: ignore[reportUnknownVariableType]
+        face.wrapped, gp_Pnt(point.X, point.Y, point.Z), PROFILE_WIRE_TOLERANCE
+    )
+    found = classifier.State()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    return bool(found in (TopAbs_IN, TopAbs_ON))
 
 
 def _region_face(outer_wire: Wire, inner_wires: Sequence[Wire]) -> Face:
