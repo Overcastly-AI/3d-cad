@@ -242,8 +242,9 @@ def test_a_1_3_roof_is_the_1_2_roof_renamed(case: str) -> None:
 def test_1_3_is_the_latest_and_takes_1_2s_inputs() -> None:
     # 1.4.0 (BUILDING-OUTLINE, test_building_outline.py) and 1.5.0
     # (ROOF-HIP-SHEATHING-NOTCH, test_roof_sheathing.py) and 1.6.0
-    # (CEILING-JOISTS, test_ceiling_joists.py) are newer still.
-    assert REGISTRY.latest("loft.roof").manifest.version == "1.6.0"
+    # (CEILING-JOISTS, test_ceiling_joists.py) and 1.7.0 (GABLE-END-STUDS,
+    # test_gable_end_studs.py) are newer still.
+    assert REGISTRY.latest("loft.roof").manifest.version == "1.7.0"
     assert ROOF_V1_3.manifest.inputs == ROOF_V1_2.manifest.inputs
     assert ROOF_V1_3.manifest.members == ROOF_V1_2.manifest.members
     assert ROOF_V1_3.renumbered_roles == frozenset()

@@ -77,6 +77,14 @@ from loft_plugins.builtin.roof_ceiling import (
     ceiling_joists,
 )
 from loft_plugins.builtin.roof_footprint import MIN_PLATE_IN, Footprint
+from loft_plugins.builtin.roof_gable import (
+    GABLE_INPUTS,
+    GABLE_ROLES,
+    GABLE_STUDS,
+    GableSection,
+    clear_of_gables,
+    gable_ends,
+)
 from loft_plugins.builtin.roof_sheathing import notches
 from loft_plugins.builtin.roof_valley import MANIFEST_V1_3, expand_v1_3, hip_roof
 from loft_plugins.builtin.sheathing import sheet_good
@@ -154,6 +162,14 @@ def expand_v1_6(inputs: ExpandInputs) -> Iterable[Member]:
     return _expand(inputs, notch_hips=True, ceiling=True)
 
 
+def expand_v1_7(inputs: ExpandInputs) -> Iterable[Member]:
+    """1.7.0: 1.6.0's members, then a gable on an outline's end walls framed
+    and sheathed up to the roof (GABLE-END-STUDS,
+    :mod:`~loft_plugins.builtin.roof_gable`). A typed bearing, a hip, and
+    Gable ends None are 1.6.0's exactly."""
+    return _expand(inputs, notch_hips=True, ceiling=True, gables=True)
+
+
 def ceiling_joist_note(inputs: ExpandInputs) -> str | None:
     """Why a 1.6.0 roof asked for ceiling joists frames none (its chosen
     joist would pass the ridge board), or ``None``: the stored roof's
@@ -174,6 +190,7 @@ def _expand(
     notch_hips: bool,
     ceiling: bool = False,
     notes: list[str] | None = None,
+    gables: bool = False,
 ) -> list[Member]:
     picks = inputs.features("walls")
     outlines = [p for p in picks if is_outline_wall(inputs.resolve(p))]
@@ -294,8 +311,34 @@ def _expand(
     members += _tail_notches(
         inputs, ref.feature_id, wall_inputs, eaves, rafter, length, place
     )
+    ends = (
+        [w for w in walls if w.line_id not in eaves.values()]
+        if gables and inputs.choice("gable_ends") == GABLE_STUDS
+        else []
+    )
     if ceiling:
-        members += ceiling_joists(inputs, members, rafter, span, length, place, notes)
+        members += ceiling_joists(
+            inputs,
+            members,
+            rafter,
+            span,
+            length,
+            place,
+            notes,
+            clear_of_gables(ends, place),
+        )
+    if ends:
+        ridge = inputs.lumber("ridge_profile")
+        section = GableSection(
+            rafter,
+            span,
+            ridge.thickness_in / 2,
+            rafter.top_at_ridge - ridge.width_in,
+        )
+        good = sheet_good(wall_inputs, "sheathing")
+        members += gable_ends(
+            inputs, members, ref.feature_id, ends, good, section, place
+        )
     return members
 
 
@@ -439,3 +482,31 @@ MANIFEST_V1_6 = MANIFEST_V1_5.model_copy(
 )
 
 ROOF_V1_6 = Plugin(MANIFEST_V1_6, expand_v1_6)
+
+
+def _inputs_v1_7() -> list[PluginInput]:
+    """1.6.0's inputs, Gable ends after the ceiling joists' size."""
+    out: list[PluginInput] = []
+    for item in MANIFEST_V1_6.inputs:
+        out.append(item)
+        if item.name == "ceiling_joist_profile":
+            out += GABLE_INPUTS
+    return out
+
+
+MANIFEST_V1_7 = MANIFEST_V1_6.model_copy(
+    update={
+        "version": "1.7.0",
+        "description": "A gable or hip roof on its walls, each wall defining the "
+        "slope or not: rafters with a birdsmouth on each wall, ridges, hips, "
+        "valleys and jacks, the tails notched out of the wall sheathing, with "
+        "a cut list (Revit Roof by Footprint, Chief Architect). A gable on its "
+        "walls ties each inner common pair with a ceiling joist (IRC "
+        "R802.5.2) and frames its end walls up to the roof: gable studs on "
+        "their layout, their sheathing carried up.",
+        "inputs": _inputs_v1_7(),
+        "members": [*MANIFEST_V1_6.members, *GABLE_ROLES],
+    }
+)
+
+ROOF_V1_7 = Plugin(MANIFEST_V1_7, expand_v1_7)

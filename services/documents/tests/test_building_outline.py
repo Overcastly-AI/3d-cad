@@ -281,20 +281,23 @@ def test_a_new_1_12_gable_builds_without_ceiling_joists_and_warns(
     assert "2x6 or shallower" in warning["message"]
 
 
-def test_a_1_12_roof_updates_to_1_6_and_warns_of_the_joists_it_cannot_fit(
+def test_a_1_12_roof_updates_to_1_7_and_warns_of_the_joists_it_cannot_fit(
     client: TestClient,
 ) -> None:
     """The declared update takes Ceiling joists' default, Beside each common
     (PLUGIN-UPDATE-ALL): a 1.4.0 gable at 1/12, whose 2x8 joist would pass
     its ridge board, still updates, never refused; it frames 1.5.0's roof
-    exactly (a gable on an outline is 1.4.0's byte for byte), so its offer
-    adds nothing and is quiet, and the updated roof warns why it has no
-    joists."""
+    (a gable on an outline is 1.4.0's byte for byte) and then 1.7.0's gable
+    ends (GABLE-END-STUDS), so its offer adds those alone, and the updated
+    roof warns why it has no joists."""
     part, _ = _house(client, roof="1.4.0", pitch="rise_1")
     before = part.rows()["Roof"]
     offer = before["plugin_update"]
-    assert offer is not None and offer["to_version"] == "1.6.0"
-    assert (offer["adds"], offer["quiet"]) == ([], True)
+    assert offer is not None and offer["to_version"] == "1.7.0"
+    assert (offer["adds"], offer["quiet"]) == (
+        ["22 gable studs", "12 gable sheathing panels"],
+        False,
+    )
     response = part.client.post(
         f"/api/v1/parts/{part.id}/features/plugin-updates",
         json={"expected_tree_version": part.version, "feature_ids": [before["id"]]},
@@ -303,11 +306,53 @@ def test_a_1_12_roof_updates_to_1_6_and_warns_of_the_joists_it_cannot_fit(
     assert response.status_code == 200, response.text
     after = part.rows()["Roof"]
     params = after["feature"]["params"]
-    assert params["plugin_version"] == "1.6.0"
+    assert params["plugin_version"] == "1.7.0"
     assert params["inputs"]["ceiling_joists"] == "beside_common"
-    assert params["expansion"] == before["feature"]["params"]["expansion"]
+    old = before["feature"]["params"]["expansion"]
+    assert params["expansion"][: len(old)] == old
+    assert not any(m["role"] == "ceiling_joist" for m in params["expansion"])
     (warning,) = after["plugin_warnings"]
     assert warning["code"] == "ceiling_joists_omitted"
+
+
+def test_the_gable_ends_follow_the_one_dimension_edit(client: TestClient) -> None:
+    """GABLE-END-STUDS: a 1.7.0 roof on B7's outline frames 11 gable studs on
+    each end wall's plate and carries their OSB up in 6 panels a gable; the
+    288 dimension set to 336 moves the right gable and keeps them all."""
+    part, sketch = _house(client, roof="1.7.0")
+    roles = _roles(part.stored(), "Roof")
+    assert (roles["gable_stud"], roles["gable_sheathing"]) == (22, 12)
+    assert roles["ceiling_joist"] == 11
+    part.edit(sketch, _outline(336))
+    roles = _roles(part.stored(), "Roof")
+    assert (roles["gable_stud"], roles["gable_sheathing"]) == (22, 12)
+    assert all(e.input_error is None for e in part.request().features)
+
+
+def test_a_1_6_roof_updates_to_1_7_with_its_gable_ends(client: TestClient) -> None:
+    """VISION 2026-10-29: the update takes 1.7.0's default, Studs and
+    sheathing; its summary names what it adds, and it keeps 1.6.0's members
+    in order, then adds the gable ends."""
+    part, _ = _house(client, roof="1.6.0")
+    before = part.rows()["Roof"]
+    offer = before["plugin_update"]
+    assert offer is not None and offer["to_version"] == "1.7.0"
+    assert "gable studs" in offer["summary"]
+    response = part.client.post(
+        f"/api/v1/parts/{part.id}/features/plugin-updates",
+        json={"expected_tree_version": part.version, "feature_ids": [before["id"]]},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    after = part.rows()["Roof"]
+    params = after["feature"]["params"]
+    assert params["plugin_version"] == "1.7.0"
+    assert params["inputs"]["gable_ends"] == "studs_sheathing"
+    old = before["feature"]["params"]["expansion"]
+    assert params["expansion"][: len(old)] == old
+    added = Counter(m["role"] for m in params["expansion"][len(old) :])
+    assert (added["gable_stud"], added["gable_sheathing"]) == (22, 12)
+    assert "plugin_update" not in after
 
 
 def test_the_outline_cannot_be_deleted_under_its_walls(client: TestClient) -> None:

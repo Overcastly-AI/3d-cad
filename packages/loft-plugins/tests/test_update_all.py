@@ -10,11 +10,14 @@ mapping every input it can and taking the defaults of new parameters
   1.3.0, the door and five windows 1.1.0, the roof 1.4.0): one Update all
   leaves no release out of date and is B7 built fresh today, member for
   member: the floor 1.3.0 on Long walls (byte for byte 1.2.0's), the walls
-  1.4.0, the openings 1.5.0 (18 plies, 12 spacers) and the roof 1.6.0 with
-  its 11 ceiling joists: 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423
-  = 290 689.350323 in³ (the kernel checks it on ``goldens/b7-update-all``,
-  ``services/geometry/tests/test_update_all_b7.py``);
-* the roof's update adds 11 ceiling joists, an opening's 2 header spacers
+  1.4.0, the openings 1.5.0 (18 plies, 12 spacers) and the roof 1.7.0 with
+  its 11 ceiling joists and its gable ends (22 gable studs, 2 134 in³ a
+  gable, and 12 gable OSB panels, 2 496.018680 in³ a gable:
+  GABLE-END-STUDS): 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423 +
+  4 268 + 4 992.037360 = 299 949.387683 in³ (the kernel checks it on
+  ``goldens/b7-update-all``, ``services/geometry/tests/test_update_all_b7.py``);
+* the roof's update adds 11 ceiling joists, 22 gable studs and 12 gable
+  sheathing panels, an opening's 2 header spacers
   and a header ply (its wall's), the floor and the walls nothing at all;
 * a floor 1.2.0 on any outline 1.2.0 reads, or typed, Joists bear on frames
   the same joists, rims and sills;
@@ -144,7 +147,7 @@ def test_one_update_all_leaves_nothing_out_of_date() -> None:
         ("loft.wall", "1.4.0"),
         ("loft.door", "1.5.0"),
         *[("loft.window", "1.5.0")] * 5,
-        ("loft.roof", "1.6.0"),
+        ("loft.roof", "1.7.0"),
     ]
 
 
@@ -162,8 +165,16 @@ def test_the_floor_is_byte_for_byte_and_the_roof_adds_its_joists() -> None:
     assert after[outline.FLOOR_ID] == before[outline.FLOOR_ID]
     old, new = before[outline.ROOF_ID], after[outline.ROOF_ID]
     assert new[: len(old)] == old
+    # The joists' planes and sections, then the right gable's face plane
+    # (the left's is the origin YZ) and its studs' and panels' sections.
     assert Counter(m.role for m in new[len(old) :]) == Counter(
-        {"plane": 11, "section": 11, "ceiling_joist": 11}
+        {
+            "plane": 11 + 1,
+            "section": 11 + 22 + 12,
+            "ceiling_joist": 11,
+            "gable_stud": 22,
+            "gable_sheathing": 12,
+        }
     )
     bodies = Counter(m.role for m in outline.members_of(update_all(outline.b7())))
     assert (bodies["header"], bodies["spacer"], bodies["ceiling_joist"]) == (18, 12, 11)
@@ -220,7 +231,10 @@ def test_each_update_names_what_it_adds() -> None:
         for f, e in names.items()
         if isinstance(e, CustomFeature) and e.params.plugin_id == "loft.door"
     )
-    assert effect_of(rows, outline.ROOF_ID) == (("11 ceiling joists",), True)
+    assert effect_of(rows, outline.ROOF_ID) == (
+        ("11 ceiling joists", "22 gable studs", "12 gable sheathing panels"),
+        True,
+    )
     assert effect_of(rows, door) == (("2 header spacers", "1 header ply"), True)
     # The floor and the walls change nothing: no badge, but Update all.
     assert effect_of(rows, outline.FLOOR_ID) == ((), False)
@@ -557,7 +571,7 @@ def test_the_golden_is_the_updated_expansion() -> None:
 
 def test_the_golden_has_b7s_bodies_the_plies_spacers_and_joists() -> None:
     _, metadata = golden()
-    assert len(metadata) == 217 + 6 + 12 + 11
+    assert len(metadata) == 217 + 6 + 12 + 11 + 22 + 12
 
 
 if __name__ == "__main__":

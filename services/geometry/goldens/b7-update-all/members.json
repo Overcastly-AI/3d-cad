@@ -2704,5 +2704,379 @@
       "material": "spf_lumber",
       "nominal_size": null
     }
+  },
+  {
+    "feature_id": "e9f37d4d-798c-5c58-ae2d-3acc2f292be2",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "74317dcb-3a7b-5e3b-a94c-36b51db9b8be",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d8996f32-1cf0-592a-965e-b6cca669d9aa",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "59884dc6-be8b-53dc-9962-d10a12a0a3e5",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8d988d02-1b8a-5ebc-9564-b5a6eca7b323",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8b64654c-8b79-5e4f-b3db-d2c604fb318f",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2ac14338-ad46-5c6a-a49e-a620e61fa0d7",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cbc72327-cfcd-5dae-898e-b37a0fd008b4",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f9a10f00-9f08-5979-ad76-9fd6f7878ad8",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e95c9a49-b096-5f44-bfe5-c62510db6f8b",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "770d3bb1-311f-5de7-8634-11362dbd0abd",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cd795d3d-4614-55be-9cf5-33d90ec2d38d",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "40f2a9c7-08f0-581d-a823-0e468ada88b1",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "76fcca81-e9be-54c9-a322-ff27fa6e8de0",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "968d0793-6731-5d5a-8a95-e188593cb81a",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b5d7edce-9b33-5e51-9df8-1f6cace82fa8",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "44ea2582-a91f-5463-883b-a6ac6d09326c",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c748f3ec-e957-5148-b28a-4445ce65eee0",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "41b51b18-6d11-5a24-bae7-fbd09e08aceb",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fe967a41-07c1-571e-9f95-11ed8757880f",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8d1ad475-24fe-5389-a374-c069b6c1b394",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c268f561-952a-5dbe-98aa-08987ea98070",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4be5e18a-ecc3-56af-886f-661f75761662",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "57cf9a2b-6366-5b4d-a278-2ce1e1852255",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8995c834-e0c0-5aaf-9cc8-72b8dd6ded50",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6f9a104b-6323-58ff-be87-e1110031d080",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "046ca817-2086-5ff7-83e3-a5b5a143d1bc",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ddbe96ab-5bff-5970-94a9-645b97acbf23",
+    "role": "gable_stud",
+    "title": "Gable stud",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "2x6",
+      "material": "spf_lumber",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "705cd24e-4e4e-5c67-80d8-b822da1bea6f",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "60519310-0638-5fbe-ad7d-247ddf07ae64",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fdd9ed2e-1b8e-52a5-8253-376a9c79f0eb",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bdbed3bd-308e-50c6-b006-a9c06f21eb97",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e2e98cf6-3290-5289-9199-8417057b3f0a",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "df502877-9181-5b44-b235-439fc9120f00",
+    "role": "gable_sheathing",
+    "title": "Sheathing",
+    "plugin_id": "loft.roof",
+    "metadata": {
+      "profile": "7/16 OSB",
+      "material": "osb",
+      "nominal_size": null
+    }
   }
 ]
