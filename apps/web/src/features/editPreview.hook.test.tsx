@@ -75,7 +75,13 @@ describe("useEditPreview", () => {
     await waitFor(() =>
       expect(result.current.inputMeshGlbId).toBe("input-mesh"),
     );
-    expect(spy).toHaveBeenCalledWith("p", undefined, "f");
+    // The query's abort signal rides along, so a superseded preview is let go.
+    expect(spy).toHaveBeenCalledWith(
+      "p",
+      undefined,
+      "f",
+      expect.any(AbortSignal),
+    );
     expect(result.current.displayTree?.rollback_feature_id).toBe("sh");
     // The full evaluation's entry is untouched by the preview.
     expect(client.getQueryData(["evaluate", "p", 9])).toBe(FULL);

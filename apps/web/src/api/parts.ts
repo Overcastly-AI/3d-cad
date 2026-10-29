@@ -7,6 +7,7 @@ import type { components, GatewayClient } from "@loft/ts-client/gateway";
 
 import { gatewayClient } from "./client";
 import { envelopeCode, envelopeMessage, featureWriteError } from "./envelope";
+import { geometryBusy } from "./geometryBusy";
 
 import type {
   BooleanFeature,
@@ -367,18 +368,22 @@ export async function evaluatePart(
    * stop and `tree_version` do not move, and the stored stop is ignored.
    */
   before?: string,
+  /** Aborts a superseded evaluate (the query's signal). */
+  signal?: AbortSignal,
 ): Promise<EvaluateTreeResult> {
-  const { data, error } = await client.POST(
+  const { data, error, response } = await client.POST(
     "/api/v1/parts/{part_id}/evaluate",
     {
       params: {
         path: { part_id: partId },
         ...(before === undefined ? {} : { query: { before } }),
       },
+      signal,
     },
   );
   if (error !== undefined) {
-    throw new Error(envelopeMessage(error, "The part could not be evaluated."));
+    const message = envelopeMessage(error, "The part could not be evaluated.");
+    throw geometryBusy(response, message) ?? new Error(message);
   }
   return data;
 }
