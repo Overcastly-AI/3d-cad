@@ -24,6 +24,7 @@ edge is materialised to the custom feature's row.
 """
 
 import uuid
+from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, cast
 
@@ -36,6 +37,7 @@ from loft_plugins import (
     Plugin,
     PluginError,
     PluginRegistry,
+    PluginUpdate,
     host_of,
     settle_inputs,
     update_for,
@@ -49,6 +51,7 @@ from loft_plugins.builtin.house import stored_inputs
 from loft_plugins.builtin.roof_ceiling import CEILING_BESIDE
 from loft_plugins.builtin.roof_outline import ceiling_joist_note
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
+from loft_plugins.updates import UpdateEffect, update_effect
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_VALUE_INVALID
 from loft_wire.feature_resolve import (
@@ -95,6 +98,7 @@ from loft_wire.plugins import (
     ProfileInput,
     member_id,
 )
+from loft_wire.tree_edits import MAX_UPDATE_ADDS
 from loft_wire.tree_edits import PluginUpdate as PluginUpdateOffer
 from py_kit import ConflictError, ValidationApiError, get_logger
 from pydantic import ValidationError
@@ -1120,8 +1124,8 @@ def _through_sheathing_warning(
 ) -> PluginWarning | None:
     """A stored roof's ``roof_through_sheathing``, or None. The update it
     offers is the declared one (``loft_plugins.updates``): it carries the
-    inputs by its map, which adds no ceiling joists, so the update changes
-    nothing but the notches (CEILING-JOISTS)."""
+    inputs by its map and notches the sheathing; what else it adds (a
+    gable's ceiling joists, PLUGIN-UPDATE-ALL) its offer names."""
     assert envelope.params.expansion is not None
     found = through_sheathing(envelope.params.expansion, earlier, values)
     if found.volume <= MIN_OVERLAP_IN3:
@@ -1142,8 +1146,7 @@ def _through_sheathing_warning(
     if update is not None:
         fix = (
             f" Update to {update} to notch the sheathing round them, as framers "
-            "do; the update adds nothing new (no ceiling joists), and Undo "
-            "restores this roof."
+            "do; the update says what else it adds, and Undo restores this roof."
         )
     else:
         fix = (
@@ -1187,40 +1190,138 @@ def _ceiling_joists_warning(
     )
 
 
-def plugin_update_of(row: db.Feature) -> PluginUpdateOffer | None:
-    """The newer release a stored custom feature may be updated to
-    (OPENING-UPDATE), or None: not custom, already the newest this server
-    maps it to, or a release with no declared map (``loft_plugins.updates``).
-    Offered whether or not the feature is suppressed, as Onshape's update."""
+def declared_update(row: db.Feature) -> PluginUpdate | None:
+    """The declared update of a stored custom feature (``loft_plugins.updates``),
+    or None: not custom, already the newest this server maps it to, or a
+    release with no declared map. Offered whether or not the feature is
+    suppressed, as Onshape's update."""
     if row.type != "custom":
         return None
     plugin_id = row.params.get("plugin_id")
     version = row.params.get("plugin_version")
     if not isinstance(plugin_id, str) or not isinstance(version, str):
         return None
-    update = update_for(plugin_id, version, PLUGINS)
+    return update_for(plugin_id, version, PLUGINS)
+
+
+#: What each out-of-date row's update would do, by (part, tree version,
+#: row): a dry run re-expands the row and its host, so the tree's every read
+#: does not repeat it. Every write bumps the tree version, so an entry can
+#: never outlive the tree it was read from.
+_EFFECTS: OrderedDict[tuple[uuid.UUID, int, uuid.UUID], UpdateEffect | None] = (
+    OrderedDict()
+)
+_EFFECTS_MAX = 2048
+
+
+def _update_effect(
+    part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
+) -> UpdateEffect | None:
+    """What updating *row* would add and whether it changes any member, read
+    by a dry run on the tree as stored: the row re-expanded at its update's
+    release, and a hosted row's host (a door's wall) with it. None when the
+    row is suppressed (it builds nothing) or the dry run is refused: the
+    update itself reports why."""
+    key = (part.id, part.tree_version, row.id)
+    if key in _EFFECTS:
+        _EFFECTS.move_to_end(key)
+        return _EFFECTS[key]
+    effect = None if row.suppressed else _dry_run(part, row, rows)
+    _EFFECTS[key] = effect
+    while len(_EFFECTS) > _EFFECTS_MAX:
+        _EFFECTS.popitem(last=False)
+    return effect
+
+
+def _dry_run(
+    part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
+) -> UpdateEffect | None:
+    parameters = parameter_values(part.parameters)
+    try:
+        envelope = updated_envelope(part, row, rows)
+        pin = envelope.params
+        index = Hosts(rows, {row.id: envelope})
+        earlier = [r for r in rows if r.order_index < row.order_index]
+        result = _expanded(
+            PLUGINS.get(pin.plugin_id, pin.plugin_version),
+            row.id,
+            envelope,
+            parameters,
+            _earlier_from_rows(earlier, parameters=parameters),
+            index.of(row.id, parameters),
+        )
+        stored = load_feature(row)[0]
+        assert isinstance(stored, CustomFeature)
+        changed = [(pin.plugin_id, _stored(stored), result.params.expansion or [])]
+        host = next((r for r in rows if r.id == host_id(envelope)), None)
+        if host is not None and host.type == "custom" and not host.suppressed:
+            host_envelope = load_feature(host)[0]
+            assert isinstance(host_envelope, CustomFeature)
+            host_pin = host_envelope.params
+            reframed = _expanded(
+                PLUGINS.get(host_pin.plugin_id, host_pin.plugin_version),
+                host.id,
+                host_envelope,
+                parameters,
+                _earlier_from_rows(
+                    [r for r in rows if r.order_index < host.order_index],
+                    parameters=parameters,
+                ),
+                index.of(host.id, parameters),
+            )
+            changed.append(
+                (
+                    host_pin.plugin_id,
+                    _stored(host_envelope),
+                    reframed.params.expansion or [],
+                )
+            )
+    except (PluginError, FeatureExpressionError, ValidationApiError, ValidationError):
+        return None
+    return update_effect(changed, PLUGINS)
+
+
+def plugin_update_of(
+    part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
+) -> PluginUpdateOffer | None:
+    """The newest release a stored custom feature may be updated to
+    (OPENING-UPDATE, PLUGIN-UPDATE-ALL), or None (:func:`declared_update`).
+    The summary names what the update adds, read by a dry run against the
+    tree as stored (``Adds 11 ceiling joists.``); an update that changes no
+    member is ``quiet``: no badge, but Update all still takes it."""
+    update = declared_update(row)
     if update is None:
         return None
-    return PluginUpdateOffer(to_version=update.to_version, summary=update.summary)
+    effect = _update_effect(part, row, rows)
+    if effect is None:
+        return PluginUpdateOffer(to_version=update.to_version, summary=update.summary)
+    return PluginUpdateOffer(
+        to_version=update.to_version,
+        summary=f"{effect.sentence} {update.summary}".strip(),
+        adds=list(effect.adds[:MAX_UPDATE_ADDS]),
+        quiet=not effect.changes,
+    )
 
 
-def updated_envelope(row: db.Feature) -> CustomFeature:
+def updated_envelope(
+    part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
+) -> CustomFeature:
     """*row* re-pinned to its update's release, its stored inputs carried by
-    the update's explicit map and its formulas kept on the same inputs; the
+    the update's explicit map (which reads the features before it in *rows*:
+    a floor's outline) and its formulas kept on the same inputs; the
     expansion is left for :func:`prepare_custom_write`. 422
-    ``plugin_update_unavailable`` when it has none, or when a formula drives
-    an input the newer release does not have."""
-    offer = plugin_update_of(row)
+    ``plugin_update_unavailable`` when it has none, when the map cannot read
+    what it needs, or when a formula drives an input the newer release does
+    not have."""
+    update = declared_update(row)
     envelope = load_feature(row)[0]
-    if offer is None or not isinstance(envelope, CustomFeature):
+    if update is None or not isinstance(envelope, CustomFeature):
         raise ValidationApiError(
             f"{row.name!r} has no newer release to update to.",
             code=PLUGIN_UPDATE_UNAVAILABLE,
             details={"feature_id": str(row.id)},
         )
     pin = envelope.params
-    update = update_for(pin.plugin_id, pin.plugin_version, PLUGINS)
-    assert update is not None
     target = PLUGINS.get(pin.plugin_id, update.to_version).manifest
     names = {item.name for item in target.inputs}
     for pointer in envelope.expressions or {}:
@@ -1231,10 +1332,25 @@ def updated_envelope(row: db.Feature) -> CustomFeature:
                 code=PLUGIN_UPDATE_UNAVAILABLE,
                 details={"feature_id": str(row.id), "pointer": pointer},
             )
+    parameters = parameter_values(part.parameters)
+    earlier = _earlier_from_rows(
+        [r for r in rows if r.order_index < row.order_index and r.id != row.id],
+        parameters=parameters,
+    )
+    try:
+        inputs = updated_inputs(
+            update, pin.inputs, stored_inputs(row.id, envelope, earlier, parameters)
+        )
+    except PluginError as exc:
+        raise ValidationApiError(
+            f"{row.name!r}: {exc.message}",
+            code=PLUGIN_UPDATE_UNAVAILABLE,
+            details={"feature_id": str(row.id), "cause": exc.code},
+        ) from exc
     params = pin.model_copy(
         update={
             "plugin_version": update.to_version,
-            "inputs": updated_inputs(update, pin.inputs),
+            "inputs": inputs,
             "expansion": None,
         }
     )
@@ -1278,6 +1394,7 @@ __all__ = [
     "check_members_authorable",
     "check_referenced_members",
     "check_tree_size",
+    "declared_update",
     "evaluation_entries",
     "expanded_size",
     "host_id",

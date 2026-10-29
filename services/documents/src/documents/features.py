@@ -63,6 +63,7 @@ from documents.custom_features import (
     SentMembers,
     authored_references,
     check_tree_size,
+    declared_update,
     expanded_size,
     host_id,
     is_body_affecting,
@@ -340,7 +341,7 @@ def _to_response(
         updated_at=feature.updated_at,
         formula_warnings=formula_warnings(part, envelope),
         plugin_warnings=plugin_warnings(part, feature, rows),
-        plugin_update=plugin_update_of(feature),
+        plugin_update=plugin_update_of(part, feature, rows),
     )
 
 
@@ -666,7 +667,7 @@ async def _update_plugin_feature(
     features = await _ordered_features(session, part.id)
     features_by_id = {feature.id: feature for feature in features}
     hosts_before = stored_host_id(row)
-    envelope: AuthoredEnvelope = updated_envelope(row)
+    envelope: AuthoredEnvelope = updated_envelope(part, row, features)
     assert isinstance(envelope, CustomFeature)
     validate_references(envelope, row.order_index, features_by_id)
     envelope = prepare_custom_write(
@@ -701,7 +702,7 @@ async def update_plugin_features(
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
     features = await _ordered_features(session, part.id)
     if request.feature_ids is None:
-        targets = [row for row in features if plugin_update_of(row) is not None]
+        targets = [row for row in features if declared_update(row) is not None]
         if not targets:
             raise ValidationApiError(
                 "No feature of this part has a newer release to update to.",

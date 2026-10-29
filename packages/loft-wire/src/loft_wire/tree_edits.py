@@ -8,9 +8,9 @@ document edit under the tree's optimistic-concurrency guard: one
 """
 
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from loft_wire.twist import is_none
 
@@ -23,18 +23,38 @@ from loft_wire.twist import is_none
 MAX_TREE_FEATURES = 1000
 
 
+#: Most nouns an update offer names in ``adds`` (a feature adds a few kinds).
+MAX_UPDATE_ADDS = 12
+
+
 class PluginUpdate(BaseModel):
-    """A newer release a stored custom feature may be updated to
-    (OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio
-    has a newer version and Fusion badges out-of-date content. Offered only
-    where the plugin declares an explicit map of the stored inputs into the
-    newer release; the update is an ordinary edit, one undo step."""
+    """The newest release a stored custom feature may be updated to
+    (OPENING-UPDATE, PLUGIN-UPDATE-ALL), as Onshape marks a custom feature
+    whose Feature Studio has a newer version and Fusion badges out-of-date
+    content. Offered only where the plugin declares an explicit map of the
+    stored inputs into the newer release; new inputs take their defaults, so
+    the update may add members, and the offer names them. The update is an
+    ordinary edit, one undo step."""
 
     to_version: str = Field(
         max_length=32, description="The release the update re-pins the feature to"
     )
     summary: str = Field(
-        max_length=400, description="What the update changes, in the action's words"
+        max_length=600,
+        description="What the update changes, in the action's words, starting "
+        'with what it adds ("Adds 3 pier footings and 3 post bases.")',
+    )
+    adds: list[Annotated[str, StringConstraints(max_length=80)]] = Field(
+        default_factory=list[str],
+        max_length=MAX_UPDATE_ADDS,
+        description="What the update adds to this feature (and to the feature "
+        'hosting it), one count and noun each: "11 ceiling joists", "3 post '
+        'bases". Empty when it adds nothing.',
+    )
+    quiet: bool = Field(
+        default=False,
+        description="True when the update changes no member of this feature "
+        "or its host: the tree shows no badge, but Update all still takes it.",
     )
 
 
@@ -85,6 +105,7 @@ class PluginUpdateRequest(BaseModel):
 
 __all__ = [
     "MAX_TREE_FEATURES",
+    "MAX_UPDATE_ADDS",
     "PLUGIN_UPDATE_FIELD",
     "PluginUpdate",
     "PluginUpdateRequest",

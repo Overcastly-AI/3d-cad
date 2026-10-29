@@ -11047,11 +11047,27 @@
         "type": "object"
       },
       "PluginUpdate": {
-        "description": "A newer release a stored custom feature may be updated to\n(OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio\nhas a newer version and Fusion badges out-of-date content. Offered only\nwhere the plugin declares an explicit map of the stored inputs into the\nnewer release; the update is an ordinary edit, one undo step.",
+        "description": "The newest release a stored custom feature may be updated to\n(OPENING-UPDATE, PLUGIN-UPDATE-ALL), as Onshape marks a custom feature\nwhose Feature Studio has a newer version and Fusion badges out-of-date\ncontent. Offered only where the plugin declares an explicit map of the\nstored inputs into the newer release; new inputs take their defaults, so\nthe update may add members, and the offer names them. The update is an\nordinary edit, one undo step.",
         "properties": {
+          "adds": {
+            "description": "What the update adds to this feature (and to the feature hosting it), one count and noun each: \"11 ceiling joists\", \"3 post bases\". Empty when it adds nothing.",
+            "items": {
+              "maxLength": 80,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Adds",
+            "type": "array"
+          },
+          "quiet": {
+            "default": false,
+            "description": "True when the update changes no member of this feature or its host: the tree shows no badge, but Update all still takes it.",
+            "title": "Quiet",
+            "type": "boolean"
+          },
           "summary": {
-            "description": "What the update changes, in the action's words",
-            "maxLength": 400,
+            "description": "What the update changes, in the action's words, starting with what it adds (\"Adds 3 pier footings and 3 post bases.\")",
+            "maxLength": 600,
             "title": "Summary",
             "type": "string"
           },

@@ -147,7 +147,10 @@ def test_a_hip_on_sheathed_walls_warns_and_offers_the_update(
         assert warning["update_to"] == "1.6.0"
         assert "33.2551 in³" in warning["message"]
         assert "Update to 1.6.0" in warning["message"]
-        assert "adds nothing new" in warning["message"]
+        assert "says what else it adds" in warning["message"]
+    # A hip frames no ceiling joists: its update adds none (PLUGIN-UPDATE-ALL).
+    offer = part.tree()[roof["id"]]["plugin_update"]
+    assert (offer["to_version"], offer["adds"], offer["quiet"]) == ("1.6.0", [], False)
     # Reading never re-pins.
     assert part.tree()[roof["id"]]["feature"]["params"]["plugin_version"] == "1.3.0"
     for wall in (f for f in part.tree().values() if f["id"] != roof["id"]):
@@ -155,8 +158,9 @@ def test_a_hip_on_sheathed_walls_warns_and_offers_the_update(
 
     updated = part.update(roof["id"])
     assert updated["feature"]["params"]["plugin_version"] == "1.6.0"
-    # The map adds no member: Ceiling joists None (CEILING-JOISTS).
-    assert updated["feature"]["params"]["inputs"]["ceiling_joists"] == "none"
+    # Ceiling joists takes 1.6.0's default; a hip frames none.
+    inputs = updated["feature"]["params"]["inputs"]
+    assert inputs["ceiling_joists"] == "beside_common"
     assert not any(
         m["role"] == "ceiling_joist" for m in updated["feature"]["params"]["expansion"]
     )

@@ -11631,16 +11631,29 @@ export interface components {
         };
         /**
          * PluginUpdate
-         * @description A newer release a stored custom feature may be updated to
-         *     (OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio
-         *     has a newer version and Fusion badges out-of-date content. Offered only
-         *     where the plugin declares an explicit map of the stored inputs into the
-         *     newer release; the update is an ordinary edit, one undo step.
+         * @description The newest release a stored custom feature may be updated to
+         *     (OPENING-UPDATE, PLUGIN-UPDATE-ALL), as Onshape marks a custom feature
+         *     whose Feature Studio has a newer version and Fusion badges out-of-date
+         *     content. Offered only where the plugin declares an explicit map of the
+         *     stored inputs into the newer release; new inputs take their defaults, so
+         *     the update may add members, and the offer names them. The update is an
+         *     ordinary edit, one undo step.
          */
         PluginUpdate: {
             /**
+             * Adds
+             * @description What the update adds to this feature (and to the feature hosting it), one count and noun each: "11 ceiling joists", "3 post bases". Empty when it adds nothing.
+             */
+            adds?: string[];
+            /**
+             * Quiet
+             * @description True when the update changes no member of this feature or its host: the tree shows no badge, but Update all still takes it.
+             * @default false
+             */
+            quiet: boolean;
+            /**
              * Summary
-             * @description What the update changes, in the action's words
+             * @description What the update changes, in the action's words, starting with what it adds ("Adds 3 pier footings and 3 post bases.")
              */
             summary: string;
             /**
