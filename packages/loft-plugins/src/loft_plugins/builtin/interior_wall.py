@@ -799,6 +799,120 @@ def partition_specs_of(
     return [(p.line_id, p.spec) for p in found.layout.partitions]
 
 
+# --- Finished faces (what a cabinet run's backs sit on, CASEWORK-B10) ---------------
+
+
+@dataclass(frozen=True)
+class FinishedFace:
+    """One face of a wall or partition as a room sees it (in): its framing
+    face at ``v`` in its spec's frame (0, or the spec's depth), the way out
+    of it (``-1`` or ``+1`` along the frame's ``across``), the board on it
+    (0 with none), where the finished face runs along ``u`` (its board's
+    ends, else the framing's), and the partitions meeting it, by name, each
+    ``u`` span with its boards."""
+
+    spec: wall_v1.WallSpec
+    v: float
+    out: float
+    finish: float
+    first: float
+    last: float
+    meeting: tuple[tuple[str, float, float], ...] = ()
+
+
+def _meeting(
+    found: Partitions, key: ElementKey, face_v: float
+) -> list[tuple[str, float, float]]:
+    """The partitions of *found* meeting *key*'s ``face_v`` face, each with
+    its boards on both sides (they stop at this face's board)."""
+    g = 0.0 if found.finish is None else found.finish.thickness_in
+    return [
+        (f"partition {j.meeting}", _r(j.a - g), _r(j.b + g))
+        for j in found.layout.at(key)
+        if abs(j.face_v - face_v) <= _TOL
+    ]
+
+
+def wall_faces_of(
+    feature_id: uuid.UUID,
+    envelope: CustomFeature,
+    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    parameters: Mapping[str, Quantity],
+) -> dict[str | None, FinishedFace]:
+    """The inside face of each wall a stored ``loft.wall`` stands for, by
+    line (``None`` for a line wall): its inside gypsum (1.4.0), where that
+    runs (:func:`_inside_run`), and the partitions of each earlier Interior
+    wall on these walls that meet it."""
+    specs = house.wall_specs_of(feature_id, envelope, earlier, parameters)
+    if None in dict(specs):
+        spec = dict(specs)[None]
+        return {None: FinishedFace(spec, spec.thickness, 1.0, 0.0, 0.0, spec.length)}
+    inputs = house.stored_inputs(feature_id, envelope, earlier, parameters)
+    outline = house.wall_outline(inputs)
+    assert outline is not None
+    walls = house.outline_walls(inputs, outline)
+    good = _finish_good(inputs) if "finish" in inputs.values else None
+    host: Host | None = None
+    found: list[Partitions] = []
+    for fid, other in earlier.items():
+        if (
+            not isinstance(other, CustomFeature)
+            or other.params.plugin_id != INTERIOR_WALL
+        ):
+            continue
+        theirs = house.stored_inputs(fid, other, earlier, parameters)
+        ref = theirs.optional_feature("host_wall")
+        if ref is None or ref.feature_id != feature_id:
+            continue
+        host = host or host_of(ref, earlier, parameters)
+        found.append(partitions_of(theirs, host, earlier, parameters))
+    out: dict[str | None, FinishedFace] = {}
+    for wall in walls:
+        spec, t = wall.spec, wall.spec.thickness
+        first, last = (0.0, spec.length) if good is None else _inside_run(wall, good)
+        meeting = [m for f in found for m in _meeting(f, ("wall", wall.line_id), t)]
+        out[wall.line_id] = FinishedFace(
+            spec,
+            t,
+            1.0,
+            0.0 if good is None else good.thickness_in,
+            first,
+            last,
+            tuple(meeting),
+        )
+    return out
+
+
+def partition_faces_of(
+    feature_id: uuid.UUID,
+    envelope: CustomFeature,
+    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    parameters: Mapping[str, Quantity],
+) -> dict[str, tuple[FinishedFace, FinishedFace]]:
+    """Each partition of a stored ``loft.interior_wall``, by line: its left
+    and right faces looking along it from its start (its gypsum's ``left``
+    and ``right``, ``v`` 0 and its depth), each with its gypsum, where that
+    runs (:func:`_face_runs`) and the partitions meeting it."""
+    inputs = house.stored_inputs(feature_id, envelope, earlier, parameters)
+    host = host_of(inputs.feature("host_wall"), earlier, inputs.parameters)
+    found = partitions_of(inputs, host, earlier, inputs.parameters)
+    g = 0.0 if found.finish is None else found.finish.thickness_in
+    out: dict[str, tuple[FinishedFace, FinishedFace]] = {}
+    for p in found.layout.partitions:
+        key: ElementKey = ("partition", p.line_id)
+        first, last = _face_runs(found, p)
+        t = p.spec.thickness
+        out[p.line_id] = (
+            FinishedFace(
+                p.spec, 0.0, -1.0, g, first, last, tuple(_meeting(found, key, 0.0))
+            ),
+            FinishedFace(
+                p.spec, t, 1.0, g, first, last, tuple(_meeting(found, key, t))
+            ),
+        )
+    return out
+
+
 # --- loft.interior_wall 1.0.0 ---------------------------------------------------------
 
 
@@ -1177,9 +1291,12 @@ WALL_V1_4 = Plugin(WALL_MANIFEST_V1_4, expand_wall_v1_4)
 __all__ = [
     "INTERIOR_WALL_V1",
     "WALL_V1_4",
+    "FinishedFace",
     "Layout",
     "Partition",
     "courses",
     "lay_out",
+    "partition_faces_of",
     "partition_specs_of",
+    "wall_faces_of",
 ]

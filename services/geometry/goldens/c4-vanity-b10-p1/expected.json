@@ -1,0 +1,52 @@
+{
+  "description": "CASEWORK-B10 C4 (casework.md): loft.cabinets 1.1.0 on P1's +X gypsum face (its left, P1 drawn from the back) in B10 (b10-partitions), the backs at X 182.25, from Y 186 (1/2 in off the back wall's framing) toward the front on the subfloor: V3021 (2 doors under a 6 in false front) at Y 186..156 and VDB1521 (3 drawers, the top front 6, boxes 12.5 x 20 of 1/2 plywood on 1/4 bottoms, 20 in slides) at Y 156..141, 3/4 melamine frameless: 6 036.17578125 in^3, 578.75 in of PVC banding, 4 hinges, 3 slide pairs. 35 bodies. test_casework_b10.py probes it against every solid of b10-partitions. model.json is the plugin's expansion with the member materials documents applies; members.json each body's member metadata (packages/loft-plugins/tests/test_casework_b10.py pins both).",
+  "derivation": [
+    "Every expectation is ANALYTIC, from services/geometry/tests/test_casework_b10.py's independent script (test_casework's script of casework.md's conventions, never the plugin): each panel a box, a notched side its box less its 3 x 4.5 toe notch; summed in exact rational arithmetic (x 25.4 = mm exactly).",
+    "",
+    "volume = V3021 3 072.140625 + VDB1521 2 964.03515625 (3/4 x 2 709.796875 + 1/2 x 1 488.375 + 1/4 x 750) = 6 036.17578125 in^3, the panels mapped as X = 182.25 + y, Y = 186 - x, Z = 11.46875 + z; mass at melamine 721 and plywood 577 kg/m^3.",
+    "",
+    "surface_area = each panel's box area, a notched side's less twice its notch's face; bodies are separate.",
+    "",
+    "topology: a box 6 faces, 12 edges, 1 shell; a notched side 8 faces, 18 edges. MESH: a box 24 vertices and 12 triangles, a notched side 36 and 20 (two hexagons of 4 triangles, six quads of 2)."
+  ],
+  "tolerance": 1.25e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-29: volume 3.1e-7 mm^3 and area 9.3e-9 mm^2 off the exact sums over 35 bodies, centroid 1.8e-12 mm; 1.25e-6 is 4x the worst.",
+  "roundtrip_tolerance": 1.8e-6,
+  "roundtrip_tolerance_rationale": "Measured 2026-10-29: the STEP round trip re-sums the 35 solids and moves the VOLUME by 4.5e-7 mm^3; 1.8e-6 is 4x; volume and area only.",
+  "properties": {
+    "volume": 98915198.84259374,
+    "surface_area": 12605317.53125,
+    "centroid": {
+      "x": 4907.194787531039,
+      "y": 4062.767667015475,
+      "z": 732.1373866574967
+    },
+    "mass_g": 69119.3206980781,
+    "center_of_mass": {
+      "x": 4907.151681122725,
+      "y": 4072.0195450101232,
+      "z": 730.95786471983
+    },
+    "bounding_box": {
+      "min": {
+        "x": 4629.15,
+        "y": 3581.3999999999996,
+        "z": 291.30625
+      },
+      "max": {
+        "x": 5181.599999999999,
+        "y": 4724.4,
+        "z": 1167.60625
+      }
+    }
+  },
+  "topology": {
+    "faces": 218,
+    "edges": 444,
+    "shells": 35
+  },
+  "mesh": {
+    "vertices": 888,
+    "triangles": 452
+  }
+}

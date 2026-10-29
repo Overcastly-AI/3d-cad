@@ -373,6 +373,7 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
     served = client.get("/api/v1/plugins", headers=HEADERS)
     assert served.status_code == 200
     assert [(p["id"], p["version"]) for p in served.json()["plugins"]] == [
+        ("loft.cabinets", "1.1.0"),
         ("loft.cabinets", "1.0.0"),
         ("loft.deck", "1.2.0"),
         ("loft.deck", "1.1.0"),
