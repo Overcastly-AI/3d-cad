@@ -33,7 +33,9 @@ docs/GEOMETRY-QA.md gap #8):
   the SAME machinery as ``/evaluate`` and exports the last-good body. The
   endpoint-level STEP round-trip now covers evaluated bodies (e.g. the
   extrude/fillet/chamfer trees), not just primitives; a tree that produces no
-  body is a clean 422 ``tree_export_failed`` envelope.
+  body is a clean 422 ``tree_export_failed`` envelope. The per-golden tree
+  sweeps run in ``test_export_tree_{a,b}.py`` (halved by golden so neither
+  outgrows a pytest shard); the route-level tree checks stay here.
 """
 
 import hashlib
@@ -53,7 +55,6 @@ import pytest
 # Upstream signatures carry Shape[Unknown]/PathLike[Unknown] type params
 # (same gap tessellate.py documents for export_gltf) — scoped ignores only.
 from build123d import (
-    Compound,
     import_step,  # pyright: ignore[reportUnknownVariableType]
     import_stl,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -100,21 +101,14 @@ TREE_MODEL_FILES = [
 each_model = pytest.mark.parametrize(
     "model_path", MODEL_FILES, ids=[path.parent.name for path in MODEL_FILES]
 )
-each_tree_model = pytest.mark.parametrize(
-    "model_path", TREE_MODEL_FILES, ids=[path.parent.name for path in TREE_MODEL_FILES]
-)
 #: The PRIMITIVE sweeps run every format: the inventory is two primitives,
 #: so 4 formats x 2 models is free.
 each_format = pytest.mark.parametrize("fmt", ["step", "stl", "3mf", "glb"])
 
-#: The TREE sweeps stay on the two exact-and-oldest formats, deliberately.
-#: There are 49 tree goldens and each parametrized case re-evaluates the tree,
-#: so widening this to four would add ~200 full rebuilds to the slowest module
-#: in the suite (the python CI job is already 30 minutes). The new formats get
-#: whole-inventory coverage in ``test_export_mesh_formats.py``, which builds
-#: each golden ONCE and asserts extents + in-process determinism for both, plus
-#: the route-level and fresh-interpreter checks below.
-each_tree_format = pytest.mark.parametrize("fmt", ["step", "stl"])
+#: The per-golden TREE sweeps (headers, STEP round-trip, in-process
+#: determinism) live in test_export_tree_{a,b}.py, halved by golden: five
+#: cases per golden made this module alone more than a pytest shard. The
+#: route-level tree checks below need only one model and stay here.
 
 #: The two formats EXPORT-2 added — for the route-level checks that only need
 #: one model to be meaningful.
@@ -463,22 +457,6 @@ def test_tree_export_inventory_is_nonempty() -> None:
     assert TREE_MODEL_FILES, f"no feature-tree goldens discovered under {GOLDENS_DIR}"
 
 
-@each_tree_model
-@each_tree_format
-def test_tree_export_response_headers(model_path: Path, fmt: ExportFormat) -> None:
-    """Correct media type + attachment filename for each format and tree."""
-    request = _tree_export_request(model_path, fmt)
-    response = _post_tree_export(request)
-
-    assert response.status_code == 200, response.text
-    assert response.headers["content-type"] == EXPORT_MEDIA_TYPES[fmt]
-    assert (
-        response.headers["content-disposition"]
-        == f'attachment; filename="{export_tree_filename(request)}"'
-    )
-    assert len(response.content) > 0
-
-
 @each_new_format
 def test_tree_export_response_headers_for_the_new_formats(fmt: ExportFormat) -> None:
     """3MF / GLB reach the tree-export ROUTE with the right media type + name.
@@ -501,64 +479,9 @@ def test_tree_export_response_headers_for_the_new_formats(fmt: ExportFormat) -> 
     assert response.content, f"{fmt} tree export returned an empty body"
 
 
-@each_tree_model
-def test_tree_step_export_endpoint_roundtrip(
-    model_path: Path,
-    tmp_path: Path,
-    assert_roundtrip_preserved: Callable[[str, ShapeProperties, ShapeProperties], None],
-) -> None:
-    """Gap #8: HTTP tree STEP export → re-import → geometry preserved.
-
-    The evaluated body is exported over HTTP, re-imported, and re-measured
-    against the SAME body rebuilt through the evaluate-tree path
-    (``build_model_solid``): mass properties within ``ROUNDTRIP_TOL``,
-    topology exact — the shape-golden round-trip gate, now over trees.
-    """
-    name = model_path.parent.name
-    request = _tree_export_request(model_path, "step")
-    response = _post_tree_export(request)
-
-    assert response.status_code == 200, response.text
-    assert response.content.startswith(STEP_MAGIC), f"{name}: not a STEP part 21 file"
-
-    step_path = tmp_path / f"{name}.step"
-    step_path.write_bytes(response.content)
-    imported = import_step(step_path)
-    solids = imported.solids()
-    # A multi-body golden (§MB-0) exports as a multi-solid STEP; re-measure the
-    # whole imported body set (one Solid, or a Compound of the solids) so the
-    # round-trip covers multi-body parts too.
-    assert solids, f"{name}: expected at least 1 solid after import, got 0"
-    reimported_shape = solids[0] if len(solids) == 1 else Compound(list(solids))
-    reimported = measure_shape(reimported_shape)
-
-    original = measure_shape(
-        build_model_solid(load_model_request(model_path.read_text(encoding="utf-8")))
-    )
-    assert_roundtrip_preserved(name, reimported, original)
-
-
-@each_tree_model
-@each_tree_format
-def test_tree_export_is_byte_deterministic_in_process(
-    model_path: Path, fmt: ExportFormat
-) -> None:
-    """Same tree-export request twice → byte-identical file (RESEARCH §9).
-
-    The STEP timestamp is pinned on the tree path exactly as on the shape path
-    (both go through ``export_solid`` → ``export_step_bytes``); a flake is P0.
-    """
-    request = _tree_export_request(model_path, fmt)
-    first = _post_tree_export(request)
-    second = _post_tree_export(request)
-
-    assert first.content == second.content, (
-        f"{model_path.parent.name}: {fmt} tree-export bytes differ between runs"
-    )
-
-
-# The fresh-interpreter tree-export gate lives in test_export_tree_restart_{a,b}.py:
-# at one subprocess rebuild per golden it outgrew a pytest shard on its own.
+# The per-golden tree sweeps live in test_export_tree_{a,b}.py, and the
+# fresh-interpreter tree-export gate in test_export_tree_restart_{a,b}.py: each
+# outgrew a pytest shard inside this module.
 
 
 def test_tree_export_no_body_feature_returns_envelope(
