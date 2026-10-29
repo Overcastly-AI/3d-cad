@@ -275,6 +275,7 @@
       "concrete": {
         "item": "concrete_bag_80",
         "waste_percent": 5,
+        "one_delivery": true,
         "post_base": "post_base_6x6"
       }
     }
@@ -291,6 +292,7 @@
       "concrete": {
         "item": "concrete_bag_80",
         "waste_percent": 5,
+        "one_delivery": true,
         "post_base": "post_base_6x6"
       }
     }
@@ -307,6 +309,7 @@
       "concrete": {
         "item": "concrete_bag_80",
         "waste_percent": 5,
+        "one_delivery": true,
         "post_base": "post_base_6x6"
       }
     }
@@ -323,6 +326,7 @@
       "concrete": {
         "item": "concrete_bag_80",
         "waste_percent": 5,
+        "one_delivery": true,
         "post_base": "post_base_6x6"
       }
     }

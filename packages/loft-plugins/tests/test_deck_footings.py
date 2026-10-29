@@ -161,6 +161,7 @@ def test_every_footing_lists_its_concrete_and_post_base() -> None:
         assert m.metadata.material == "concrete"
         assert m.metadata.concrete.item == "concrete_bag_80"
         assert m.metadata.concrete.waste_percent == 5
+        assert m.metadata.concrete.one_delivery  # the piers fill from one truck
         assert m.metadata.concrete.post_base == "post_base_6x6"
 
 

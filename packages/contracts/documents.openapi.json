@@ -1626,6 +1626,12 @@
             "title": "Item",
             "type": "string"
           },
+          "one_delivery": {
+            "default": false,
+            "description": "Poured with the line's other pours from one delivery (DECK-FOOTINGS: a deck's piers, filled from one truck), so a ready-mix line rounds their sum up to 1/4 yd\u00b3 once, not each pour. Absent: each pour is its own delivery (FOUNDATION-TAKEOFF).",
+            "title": "One Delivery",
+            "type": "boolean"
+          },
           "post_base": {
             "anyOf": [
               {

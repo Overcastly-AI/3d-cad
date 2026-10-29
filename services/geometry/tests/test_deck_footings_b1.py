@@ -205,17 +205,17 @@ def test_the_bags_and_bases_are_priced_each() -> None:
     assert csv[2].endswith(",3,,,,Each,,3,28.97,Each,86.91")
 
 
-def test_ready_mix_orders_a_quarter_yard() -> None:
-    """The ready-mix choice: 0.155 yd³ x 1.05 = 0.163, ordered as 0.25 yd³
-    (SLAB's takeoff), no bags."""
-    members = [
+def _ready_mix(one_delivery: bool) -> list[CutListMember]:
+    return [
         m.model_copy(
             update={
                 "metadata": m.metadata.model_copy(
                     update={
                         "profile": "Ready-mix concrete",
                         "concrete": ConcretePour(
-                            item="ready_mix", post_base="post_base_6x6"
+                            item="ready_mix",
+                            one_delivery=one_delivery,
+                            post_base="post_base_6x6",
                         ),
                     }
                 )
@@ -225,10 +225,19 @@ def test_ready_mix_orders_a_quarter_yard() -> None:
         else m
         for m in _members(SIXTEEN)
     ]
-    footing, *_ = _cut_list(SIXTEEN, members).lines
+
+
+def test_ready_mix_orders_a_quarter_yard() -> None:
+    """The ready-mix choice: the three piers fill from one truck, 0.155 yd³
+    x 1.05 = 0.163, ordered as 0.25 yd³ (SLAB's takeoff), no bags. Were each
+    its own delivery (FOUNDATION-TAKEOFF's rule for a footing and its stem),
+    each would round to 0.25 on its own: 0.75."""
+    footing, *_ = _cut_list(SIXTEEN, _ready_mix(True)).lines
     assert footing.profile == "Ready-mix concrete"
     assert footing.order_yd3 == 0.25 and footing.bags is None
     assert footing.stock_quantity is None
+    apart, *_ = _cut_list(SIXTEEN, _ready_mix(False)).lines
+    assert apart.order_yd3 == 0.75
 
 
 @each_deck

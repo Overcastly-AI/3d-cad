@@ -125,8 +125,8 @@ def concrete_line(pieces: Sequence[cl.CutListPiece], quantity: int) -> cl.CutLis
     """Pours of one member, product, material and allowance as one line:
     their measured volume, and the cubic yards they order, each pour (each
     copy of a placed part too) rounded up on its own, as each is its own
-    delivery; or, bagged, the whole bags their total takes (module
-    docstring)."""
+    delivery, unless they share one (a deck's piers: their sum rounded
+    once); or, bagged, the whole bags their total takes (module docstring)."""
     first = pieces[0]
     volume = sum((p.volume_mm3 or 0.0) * p.count for p in pieces)
     waste = first.waste_percent or 0
@@ -136,9 +136,13 @@ def concrete_line(pieces: Sequence[cl.CutListPiece], quantity: int) -> cl.CutLis
         if item is not None and item.key == "concrete_bag_80"
         else None
     )
-    order = sum(
-        (concrete_order_yd3(p.volume_mm3 or 0.0, waste) * p.count for p in pieces),
-        Fraction(0),
+    order = (
+        concrete_order_yd3(volume, waste)
+        if all(p.one_delivery for p in pieces)
+        else sum(
+            (concrete_order_yd3(p.volume_mm3 or 0.0, waste) * p.count for p in pieces),
+            Fraction(0),
+        )
     )
     length = round(max(p.length_mm for p in pieces), 6)
     return cl.CutListLine(

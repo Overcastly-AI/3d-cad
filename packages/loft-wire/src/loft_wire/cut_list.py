@@ -684,6 +684,8 @@ class CutListPiece:
     #: of its ``count`` copies a delivery of its own.
     volume_mm3: float | None = None
     waste_percent: int | None = None
+    #: A pour filled from one delivery with its line's others (DECK-FOOTINGS).
+    one_delivery: bool = False
     #: A rebar run is a closed loop.
     closed: bool = False
     #: The panel gap a short sheet piece may fill (:func:`sheets_to_cut`):
@@ -779,6 +781,7 @@ def classify_body(
             item="concrete",
             volume_mm3=body.volume_mm3,
             waste_percent=pour.waste_percent,
+            one_delivery=pour.one_delivery,
         )
     if member is not None:
         good = sheet_good_for(member.metadata.profile)

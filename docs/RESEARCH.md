@@ -3068,7 +3068,10 @@ and reframe it, a material per member, and a cut list that is always current.
     sums a line's piers and orders `ceil(ft³ x 1.05 / 0.60)` whole bags
     (B1: 4.19 ft³ -> 7.33 -> 8; 20 ft: 5.59 -> 9.77 -> 10), priced Each
     (`concrete_bag_80`). Ready-mix is the Footing concrete choice and goes
-    through SLAB's 1/4 yd³ order unchanged (B1: 0.16 -> 0.25 yd³).
+    through SLAB's 1/4 yd³ order. FOUNDATION-TAKEOFF orders each pour as its
+    own delivery (a footing, then its stem), but a deck's piers fill from
+    one truck, so they carry `ConcretePour.one_delivery` and their line rounds
+    the sum once (B1: 0.16 -> 0.25 yd³, not 3 x 0.25).
   - *Post bases* are listed from the pour (`ConcretePour.post_base`), one
     per pier, by post size (ABU44, ABU46, ABU66 class), priced Each in
     `steel_1018` as casework hardware is (no galvanized-steel material yet).

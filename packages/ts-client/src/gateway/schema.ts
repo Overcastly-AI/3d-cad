@@ -4537,6 +4537,12 @@ export interface components {
              */
             item: "ready_mix" | "concrete_bag_80";
             /**
+             * One Delivery
+             * @description Poured with the line's other pours from one delivery (DECK-FOOTINGS: a deck's piers, filled from one truck), so a ready-mix line rounds their sum up to 1/4 yd³ once, not each pour. Absent: each pour is its own delivery (FOUNDATION-TAKEOFF).
+             * @default false
+             */
+            one_delivery: boolean;
+            /**
              * Post Base
              * @description A pier footing under a post (DECK-FOOTINGS): the post base it lists, Each. Absent on every other pour.
              */

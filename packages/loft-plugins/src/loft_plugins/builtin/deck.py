@@ -852,6 +852,7 @@ def _piers(
     pour = ConcretePour(
         item=footings.concrete,
         waste_percent=footings.waste_percent,
+        one_delivery=True,
         post_base=_post_base(post) if footings.post_bases else None,
     )
     radius = footings.diameter / 2

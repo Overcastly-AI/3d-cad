@@ -215,6 +215,11 @@ def foundation_item_for(profile: str | None) -> FoundationItem | None:
 # --- Member metadata ----------------------------------------------------------------
 
 
+def _is_false(value: object) -> bool:
+    """``exclude_if`` predicate: a false flag is not serialized."""
+    return value is False
+
+
 class ConcretePour(BaseModel):
     """Set on a concrete body (a pour): the cut list lists its MEASURED volume
     in cubic yards and orders it with this allowance."""
@@ -230,6 +235,14 @@ class ConcretePour(BaseModel):
         le=MAX_CONCRETE_WASTE_PERCENT,
         description="Ordered over the net volume (percent), then rounded up "
         "to 1/4 yd³, or to whole bags.",
+    )
+    one_delivery: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        description="Poured with the line's other pours from one delivery "
+        "(DECK-FOOTINGS: a deck's piers, filled from one truck), so a "
+        "ready-mix line rounds their sum up to 1/4 yd³ once, not each pour. "
+        "Absent: each pour is its own delivery (FOUNDATION-TAKEOFF).",
     )
     post_base: PostBaseKey | None = Field(
         default=None,
