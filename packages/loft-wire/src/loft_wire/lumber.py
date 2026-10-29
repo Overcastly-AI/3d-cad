@@ -46,6 +46,7 @@ LumberProfileKey = Literal[
     "us_1x2",
     "us_1x4",
     "us_1x6",
+    "us_1x8",
     "us_5_4x6",
     "us_2x2",
     "us_2x3",
@@ -119,6 +120,8 @@ LUMBER_PROFILES: tuple[LumberProfile, ...] = (
     _profile("us_1x2", "1x2", "board", 0.75, 1.5),
     _profile("us_1x4", "1x4", "board", 0.75, 3.5),
     _profile("us_1x6", "1x6", "board", 0.75, 5.5),
+    # A closed stair's riser boards (STAIRS), ripped to the riser.
+    _profile("us_1x8", "1x8", "board", 0.75, 7.25),
     _profile("us_5_4x6", "5/4x6", "decking", 1.0, 5.5),
     _profile("us_2x2", "2x2", "dimension", 1.5, 1.5),
     _profile("us_2x3", "2x3", "dimension", 1.5, 2.5),

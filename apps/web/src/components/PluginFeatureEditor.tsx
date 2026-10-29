@@ -133,6 +133,9 @@ const WARNING_LABELS: Record<string, string> = {
   roof_through_sheathing: "Through sheathing",
   crawl_height_low: "Crawl height",
   ceiling_joists_omitted: "Ceiling joists",
+  stair_throat_thin: "Stringer throat",
+  stair_guard_required: "Stair guard",
+  stair_deck_guard: "Deck guard",
 };
 
 /** A segmented control reads cleanly for a few short options, else a select. */
