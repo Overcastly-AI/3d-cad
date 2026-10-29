@@ -56,6 +56,7 @@ from loft_wire.foundation import (
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitPart
 from loft_wire.refs import FeatureRef
+from loft_wire.siding import SidingTakeoff
 from loft_wire.twist import is_none
 
 #: Most base features ONE custom feature may expand to (RESEARCH §23). Over it
@@ -671,6 +672,14 @@ class MemberMetadata(BaseModel):
         description="Hardware this member carries (CASEWORK: a door's hinges, "
         "a drawer box's pair of slides), listed Each under Casework. Absent: "
         "none.",
+    )
+
+    siding: SidingTakeoff | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Set on a siding body (SIDING-TRIM): the cut list lists "
+        "its measured net area and orders its product with the wall's waste "
+        "allowance, in whole boards or squares. Absent otherwise.",
     )
 
     @field_validator("grain")

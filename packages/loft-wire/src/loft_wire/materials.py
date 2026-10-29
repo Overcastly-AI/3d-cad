@@ -30,6 +30,7 @@ from loft_wire.foundation import FoundationItem
 from loft_wire.lumber import LumberProfile
 from loft_wire.opening_units import OpeningUnitSize
 from loft_wire.sheet_goods import SheetGood, SheetSize
+from loft_wire.siding import SidingProduct
 
 #: The built-in material library keys (v1). A closed literal, so an unknown
 #: material is a parse error at the boundary rather than a silent "no mass"
@@ -61,6 +62,8 @@ MaterialKey = Literal[
     "gypsum",
     "melamine",
     "xps_foam",
+    "fibre_cement",
+    "western_red_cedar",
 ]
 
 
@@ -265,6 +268,25 @@ _LIBRARY: tuple[Material, ...] = (
         density_kg_m3=23.2,
         source=f"ASTM C578 Type IV extruded polystyrene, minimum 1.45 {_PCF}",
     ),
+    # Siding and trim (SIDING-TRIM, RESEARCH §23). Fibre cement: James
+    # Hardie's HardiePlank 8.25 x 5/16 weighs 2.3 lb per ft² of wall at its
+    # 7 in exposure, so a board's own face weighs 2.3 x 7 / 8.25 lb/ft² at
+    # 5/16 in: 75 lb/ft^3. Western red cedar (siding, trim) is the Western
+    # Cedars group by the wood relations above, G_0 0.36 -> 388.37.
+    Material(
+        key="fibre_cement",
+        name="Fibre cement",
+        density_kg_m3=1200.0,
+        source=f"James Hardie HardiePlank 8.25 x 5/16, 2.3 lb/ft² of wall at "
+        f"7 in exposure: 75 {_PCF}",
+    ),
+    Material(
+        key="western_red_cedar",
+        name="Western red cedar",
+        density_kg_m3=388.0,
+        source="AWC NDS 2018 Table 12.3.3A Western Cedars G = 0.36; Wood "
+        "Handbook ch. 4, at 12% moisture content",
+    ),
 )
 
 #: The library in display order (metals, polymers, wood, then structural steel
@@ -316,6 +338,12 @@ class MaterialLibraryResponse(BaseModel):
         description="Edge banding and cabinet hardware (CASEWORK): what a "
         "casework price is keyed by ('hinge', 'slide_22'), its unit and the "
         "materials it is sold in.",
+    )
+    siding_products: list[SidingProduct] = Field(
+        default_factory=list[SidingProduct],
+        description="Siding products (SIDING-TRIM): what a siding price is "
+        "keyed by ('vinyl_d4'), its material, how it is sold (a 12 ft board "
+        "Each, or vinyl per square) and what one covers.",
     )
 
 
