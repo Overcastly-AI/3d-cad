@@ -204,6 +204,13 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B9 on its crawl space (CRAWL-SPACE): b7-outline's class, measured
     # 3.4e-4 mm^3; the foundation alone drifts 1.1e-5.
     "b9-crawl-space": 1e-3,
+    # B1's stair (STAIRS): OCCT's STEP rounds the notched stringers' and the
+    # handrail's slope; measured 2.7e-5 mm^3 at worst (the twin 6.5e-5).
+    "b1-stair-30": 1e-4,
+    "b1-stair-30-closed": 1e-4,
+    "b1-stair-36": 1e-4,
+    # The free 14-riser stair: 5.1e-4 mm^3 measured (the twin 1.2e-4).
+    "free-stair-107": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

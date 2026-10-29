@@ -51,6 +51,7 @@ from loft_plugins.builtin.house import stored_inputs
 from loft_plugins.builtin.roof_ceiling import CEILING_BESIDE
 from loft_plugins.builtin.roof_outline import ceiling_joist_note
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
+from loft_plugins.builtin.stair import STAIR, stair_notes
 from loft_plugins.updates import UpdateEffect, update_effect
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_VALUE_INVALID
@@ -1095,6 +1096,8 @@ def plugin_warnings(
         "loft.foundation"
     ):
         return _crawl_height_warning(envelope)
+    if isinstance(envelope, CustomFeature) and envelope.params.plugin_id == STAIR:
+        return _stair_warnings(part, row, envelope, rows)
     if (
         not isinstance(envelope, CustomFeature)
         or envelope.params.plugin_id != "loft.roof"
@@ -1188,6 +1191,31 @@ def _ceiling_joists_warning(
         pairs=0,
         update_to=None,
     )
+
+
+def _stair_warnings(
+    part: db.Part, row: db.Feature, envelope: CustomFeature, rows: Sequence[db.Feature]
+) -> list[PluginWarning] | None:
+    """A stair's advice (STAIRS, :func:`stair_notes`), or None: a cut
+    stringer's throat under DCA6's 5 in, open sides over 30 in up with no
+    guard (IRC R312.1.1), or a deck guard across its head. Never a refusal:
+    a layout that breaks R311.7 is refused when it is written."""
+    values = parameter_values(part.parameters)
+    earlier = _earlier_from_rows(
+        [r for r in rows if r.order_index < row.order_index and not r.suppressed],
+        parameters=values,
+    )
+    notes = stair_notes(stored_inputs(row.id, envelope, earlier, values))
+    return [
+        PluginWarning(
+            code=code,  # pyright: ignore[reportArgumentType]
+            message=message,
+            overlap_in3=0.0,
+            pairs=0,
+            update_to=None,
+        )
+        for code, message in notes
+    ] or None
 
 
 def declared_update(row: db.Feature) -> PluginUpdate | None:

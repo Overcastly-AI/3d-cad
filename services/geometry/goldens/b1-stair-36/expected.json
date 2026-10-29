@@ -1,0 +1,56 @@
+{
+  "description": "B1 AT A 36 IN DECKING TOP WITH ITS STAIR (STAIRS; buildings.md B1 'Stair': 'At a 36 in decking top: 5 risers of 7.2, 4 treads (44 in)'): b1-stair-30's tree with the deck's Height 30 -> 36 in, the stair re-laid by the same stored inputs: 5 risers of 7.2, 4 treads, the posts 6 in longer. model.json and members.json are pinned by packages/loft-plugins/tests/test_stair.py; services/geometry/tests/test_stair_b1.py checks them.",
+  "derivation": [
+    "INDEPENDENT of the plugins: the deck is B1 with every member above the posts 6 in higher and each 6x6 post Z 0..16.5 (71 735.979474 + 3 x 5.5^2 x 6 = 72 280.479474 in^3), the stair typed as b1-stair-30's. The STEP matches the 63 solids solid for solid.",
+    "",
+    "risers ceil(36 / 7.75) = 5 of 7.2; 4 treads, 44 in of run, the noses at Y 157.125 .. 190.125. Stringer profile (-2.125, 35), (-0.125, 35), (-0.125, 27.8), (10.875, 27.8), ..., (43.875, 6.2), (43.875, 0), (32.805249, 0), (-2.125, 22.863436): 418.687245 in^2. THROAT 11.25 - 7.2 x 11 / sqrt(172.84) = 5.225749 in (the PM's 5.2258 mis-rounds it; buildings.md corrected to 5.2257).",
+    "",
+    "volume: stringers 3 x 1.5 x 418.687245 = 1 884.092601; treads 8 x 198 = 1 584; handrail 1.5 x 44 x 1.5 x 13.146863 / 11 = 118.321765; posts 12.25 x (72 + 72 - 40.5 x 7.2 / 11) = 1 439.263636: 5 025.678002 in^3 of stair; with the deck 77 306.157476 in^3 = 1 266 820 950.148 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (test_stair_b1.expected_numbers()): southern_pine_pt 582 and concrete 2400 kg/m^3 (loft_wire.materials).",
+    "",
+    "topology from the script's B-rep (faces, edges and one shell a solid); the kernel's build of model.json meets every count exactly. MESH counts are recorded, not derived (the piers' cylinders tessellate by the linear deflection).",
+    "",
+    "Interference none (test_stair_b1.test_nothing_interferes probes every pair whose boxes overlap, exactly): each stringer stands plumb on the rim's face at Y 144 and level under the last board at Z 29 (test_the_stair_meets_the_deck_face_to_face), each tread on its stringer seats, each riser board on its riser cuts, the handrail on its posts' inside faces at X 78."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): b1-stair-30's class over 63 bodies. The kernel differs from the script by -1.43e-6 mm^3 on the volume, 3.0e-8 mm^2 on the area, <= 2.3e-12 mm on the centroid and centre of mass and 4.7e-10 g on the mass. 1e-5 is 7x the volume's.",
+  "roundtrip_tolerance": 0.0001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b1-stair-30's class, measured 2026-10-29: volume +2.74e-5 mm^3, area -2.4e-7 mm^2, centroid 3.6e-11 mm (plugin); the build123d twin drifts +6.53e-5 / +3.0e-6 through build123d's export_step, so it is OCCT's STEP. 1e-4 is 1.5x the twin's and 3.6x the plugin's; volume and area only.",
+  "properties": {
+    "volume": 1266820950.1476676,
+    "surface_area": 87017484.39088336,
+    "centroid": {
+      "x": 2428.389810518964,
+      "y": 2242.8383293315906,
+      "z": 688.7445843669868
+    },
+    "mass_g": 952928.826262387,
+    "center_of_mass": {
+      "x": 2430.655024376617,
+      "y": 2459.525732708198,
+      "z": 498.40129741863797
+    },
+    "bounding_box": {
+      "min": {
+        "x": -133.35,
+        "y": 0.0,
+        "z": -304.8
+      },
+      "max": {
+        "x": 5010.15,
+        "y": 4829.175,
+        "z": 1828.8
+      }
+    }
+  },
+  "topology": {
+    "faces": 396,
+    "edges": 810,
+    "shells": 63
+  },
+  "mesh": {
+    "vertices": 3120,
+    "triangles": 2328
+  }
+}

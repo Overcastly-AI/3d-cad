@@ -1,0 +1,58 @@
+{
+  "description": "B1'S STAIR WITH CLOSED RISERS (STAIRS; buildings.md B1 'Stair', IRC R311.7.5): b1-stair-30's tree with the stair's Risers set to Closed (1x8): a riser board ripped to 7.5 - 1 = 6.5 in on every riser cut, the top one under the decking, each tread butting the board above it. model.json and members.json are pinned by packages/loft-plugins/tests/test_stair.py; services/geometry/tests/test_stair_b1.py checks them.",
+  "derivation": [
+    "INDEPENDENT of the plugins, as b1-stair-30 (the deck: plugin-deck-v1.2-b1-footings-16ft's B1 exactly (buildings.md: 64 497.75 in^3 of framing and decking and 3 piers of 768 pi in^3, 71 735.979474 in^3), typed into the script as boxes and cylinders). The STEP matches the 65 solids solid for solid.",
+    "",
+    "closed: each nosing sits 0.75 + 11.125 = 11.875 past its riser line, so the top riser line is at u = 11 - 11.875 = -0.875 (Y 145.25), 1.25 in in front of the rim's face and under the decking's 2.125 in overhang; every nosing to nosing is still 11 (noses Y 157.125, 168.125, 179.125) and each nosing passes the riser board below it by 1/8 in. Risers k = 1..4 at Y 145.25 + (4 - k) x 11 .. + 0.75, Z 7.5 (k - 1) .. 7.5 k - 1, X 78..114 (the top one, k = 4, Z 22.5..29 under the last board).",
+    "",
+    "stringers: b1-stair-30's profile 0.75 in further up the run: (-2.125, 29), (-0.875, 29), (-0.875, 21.5), (10.125, 21.5), ..., (32.125, 6.5), (32.125, 0), (21.688043, 0), (-2.125, 16.236166): 304.933746 in^2. Throat unchanged, 5.053295 in.",
+    "",
+    "volume: stringers 3 x 1.5 x 304.933746 = 1 372.201856; treads 1 188; risers 4 x 36 x 0.75 x 6.5 = 702; handrail 89.866307; posts 1 370.607955: 4 722.676118 in^3 of stair; with the deck 76 458.655592 in^3 = 1 252 932 882.536 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (test_stair_b1.expected_numbers()): southern_pine_pt 582 and concrete 2400 kg/m^3 (loft_wire.materials).",
+    "",
+    "topology from the script's B-rep (faces, edges and one shell a solid); the kernel's build of model.json meets every count exactly. MESH counts are recorded, not derived (the piers' cylinders tessellate by the linear deflection).",
+    "",
+    "Interference none (test_stair_b1.test_nothing_interferes probes every pair whose boxes overlap, exactly): each stringer stands plumb on the rim's face at Y 144 and level under the last board at Z 29 (test_the_stair_meets_the_deck_face_to_face), each tread on its stringer seats, each riser board on its riser cuts, the handrail on its posts' inside faces at X 78."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): b1-stair-30's class over 65 bodies. The kernel differs from the script by -2.15e-6 mm^3 on the volume, 1.5e-8 mm^2 on the area, <= 1.8e-12 mm on the centroid and centre of mass and 1.2e-10 g on the mass. 1e-5 is 4.7x the volume's; a riser board missed takes 2.9e6 mm^3.",
+  "roundtrip_tolerance": 0.0001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b1-stair-30's class, measured 2026-10-29: volume -6.7e-6 mm^3, area +7.2e-7 mm^2, centroid 7e-12 mm (plugin); the build123d twin drifts -2.46e-5 / -8.2e-7 through build123d's export_step, so it is OCCT's STEP. 1e-4 is 4x the worst; volume and area only.",
+  "properties": {
+    "volume": 1252932882.5356731,
+    "surface_area": 86887249.05120474,
+    "centroid": {
+      "x": 2428.8923726795547,
+      "y": 2220.640226736943,
+      "z": 561.0033168147927
+    },
+    "mass_g": 944845.9709122061,
+    "center_of_mass": {
+      "x": 2431.0622666382033,
+      "y": 2444.247520257621,
+      "z": 398.1856657794313
+    },
+    "bounding_box": {
+      "min": {
+        "x": -133.35,
+        "y": 0.0,
+        "z": -304.8
+      },
+      "max": {
+        "x": 5010.15,
+        "y": 4549.775,
+        "z": 1676.4
+      }
+    }
+  },
+  "topology": {
+    "faces": 402,
+    "edges": 816,
+    "shells": 65
+  },
+  "mesh": {
+    "vertices": 3132,
+    "triangles": 2328
+  }
+}

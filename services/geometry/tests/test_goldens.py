@@ -333,6 +333,14 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "c4-vanity-b10-p1",
         "c4-v3621-b10-p1",
         "b10-inside-gypsum",
+        # B1 with its stair, closed risers and the 36 in deck, and the free
+        # 14-riser stair (STAIRS): OCCT's STEP rounds the notched stringers'
+        # and the handrail's slope, 2.7e-5 mm^3 on B1 (twin 6.5e-5) and
+        # 5.1e-4 free (twin 1.2e-4).
+        "b1-stair-30",
+        "b1-stair-30-closed",
+        "b1-stair-36",
+        "free-stair-107",
     }
 )
 
