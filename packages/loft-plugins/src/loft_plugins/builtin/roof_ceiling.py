@@ -22,6 +22,12 @@ flat: the plane is ``plate - heel + plumb depth`` high at the wall's outside
 face and rises at the pitch, so the snip is ``delta = depth + heel - plumb``
 down the end and ``delta / slope`` along the top (B7: 1.560920 and 3.121840).
 
+A joist whose top would pass the ridge board's underside (a low pitch, a
+deep joist) does not fit: the roof is built without joists, and the stored
+roof carries ``ceiling_joists_omitted`` naming why and the deepest joist
+that fits (:func:`joist_misfit`). Chief warns there; it does not block the
+roof.
+
 A roof on its typed bearing, or a Hip, frames none: Chief builds ceiling
 joists from the rooms its walls enclose, and a typed bearing knows no walls;
 a hip's joists stop at the hips' jacks (a later rung, BACKLOG note
@@ -41,7 +47,11 @@ from loft_wire.features import (
     SketchFeature,
     SketchParamsV1,
 )
-from loft_wire.lumber import MM_PER_INCH, LumberProfileKey
+from loft_wire.lumber import (
+    LUMBER_PROFILES_BY_KEY,
+    MM_PER_INCH,
+    LumberProfileKey,
+)
 from loft_wire.plugins import (
     ChoiceInput,
     ChoiceOption,
@@ -60,7 +70,6 @@ from loft_plugins.builtin.roof import (
     layout_slots,
     material_input,
     number_name,
-    unsupported,
 )
 
 CEILING_BESIDE = "beside_common"
@@ -133,6 +142,40 @@ def joist_profile(
     ]
 
 
+def _fits(rafter: Rafter, depth: float, ridge_depth: float) -> bool:
+    """A joist *depth* deep on the plates clears the ridge board's underside
+    (touching it is face to face)."""
+    return rafter.plate_height + depth <= rafter.top_at_ridge - ridge_depth + 1e-9
+
+
+def joist_misfit(inputs: ExpandInputs, rafter: Rafter) -> str | None:
+    """Why the chosen ceiling joist cannot be framed under this gable, with
+    what to pick instead, or ``None`` when it fits."""
+    joist = inputs.lumber("ceiling_joist_profile")
+    ridge = inputs.lumber("ridge_profile")
+    if _fits(rafter, joist.width_in, ridge.width_in):
+        return None
+    top = rafter.plate_height + joist.width_in
+    ridge_bottom = rafter.top_at_ridge - ridge.width_in
+    fitting = [
+        p.name
+        for p in (LUMBER_PROFILES_BY_KEY[key] for key in _JOISTS)
+        if _fits(rafter, p.width_in, ridge.width_in)
+    ]
+    pick = (
+        f"choose a {fitting[-1]} or shallower ceiling joist, a steeper pitch or "
+        "a deeper ridge board"
+        if fitting
+        else "choose a steeper pitch or a deeper ridge board"
+    )
+    return (
+        f"Ceiling joists not framed: a {joist.name} joist's top (Z "
+        f"{top:.3f} in) would pass the ridge board's underside (Z "
+        f"{ridge_bottom:.3f} in) at this pitch, so the roof is built without "
+        f"them. To tie the rafters, {pick}; or set Ceiling joists to None."
+    )
+
+
 def ceiling_joists(
     inputs: ExpandInputs,
     members: Sequence[Member],
@@ -140,22 +183,21 @@ def ceiling_joists(
     span: float,
     length: float,
     place: GablePlace,
+    notes: list[str] | None = None,
 ) -> list[Member]:
     """The gable's ceiling joists at *place* (none when the input is None),
     each a datum, a section and the joist, numbered after the roof's
-    *members* of each role."""
+    *members* of each role. A joist that does not fit under the ridge
+    frames none, and why is appended to *notes* (the stored roof's
+    warning, never a refusal)."""
     if inputs.choice("ceiling_joists") != CEILING_BESIDE:
         return []
     joist = inputs.lumber("ceiling_joist_profile")
-    ridge = inputs.lumber("ridge_profile")
-    top = rafter.plate_height + joist.width_in
-    ridge_bottom = rafter.top_at_ridge - ridge.width_in
-    if top > ridge_bottom + 1e-9:
-        raise unsupported(
-            f"The ceiling joists' top ({top:.3f} in) would pass the ridge board's "
-            f"underside ({ridge_bottom:.3f} in): choose a shallower joist, or None.",
-            "ceiling_joist_profile",
-        )
+    misfit = joist_misfit(inputs, rafter)
+    if misfit is not None:
+        if notes is not None:
+            notes.append(misfit)
+        return []
     t = inputs.lumber("rafter_profile").thickness_in
     tj = joist.thickness_in
     spacing = inches("spacing_mm", inputs)

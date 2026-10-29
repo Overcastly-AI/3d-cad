@@ -3102,8 +3102,20 @@ and reframe it, a material per member, and a cut list that is always current.
     one bearing wall's outside face to the other's. The gable-end rafters
     get none (the gable wall carries the ceiling edge). A layout common too
     near the end rafter for a joist on its far face takes it on its near
-    face. A joist whose top would pass the ridge board's underside is
-    refused (a shallower joist, or None).
+    face.
+  - *A joist that cannot fit warns, never blocks* (Chief warns). If the
+    chosen joist's top would pass the ridge board's underside (a low pitch:
+    B7 at 1/12 with a 2x8 under a 2x10 ridge), the roof builds without
+    joists and carries `ceiling_joists_omitted`, naming both heights and the
+    deepest joist that fits (a 2x6 there), or a steeper pitch or deeper
+    ridge when none does. Documents raises it from the stored roof by
+    re-running the pure expansion (`roof_outline.ceiling_joist_note`).
+  - *An update adds nothing.* The declared update of a roof 1.2.0-1.5.0 to
+    1.6.0 (`loft_plugins.updates`) sets Ceiling joists to None, so it builds
+    1.5.0's roof exactly; its summary and the through-sheathing warning's
+    "Update to 1.6.0" say it adds nothing new. Only a new roof takes the
+    default, Beside each common; an updated roof gains joists when the user
+    chooses them.
   - *The snip.* Each top corner is cut to the rafters' top plane, as a
     framer snips the joist so the sheathing lies flat: at the wall's outside
     face that plane is `plate - heel + plumb depth`, so the cut is `delta =

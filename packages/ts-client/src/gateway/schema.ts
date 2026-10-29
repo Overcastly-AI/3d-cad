@@ -7577,7 +7577,7 @@ export interface components {
             plugin_update?: components["schemas"]["PluginUpdate"] | null;
             /**
              * Plugin Warnings
-             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a code-advice warning on its inputs (`crawl_height_low`). Omitted when there are none.
+             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`). Omitted when there are none.
              */
             plugin_warnings?: components["schemas"]["PluginWarning"][] | null;
             /**
@@ -11677,10 +11677,10 @@ export interface components {
         PluginWarning: {
             /**
              * Code
-             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1
+             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them
              * @enum {string}
              */
-            code: "roof_through_sheathing" | "crawl_height_low";
+            code: "roof_through_sheathing" | "crawl_height_low" | "ceiling_joists_omitted";
             /**
              * Message
              * @description Names the problem and what fixes it

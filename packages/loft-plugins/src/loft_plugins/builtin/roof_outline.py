@@ -49,7 +49,7 @@ from loft_wire.plugins import (
 )
 from loft_wire.sketch import SketchLine
 
-from loft_plugins.api import ExpandInputs, Member, Plugin
+from loft_plugins.api import ExpandInputs, Member, Plugin, PluginError
 from loft_plugins.builtin.deck import joist_centres
 from loft_plugins.builtin.house import (
     is_outline_wall,
@@ -70,6 +70,7 @@ from loft_plugins.builtin.roof import (
     unsupported,
 )
 from loft_plugins.builtin.roof_ceiling import (
+    CEILING_BESIDE,
     CEILING_INPUTS,
     CEILING_MATERIAL,
     CEILING_ROLE,
@@ -153,8 +154,26 @@ def expand_v1_6(inputs: ExpandInputs) -> Iterable[Member]:
     return _expand(inputs, notch_hips=True, ceiling=True)
 
 
+def ceiling_joist_note(inputs: ExpandInputs) -> str | None:
+    """Why a 1.6.0 roof asked for ceiling joists frames none (its chosen
+    joist would pass the ridge board), or ``None``: the stored roof's
+    ``ceiling_joists_omitted`` warning. Pure, as the expansion it re-runs."""
+    if inputs.values.get("ceiling_joists") != CEILING_BESIDE:
+        return None
+    notes: list[str] = []
+    try:
+        _expand(inputs, notch_hips=True, ceiling=True, notes=notes)
+    except PluginError:
+        return None
+    return notes[0] if notes else None
+
+
 def _expand(
-    inputs: ExpandInputs, *, notch_hips: bool, ceiling: bool = False
+    inputs: ExpandInputs,
+    *,
+    notch_hips: bool,
+    ceiling: bool = False,
+    notes: list[str] | None = None,
 ) -> list[Member]:
     picks = inputs.features("walls")
     outlines = [p for p in picks if is_outline_wall(inputs.resolve(p))]
@@ -276,7 +295,7 @@ def _expand(
         inputs, ref.feature_id, wall_inputs, eaves, rafter, length, place
     )
     if ceiling:
-        members += ceiling_joists(inputs, members, rafter, span, length, place)
+        members += ceiling_joists(inputs, members, rafter, span, length, place, notes)
     return members
 
 

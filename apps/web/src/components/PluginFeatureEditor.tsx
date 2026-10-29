@@ -122,6 +122,7 @@ const NO_LAYERS: readonly SolvedSketchLayer[] = [];
 const WARNING_LABELS: Record<string, string> = {
   roof_through_sheathing: "Through sheathing",
   crawl_height_low: "Crawl height",
+  ceiling_joists_omitted: "Ceiling joists",
 };
 
 /** A segmented control reads cleanly for a few short options, else a select. */

@@ -88,9 +88,10 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
         ),
         ("loft.wall", "1.2.0", "1.4.0"),
         ("loft.wall", "1.3.0", "1.4.0"),
-        ("loft.roof", "1.2.0", "1.5.0"),
-        ("loft.roof", "1.3.0", "1.5.0"),
-        ("loft.roof", "1.4.0", "1.5.0"),
+        ("loft.roof", "1.2.0", "1.6.0"),
+        ("loft.roof", "1.3.0", "1.6.0"),
+        ("loft.roof", "1.4.0", "1.6.0"),
+        ("loft.roof", "1.5.0", "1.6.0"),
     }
 
 
@@ -98,7 +99,7 @@ def test_the_latest_and_the_unmapped_releases_are_offered_none() -> None:
     for plugin, version in (
         ("loft.window", "1.5.0"),
         ("loft.wall", "1.4.0"),
-        ("loft.roof", "1.5.0"),
+        ("loft.roof", "1.6.0"),
         ("loft.floor", "1.2.0"),  # Joist direction is not Joists bear on
         ("loft.wall", "1.0.0"),  # ordinal ids 1.1.0 renamed
         ("loft.deck", "1.0.0"),
@@ -329,7 +330,7 @@ def test_update_all_moves_every_offered_pin_and_leaves_the_floor() -> None:
         ("loft.wall", "1.4.0"),
         *[("loft.door", "1.5.0")],
         *[("loft.window", "1.5.0")] * 5,
-        ("loft.roof", "1.5.0"),
+        ("loft.roof", "1.6.0"),
     ]
 
 

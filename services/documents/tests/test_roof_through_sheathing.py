@@ -99,6 +99,18 @@ class Part:
         self.version = int(response.json()["tree_version"])
         return response.json()["feature"]
 
+    def update(self, feature_id: str) -> dict[str, Any]:
+        """The roof's declared update (``POST .../features/plugin-updates``),
+        what the editor's "Update to" runs: its inputs carried by the map."""
+        response = self.client.post(
+            f"/api/v1/parts/{self.id}/features/plugin-updates",
+            json={"expected_tree_version": self.version, "feature_ids": [feature_id]},
+            headers=HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        self.version = int(response.json()["tree_version"])
+        return next(f for f in response.json()["features"] if f["id"] == feature_id)
+
     def tree(self) -> dict[str, dict[str, Any]]:
         response = self.client.get(f"/api/v1/parts/{self.id}/features", headers=HEADERS)
         assert response.status_code == 200, response.text
@@ -135,14 +147,19 @@ def test_a_hip_on_sheathed_walls_warns_and_offers_the_update(
         assert warning["update_to"] == "1.6.0"
         assert "33.2551 in³" in warning["message"]
         assert "Update to 1.6.0" in warning["message"]
+        assert "adds nothing new" in warning["message"]
     # Reading never re-pins.
     assert part.tree()[roof["id"]]["feature"]["params"]["plugin_version"] == "1.3.0"
     for wall in (f for f in part.tree().values() if f["id"] != roof["id"]):
         assert "plugin_warnings" not in wall
 
-    params = roof["feature"]["params"]
-    updated = part.patch(roof["id"], _custom("loft.roof", "1.6.0", params["inputs"]))
+    updated = part.update(roof["id"])
     assert updated["feature"]["params"]["plugin_version"] == "1.6.0"
+    # The map adds no member: Ceiling joists None (CEILING-JOISTS).
+    assert updated["feature"]["params"]["inputs"]["ceiling_joists"] == "none"
+    assert not any(
+        m["role"] == "ceiling_joist" for m in updated["feature"]["params"]["expansion"]
+    )
     assert "plugin_warnings" not in updated
     assert "plugin_warnings" not in part.tree()[roof["id"]]
     notches = [

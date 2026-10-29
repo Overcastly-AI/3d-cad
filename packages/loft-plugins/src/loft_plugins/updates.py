@@ -19,9 +19,13 @@ map is what says how an old feature's meaning reads in the new release:
 * ``loft.wall`` 1.2.0 and 1.3.0 -> 1.4.0, every input as it is: 1.4.0 is
   1.3.0 member for member (and a typed wall 1.2.0's), plus the backing of
   partitions that meet it and an inside gypsum left at None.
-* ``loft.roof`` 1.2.0-1.4.0 -> 1.5.0, every input as it is: 1.5.0 notches
-  the sheathing of the walls it picks (ROOF-THROUGH-SHEATHING-UPDATE), and a
-  gable on an outline is 1.4.0's byte for byte.
+* ``loft.roof`` 1.2.0-1.5.0 -> 1.6.0, every input as it is and Ceiling
+  joists None (CEILING-JOISTS): an update never adds members the old roof
+  did not frame, so 1.6.0 builds 1.5.0's roof exactly, which notches the
+  sheathing of the walls it picks (ROOF-THROUGH-SHEATHING-UPDATE; a gable
+  on an outline is 1.4.0's byte for byte). A new roof keeps 1.6.0's
+  default, Beside each common; a user who wants the joists on an updated
+  roof chooses them.
 
 A release with no map here (``loft.floor`` 1.2.0, whose Joist direction 1.3.0
 replaced, or ``loft.wall`` 1.0.0, whose ordinal ids 1.1.0 renamed) is not
@@ -96,7 +100,21 @@ _WALL = (
     "Frames the backing of partitions that meet it and can take an inside "
     "gypsum finish; its framing is unchanged."
 )
-_ROOF = "Notches the wall sheathing round the rafter tails, as framers do."
+_ROOF = (
+    "Notches the wall sheathing round the rafter tails, as framers do; adds "
+    "nothing new (Ceiling joists stay None until you choose them)."
+)
+_ROOF_1_5 = (
+    "Adds nothing new: the roof is unchanged, and Ceiling joists stay None "
+    "until you choose them."
+)
+
+
+def _roof_to_1_6(
+    inputs: Mapping[str, CustomInputValue],
+) -> dict[str, CustomInputValue]:
+    """A roof 1.2.0-1.5.0's inputs at 1.6.0: as they are, no ceiling joists."""
+    return {**inputs, "ceiling_joists": "none"}
 
 
 def _updates() -> tuple[PluginUpdate, ...]:
@@ -114,7 +132,8 @@ def _updates() -> tuple[PluginUpdate, ...]:
     for version in ("1.2.0", "1.3.0"):
         out.append(PluginUpdate("loft.wall", version, "1.4.0", _WALL, _same))
     for version in ("1.2.0", "1.3.0", "1.4.0"):
-        out.append(PluginUpdate("loft.roof", version, "1.5.0", _ROOF, _same))
+        out.append(PluginUpdate("loft.roof", version, "1.6.0", _ROOF, _roof_to_1_6))
+    out.append(PluginUpdate("loft.roof", "1.5.0", "1.6.0", _ROOF_1_5, _roof_to_1_6))
     return tuple(out)
 
 

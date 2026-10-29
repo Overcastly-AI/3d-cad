@@ -15,8 +15,9 @@ Checked against ``docs/reference-parts/buildings.md`` B7, typed by hand:
   member, so a stored 1.5.0 roof is unchanged; every released version
   expands as before (their own tests and goldens);
 * along Y the joist is on the rafter's +Y face; a layout common with no room
-  before the end rafter takes its joist on its near face; a joist that would
-  reach the ridge board is refused;
+  before the end rafter takes its joist on its near face; a gable whose
+  joist would reach the ridge board builds without joists and warns why;
+* an update to 1.6.0 maps Ceiling joists to None, so it adds no member;
 * no joist's box meets another body's, in B7, at 28 ft and in B10 under the
   partitions (the geometry test probes every pair exactly).
 
@@ -36,7 +37,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loft_plugins import REGISTRY, PluginError
+from loft_plugins import (
+    REGISTRY,
+    ExpandInputs,
+    canonical_inputs,
+    update_for,
+    updated_inputs,
+)
+from loft_plugins.builtin.roof_outline import ceiling_joist_note
 from loft_wire.cut_list import ONE_PIECE_ROLES, CutListMember
 from loft_wire.features import AuthoredEnvelope, EvaluateTreeRequest, ExpandedMember
 from loft_wire.plugins import ChoiceInput
@@ -244,9 +252,48 @@ def test_a_common_hard_by_the_end_rafter_takes_its_joist_on_its_near_face() -> N
     assert overlaps_any(rows) == []
 
 
-def test_a_joist_that_would_reach_the_ridge_is_refused() -> None:
+def note_of(rows: Rows, raw: dict[str, Any]) -> str | None:
+    """The stored roof's ``ceiling_joists_omitted`` text, as documents reads
+    it: the roof's canonical inputs over the features before it."""
+    earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
+    for fid, env, members in rows:
+        earlier[fid] = env
+        for m in members:
+            earlier[m.id] = m.feature
+    full = canonical_inputs(ROOF_1_6.manifest, {"walls": [ref(WALLS_ID)], **raw})
+    return ceiling_joist_note(ExpandInputs(ROOF_ID, full, earlier))
+
+
+#: B7 at 1/12 (the reviewer's case): 2x8 rafters seated 5.5, a 2x10 ridge.
+#: The ridge's underside is the plate + (95.25 - 5.5) / 12 + 7.25 sqrt(145)
+#: / 12 - 9.25 = the plate + 5.5044, under a 2x8 joist's 7.25 top but over a
+#: 2x6's 5.5.
+B7_1_12 = {**B7_GABLE, "pitch": "rise_1"}
+
+
+def test_a_new_gable_whose_joist_cannot_fit_builds_without_it_and_warns() -> None:
+    """Chief warns rather than blocks: the 1/12 gable builds, frames no
+    ceiling joist, is the None roof member for member, and the warning says
+    why and names the deepest joist that fits."""
+    rows = house(rectangle(288, 192), b7_openings(), B7_STUDS, B7_FLOOR, None)
+    built = roof_of(roofed(rows, B7_1_12))
+    assert not any(m.role == "ceiling_joist" for m in built)
+    assert built == roof_of(roofed(rows, {**B7_1_12, "ceiling_joists": "none"}))
+    note = note_of(rows, B7_1_12)
+    assert note is not None
+    assert "ridge board" in note and "Z 115.844" in note and "Z 114.098" in note
+    assert "2x6 or shallower" in note and "None" in note
+    # A 2x6 fits under it, and the warning goes.
+    six = {**B7_1_12, "ceiling_joist_profile": "us_2x6"}
+    assert len(joists(roofed(rows, six))) == 11
+    assert note_of(rows, six) is None
+    assert note_of(rows, B7_GABLE) is None
+    assert note_of(rows, {**B7_1_12, "ceiling_joists": "none"}) is None
+
+
+def test_with_no_joist_that_fits_the_warning_asks_for_pitch_or_ridge() -> None:
     """A 48 in span at 1/12 on 2x4 rafters and a 2x6 ridge: the ridge's
-    underside is 0.51 below the plates, so a 2x4 joist cannot pass under."""
+    underside is 0.51 below the plates, so no joist passes under it."""
     rows = house(rectangle(96, 48), [], {}, None, None)
     raw = {
         "slope_walls": ["e1", "e3"],
@@ -255,10 +302,40 @@ def test_a_joist_that_would_reach_the_ridge_is_refused() -> None:
         "ridge_profile": "us_2x6",
         "ceiling_joist_profile": "us_2x4",
     }
-    with pytest.raises(PluginError, match="ridge board") as refused:
-        roofed(rows, raw)
-    assert refused.value.input == "ceiling_joist_profile"
-    assert joists(roofed(rows, {**raw, "ceiling_joists": "none"})) == []
+    assert joists(roofed(rows, raw)) == []
+    note = note_of(rows, raw)
+    assert note is not None and "steeper pitch or a deeper ridge board" in note
+
+
+# --- Updating a stored roof -----------------------------------------------------------
+
+
+def test_an_update_maps_to_ceiling_joists_none() -> None:
+    """An update never adds members: every roof 1.2.0-1.5.0 is offered 1.6.0
+    with Ceiling joists None, its other inputs as they are, and the summary
+    says it adds nothing new."""
+    for version in ("1.2.0", "1.3.0", "1.4.0", "1.5.0"):
+        update = update_for("loft.roof", version, REGISTRY)
+        assert update is not None and update.to_version == "1.6.0", version
+        assert "adds nothing new" in update.summary.lower()
+        stored = {"style": "gable", "pitch": "rise_6"}
+        assert updated_inputs(update, stored) == {**stored, "ceiling_joists": "none"}
+
+
+def test_the_1_12_update_succeeds_and_builds_1_5_0s_roof() -> None:
+    """B7's gable stored at 1.4.0 at 1/12 (a 2x8 joist would pass its 2x10
+    ridge): updated by the map it expands, and is 1.5.0's roof exactly, as
+    every update to 1.6.0 is, B7 at 6/12 too."""
+    rows = house(rectangle(288, 192), b7_openings(), B7_STUDS, B7_FLOOR, None)
+    old = REGISTRY.get("loft.roof", "1.4.0")
+    for raw in (B7_1_12, B7_GABLE):
+        stored = canonical_inputs(old.manifest, {"walls": [ref(WALLS_ID)], **raw})
+        update = update_for("loft.roof", "1.4.0", REGISTRY)
+        assert update is not None
+        moved = canonical_inputs(ROOF_1_6.manifest, updated_inputs(update, stored))
+        after = roof_of(roofed(rows, moved))
+        assert after == roof_of(roofed(rows, dict(stored), ROOF_1_5))
+        assert not any(m.role == "ceiling_joist" for m in after)
 
 
 # --- No overlaps --------------------------------------------------------------------

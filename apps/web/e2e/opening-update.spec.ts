@@ -191,7 +191,7 @@ const UPDATED = {
   Floor: "1.2.0",
   Walls: "1.4.0",
   ...Object.fromEntries(NAMES.map((n) => [n, "1.5.0"])),
-  Roof: "1.5.0",
+  Roof: "1.6.0",
 };
 
 test.describe("Updating B7's out-of-date Build features", () => {

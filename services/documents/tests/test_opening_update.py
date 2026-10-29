@@ -248,7 +248,7 @@ UPDATED = {
     "Floor": "1.2.0",
     "Walls": "1.4.0",
     **{name: "1.5.0" for name in OPENING_NAMES},
-    "Roof": "1.5.0",
+    "Roof": "1.6.0",
 }
 
 
@@ -259,7 +259,7 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
     assert offers["Outline"] is None
     assert offers["Floor"] is None  # Joist direction has no map onto 1.3.0
     assert offers["Walls"] is not None and offers["Walls"]["to_version"] == "1.4.0"
-    assert offers["Roof"] is not None and offers["Roof"]["to_version"] == "1.5.0"
+    assert offers["Roof"] is not None and offers["Roof"]["to_version"] == "1.6.0"
     for name in OPENING_NAMES:
         offer = offers[name]
         assert offer is not None and offer["to_version"] == "1.5.0"
