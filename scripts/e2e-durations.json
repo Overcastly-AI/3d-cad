@@ -246,6 +246,7 @@
     "slab.spec.ts": 72.0,
     "solve-proposal.spec.ts": 86.8,
     "spline-constraint.spec.ts": 36.7,
+    "stairs.spec.ts": 56.5,
     "sweep-closed.spec.ts": 19.1,
     "sweep-twist.spec.ts": 20.4,
     "sweep.spec.ts": 45.9,
