@@ -20,12 +20,30 @@ drawing without house views serializes as it always did.
 """
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from loft_wire.plugins import PluginId
 from loft_wire.units import LengthUnit
+
+
+def _unset(value: object) -> bool:
+    """``exclude_if``: an empty list or a null is not serialized, so a drawing
+    with no house view serializes byte-identically to the pre-house wire."""
+    return value is None or value == []
+
+
+def _drop_default(schema: dict[str, Any]) -> None:
+    """Keep the omitted-when-unset field optional in the generated client."""
+    schema.pop("default", None)
+
+
+#: The keyword set every additive house field carries.
+_ADDITIVE: dict[str, Any] = {
+    "exclude_if": _unset,
+    "json_schema_extra": _drop_default,
+}
 
 #: The house-drawing view kinds, in the order a set is laid out.
 HOUSE_VIEWS: tuple[str, ...] = (
@@ -96,6 +114,7 @@ class HouseViewResult(BaseModel):
 
     auto_dimensions: list[ViewAutoDimension] = Field(
         default_factory=list[ViewAutoDimension],
+        **_ADDITIVE,
         description="Automatic dimensions (HOUSE-DRAWINGS): a plan's exterior "
         "strings, an elevation's head and plate heights. Empty for every other "
         "view.",
@@ -108,6 +127,7 @@ class HouseEvaluateInput(BaseModel):
     members: list[DrawingMember] = Field(
         default_factory=list[DrawingMember],
         max_length=MAX_DRAWING_MEMBERS,
+        **_ADDITIVE,
         description="The part's plugin members (HOUSE-DRAWINGS): a plan finds its "
         "floor, openings and framing by role. Empty: a plan is cut 48 in above the "
         "part's lowest point and draws no strings.",
@@ -119,6 +139,7 @@ class HouseLayout(BaseModel):
 
     length_unit: LengthUnit | None = Field(
         default=None,
+        **_ADDITIVE,
         description="The drawn document's unit. 'in' or 'ft' prints every length "
         "as architectural feet-inch to 1/16 in (8'-1 1/8\"); null or metric "
         "keeps millimetres to 3 places.",
@@ -168,6 +189,7 @@ class HouseComposeInput(BaseModel):
 
     materials: YardOrder | None = Field(
         default=None,
+        **_ADDITIVE,
         description="The drawn part's cut list as a yard order, for a sheet with a "
         "`materials` view (the gateway prices it from the caller's book). Null for "
         "every other sheet.",
@@ -223,6 +245,7 @@ class HouseComposedSheet(BaseModel):
 
     materials_table: ComposedMaterialsTable | None = Field(
         default=None,
+        **_ADDITIVE,
         description="The placed materials list (HOUSE-DRAWINGS); null on a sheet "
         "with no `materials` view.",
     )
