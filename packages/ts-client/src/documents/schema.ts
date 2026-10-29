@@ -11289,7 +11289,7 @@ export interface components {
              * @description Projection direction (front / top / right / iso / flat_pattern / section)
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
             /**
              * Ref Document Id
              * Format: uuid
@@ -11360,7 +11360,7 @@ export interface components {
              * Projection
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
             /**
              * Ref Document Id
              * Format: uuid
@@ -11431,7 +11431,7 @@ export interface components {
             expected_version: number;
             position?: components["schemas"]["SheetPoint"] | null;
             /** Projection */
-            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section") | null;
+            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
     };

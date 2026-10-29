@@ -15312,7 +15312,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "Projection",
             "type": "string"
@@ -15420,7 +15426,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "Projection",
             "type": "string"
@@ -15554,7 +15566,13 @@
                   "right",
                   "iso",
                   "flat_pattern",
-                  "section"
+                  "section",
+                  "plan",
+                  "elevation_front",
+                  "elevation_back",
+                  "elevation_left",
+                  "elevation_right",
+                  "materials"
                 ],
                 "type": "string"
               },

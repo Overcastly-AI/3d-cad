@@ -26,6 +26,7 @@ export {
   toMm,
   volumeUnitLabel,
 } from "./units";
+export { formatFeetInches } from "./feetInches";
 export { loftPreset } from "./tailwind-preset";
 export { cx } from "./cx";
 export { formatChord, isMacPlatform } from "./chord";

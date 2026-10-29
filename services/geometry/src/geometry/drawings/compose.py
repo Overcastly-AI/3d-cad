@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from loft_wire.drawing_house import ComposedMaterialsTable, YardOrder
 from loft_wire.drawings import (
     Annotation,
     BendTableRow,
@@ -60,6 +61,7 @@ from loft_wire.drawings import (
     ThreadCalloutRow,
     ViewProjection,
 )
+from loft_wire.units import LengthUnit
 
 from geometry.drawings.dimensioning import (
     DIMENSION_NOT_PLACEABLE,
@@ -78,6 +80,15 @@ from geometry.drawings.dxf import (
     FlatPatternExportError,
     serialize_dxf,
     serialize_flat_pattern_dxf,
+)
+from geometry.drawings.house import MATERIALS_VIEW, house_view_kind
+from geometry.drawings.house_compose import (
+    band_below,
+    build_auto_dimensions,
+    house_anchors,
+    is_house_sheet,
+    materials_table,
+    relabel_dimension,
 )
 from geometry.drawings.layout import (
     _BEND_TABLE_HEADER_H,
@@ -203,6 +214,7 @@ def _compose_view(
     view_dims: list[tuple[DrawingDimensionInput, MeasuredDimension]],
     obstacles: Sequence[SvgRect],
     pinned_at: Vec2 | None = None,
+    length_unit: LengthUnit | None = None,
 ) -> ComposedView:
     """Place one view (edges + dimensions + caption) — mirrors SheetView.tsx.
 
@@ -243,21 +255,27 @@ def _compose_view(
         # composer drops is invisible on the paper AND in the exported bytes, so a
         # print that has lost one looks complete.
         for inp, measured in view_dims:
-            dims.append(
-                build_dimension_annotation(
-                    inp.dimension,
-                    measured,
-                    edges,
-                    view_center,
-                    to_svg,
-                    obstacles,
-                    sheet,
-                    inp.id,
-                )
+            dim = build_dimension_annotation(
+                inp.dimension,
+                measured,
+                edges,
+                view_center,
+                to_svg,
+                obstacles,
+                sheet,
+                inp.id,
             )
+            # An imperial document prints feet-inch (QA-DRAWING-DECIMALS).
+            dims.append(relabel_dimension(dim, measured, length_unit))
         # Lost / unplaceable dimensions fall back to the view centre; stack them so
         # their captions never print over one another (QA-DRAWING-DIMS-DURABLE).
         dims = stack_dimension_errors(dims)
+        # A house view's automatic strings (HOUSE-DRAWINGS); none on other views.
+        if result is not None and result.auto_dimensions and bounds is not None:
+            dims += build_auto_dimensions(
+                result.auto_dimensions, bounds, to_svg, length_unit
+            )
+            label_y += band_below(result)
 
     return ComposedView(
         projection=projection,
@@ -403,6 +421,7 @@ def place_sheet(
     annotations: Sequence[Annotation] = (),
     threads: Sequence[ThreadCalloutRow] = (),
     kind: DrawingKind = "part",
+    materials: YardOrder | None = None,
 ) -> ComposedSheet:
     """Place the evaluated drawing on the sheet (drawing-export.md §4.2).
 
@@ -442,7 +461,12 @@ def place_sheet(
     # bounds-aware as before, additive section/flat_pattern views into a NON-OVERLAPPING
     # free slot (never the old dead-centre collision), and any auto_place=False view
     # honored at its authored position.
-    anchors = resolve_view_anchors(layout, result_by_proj, dims)
+    # The house views (HOUSE-DRAWINGS) take their own arrangement: the plan alone,
+    # the elevations as a grid. A sheet without them composes as it always did.
+    preplaced = (
+        house_anchors(layout, result_by_proj, dims) if is_house_sheet(layout) else None
+    )
+    anchors = resolve_view_anchors(layout, result_by_proj, dims, preplaced)
     pinned_at: dict[ViewProjection, Vec2] = {
         vp.projection: Vec2(vp.position.x_mm, vp.position.y_mm)
         for vp in layout.views
@@ -556,6 +580,55 @@ def place_sheet(
             )
         composed_views.append(section_view)
 
+    # House branch (HOUSE-DRAWINGS): the plan (its cut hatched like a section's)
+    # and the elevations through the SAME `_compose_view`, their automatic strings
+    # and an imperial document's feet-inch with them; a `materials` view places the
+    # yard order as the sheet's materials list.
+    table: ComposedMaterialsTable | None = None
+    for vp in layout.views:
+        kind_of = house_view_kind(vp.projection)
+        if kind_of is None:
+            continue
+        if kind_of == "materials":
+            if materials is None:
+                continue
+            table = materials_table(materials, dims)
+            composed_views.append(
+                ComposedView(
+                    projection=MATERIALS_VIEW,
+                    failed=False,
+                    anchor=ComposedPoint(
+                        x_mm=table.x + table.width / 2, y_mm=table.y + table.height / 2
+                    ),
+                    label=VIEW_LABEL[MATERIALS_VIEW].upper(),
+                    label_pos=ComposedPoint(
+                        x_mm=table.blocks[0].x + table.blocks[0].width / 2,
+                        y_mm=table.y - 2.4,
+                    ),
+                )
+            )
+            continue
+        house_result = result_by_proj.get(vp.projection)
+        house_view = _compose_view(
+            vp.projection,
+            anchors[vp.projection],
+            sheet_w,
+            sheet_h,
+            house_result,
+            dims_by_view.get(vp.projection, []),
+            [],
+            pinned_at.get(vp.projection),
+            layout.length_unit,
+        )
+        if (
+            house_result is not None
+            and house_result.error is None
+            and house_result.section_faces
+        ):
+            to_svg = view_transform(house_result.edges, anchors[vp.projection], sheet_h)
+            house_view.hatch = build_section_hatch(house_result.section_faces, to_svg)
+        composed_views.append(house_view)
+
     # Verify the PLACED sheet (audit N2). Composition derives clear anchors, but it does
     # not choose every placement (a hand-positioned view, a part too big for its sheet),
     # so the result is measured: every placed view with drawn geometry, in composed
@@ -595,4 +668,5 @@ def place_sheet(
         notes=_place_notes(annotations),
         layout_issues=measure_sheet_issues(ink_rects, dims, SHEET_MARGIN_MM),
         thread_schedule=_thread_schedule_block(threads, dims),
+        materials_table=table,
     )

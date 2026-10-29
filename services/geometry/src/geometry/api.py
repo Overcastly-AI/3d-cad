@@ -615,6 +615,7 @@ def compose_sheet(request: ComposeDrawingRequest) -> ComposedSheet:
         request.annotations,
         threads=threads,
         kind="part" if request.assembly is None else "assembly",
+        materials=request.materials,
     )
 
 

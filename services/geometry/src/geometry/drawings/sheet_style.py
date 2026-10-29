@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from loft_wire.drawing_house import ComposedMaterialsTable
 from loft_wire.drawings import (
     BendTableRow,
     ComposedTitleBlock,
@@ -187,3 +188,25 @@ def _thread_row_cells(row: ThreadCalloutRow) -> tuple[str, str, str]:
     decimals are byte-stable across an interpreter restart (§8.3).
     """
     return (f"{row.quantity}x", row.designation, f"{row.tap_drill_mm:.2f}")
+
+
+#: A table cell's inset from its column edge (mm), the materials list's.
+_TABLE_CELL_PAD = 1.4
+
+
+def _table_cells(
+    table: ComposedMaterialsTable, block_x: float, cells: list[str]
+) -> list[tuple[str, float, str]]:
+    """Each non-empty cell of a materials-table row with its text x and SVG
+    anchor ("start" / "end"); the ONE layout the SVG, PDF and DXF emitters read.
+    A system heading is one cell, spanning the row from the first column."""
+    out: list[tuple[str, float, str]] = []
+    for i, cell in enumerate(cells):
+        if not cell:
+            continue
+        left = block_x + table.column_dx[i]
+        if table.align[i] == "right" and len(cells) > 1:
+            out.append((cell, left + table.column_w[i] - _TABLE_CELL_PAD, "end"))
+        else:
+            out.append((cell, left + _TABLE_CELL_PAD, "start"))
+    return out

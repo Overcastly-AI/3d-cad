@@ -66,9 +66,10 @@ from OCP.TopoDS import TopoDS, TopoDS_Shape
 from geometry.kernel.edges import EdgeRecord, enumerate_edges
 from geometry.kernel.types import BodyShape
 
-#: The standard orthographic + isometric directions v1 supports (design §1.2).
+#: The standard orthographic + isometric directions v1 supports (design §1.2),
+#: plus the back and left a house's four elevations look from (HOUSE-DRAWINGS).
 #: Section / detail / auxiliary / custom views are deferred (§1.5/§7).
-ViewDirection = Literal["front", "top", "right", "iso"]
+ViewDirection = Literal["front", "top", "right", "iso", "back", "left"]
 
 #: The neutral 2D primitive kinds an HLR edge classifies into (§1.3). Real lines
 #: and circles stay EXACT (a diameter dimension reads a true radius, §1.1); only
@@ -295,6 +296,9 @@ _VIEW_FRAMES: dict[ViewDirection, _Frame] = {
     "top": ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
     "right": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
     "iso": (_ISO_N, _ISO_X),
+    # Back looks from +Y with +X to the left; left from -X with -Y to the right.
+    "back": ((0.0, 1.0, 0.0), (-1.0, 0.0, 0.0)),
+    "left": ((-1.0, 0.0, 0.0), (0.0, -1.0, 0.0)),
 }
 
 

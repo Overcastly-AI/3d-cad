@@ -49,6 +49,13 @@ export const VIEW_LABEL: Record<ViewProjection, string> = {
   iso: "Isometric",
   flat_pattern: "Flat Pattern",
   section: "Section A-A",
+  // The house set (HOUSE-DRAWINGS): the composer places these itself.
+  plan: "Floor Plan",
+  elevation_front: "Front Elevation",
+  elevation_back: "Back Elevation",
+  elevation_left: "Left Elevation",
+  elevation_right: "Right Elevation",
+  materials: "Materials List",
 };
 
 type SheetSize = SheetResponse["size"];
@@ -156,8 +163,26 @@ export function standardLayout(
     // the DOM sheet renders its edges + cut-face outline here and the hatch ports in a
     // fast-follow. Centred placeholder keeps the map total.
     section: { x: dims.width / 2, y: dims.height / 2 },
-  };
+    // The house set's views are laid out by the composer (a plan alone, the
+    // elevations as a grid, the materials list top-left); centred seeds.
+    ...Object.fromEntries(
+      HOUSE_VIEWS.map((view) => [
+        view,
+        { x: dims.width / 2, y: dims.height / 2 },
+      ]),
+    ),
+  } as Record<ViewProjection, Anchor>;
 }
+
+/** The house set's views (HOUSE-DRAWINGS), in the order the set lays them out. */
+export const HOUSE_VIEWS: readonly ViewProjection[] = [
+  "plan",
+  "elevation_front",
+  "elevation_back",
+  "elevation_left",
+  "elevation_right",
+  "materials",
+];
 
 export interface Point2D {
   x: number;

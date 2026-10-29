@@ -58,6 +58,7 @@ from py_kit.errors import NotFoundError, ValidationApiError
 from gateway.affinity import forward_geometry
 from gateway.assembly_patterns import resolved_counts
 from gateway.auth import CurrentUser
+from gateway.drawing_house import HouseInputs, has_house_view, house_inputs
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import raise_upstream_error
@@ -478,6 +479,7 @@ def _compose_request(
     *,
     part: EvaluateTreeRequest | None = None,
     assembly: EvaluateAssemblyRequest | None = None,
+    house: HouseInputs | None = None,
 ) -> ComposeDrawingRequest:
     """Assemble the geometry `ComposeDrawingRequest` from persisted drawing state.
 
@@ -516,6 +518,8 @@ def _compose_request(
         )
 
     layout = SheetLayout(
+        # A house sheet prints in its part's unit (feet-inch when imperial).
+        length_unit=house.request.length_unit if house is not None else None,
         size=sheet.size,
         orientation=sheet.orientation,
         projection=sheet.projection,
@@ -580,6 +584,9 @@ def _compose_request(
         annotations=[a.annotation for a in sheet_content.annotations],
         layout=layout,
         format=artifact_format,
+        # A house sheet's members and materials list (HOUSE-DRAWINGS).
+        members=house.members if house is not None else [],
+        materials=house.materials if house is not None else None,
     )
 
 
@@ -757,6 +764,24 @@ async def aggregate_compose_request(
         return _ComposePlan(
             _compose_request(
                 tree, sheet_content, artifact_format, assembly=assembly_request
+            ),
+            _download_title(tree, sheet_content.sheet),
+        )
+
+    projections: list[ViewProjection] = [v.projection for v in sheet_content.views]
+    if has_house_view(projections):
+        # A plan, an elevation or a materials list reads the part WITH its members
+        # and unit (HOUSE-DRAWINGS): the same evaluation request, from cut-list-request.
+        house = await house_inputs(
+            http_request, user, referenced_document_id, projections
+        )
+        return _ComposePlan(
+            _compose_request(
+                tree,
+                sheet_content,
+                artifact_format,
+                part=house.request.evaluation,
+                house=house,
             ),
             _download_title(tree, sheet_content.sheet),
         )

@@ -900,6 +900,25 @@
         "title": "AuthTokenResponse",
         "type": "object"
       },
+      "AutoDimensionPoint": {
+        "description": "A witness point of an automatic dimension, in view-plane mm at the scale.",
+        "properties": {
+          "x_mm": {
+            "title": "X Mm",
+            "type": "number"
+          },
+          "y_mm": {
+            "title": "Y Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x_mm",
+          "y_mm"
+        ],
+        "title": "AutoDimensionPoint",
+        "type": "object"
+      },
       "AxisParallelEdgesSelector": {
         "description": "Every straight edge parallel to a world axis (e.g. Z = the vertical\nedges of an upright prism). Curved edges never match \u2014 an arc has no\nsingle direction. Deterministic and rebuild-stable: a geometric predicate,\nnot a stored edge id.",
         "properties": {
@@ -2338,7 +2357,13 @@
                 "right",
                 "iso",
                 "flat_pattern",
-                "section"
+                "section",
+                "plan",
+                "elevation_front",
+                "elevation_back",
+                "elevation_left",
+                "elevation_right",
+                "materials"
               ],
               "type": "string"
             },
@@ -2410,6 +2435,94 @@
           "y2"
         ],
         "title": "ComposedLineEdge",
+        "type": "object"
+      },
+      "ComposedMaterialsTable": {
+        "description": "The placed materials list (Chief's Materials List on a sheet).\n\nA bordered table in sheet-mm SVG space: the column x positions and\nalignments, a header row, then the rows. A table taller than the drawing\narea flows into further columns of the same width, each with its header.",
+        "properties": {
+          "align": {
+            "description": "Text alignment",
+            "items": {
+              "enum": [
+                "left",
+                "right"
+              ],
+              "type": "string"
+            },
+            "title": "Align",
+            "type": "array"
+          },
+          "blocks": {
+            "description": "The table's blocks, left to right",
+            "items": {
+              "$ref": "#/components/schemas/ComposedTableBlock"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "column_dx": {
+            "description": "Each column's left edge from its block's left edge (mm)",
+            "items": {
+              "type": "number"
+            },
+            "title": "Column Dx",
+            "type": "array"
+          },
+          "column_w": {
+            "description": "Each column's width (mm)",
+            "items": {
+              "type": "number"
+            },
+            "title": "Column W",
+            "type": "array"
+          },
+          "columns": {
+            "description": "Column headings",
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "row_height": {
+            "title": "Row Height",
+            "type": "number"
+          },
+          "text_mm": {
+            "title": "Text Mm",
+            "type": "number"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height",
+          "row_height",
+          "text_mm",
+          "columns",
+          "column_dx",
+          "column_w",
+          "align",
+          "blocks"
+        ],
+        "title": "ComposedMaterialsTable",
         "type": "object"
       },
       "ComposedMeasuredDimension": {
@@ -2601,6 +2714,17 @@
             "title": "Margin Mm",
             "type": "number"
           },
+          "materials_table": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComposedMaterialsTable"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The placed materials list (HOUSE-DRAWINGS); null on a sheet with no `materials` view."
+          },
           "notes": {
             "description": "Placed free-text note annotations (design \u00a72.2), each stamped at its sheet anchor; empty for a sheet with no notes \u2014 additive, so a note-free sheet composes byte-identically to its pre-notes golden.",
             "items": {
@@ -2657,6 +2781,83 @@
           "title_block"
         ],
         "title": "ComposedSheet",
+        "type": "object"
+      },
+      "ComposedTableBlock": {
+        "description": "One column-flow block of the materials table: its frame and rows.",
+        "properties": {
+          "header_y": {
+            "description": "Header text baseline (mm)",
+            "title": "Header Y",
+            "type": "number"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ComposedTableRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height",
+          "header_y",
+          "rows"
+        ],
+        "title": "ComposedTableBlock",
+        "type": "object"
+      },
+      "ComposedTableRow": {
+        "description": "One placed row of the materials table.",
+        "properties": {
+          "cells": {
+            "description": "One string per column (a group: one)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "group",
+              "line",
+              "total"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "y": {
+            "description": "Text baseline (mm, SVG space)",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "y",
+          "cells"
+        ],
+        "title": "ComposedTableRow",
         "type": "object"
       },
       "ComposedThreadSchedule": {
@@ -2913,7 +3114,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "Projection",
             "type": "string"
@@ -5291,7 +5498,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "View",
             "type": "string"
@@ -5319,6 +5532,44 @@
           "drawings"
         ],
         "title": "DrawingListResponse",
+        "type": "object"
+      },
+      "DrawingMember": {
+        "description": "One plugin member of the drawn part: which body plays which role.\n\nDocuments knows each base feature's plugin and role (the cut list's\n``CutListMember``); geometry only receives base features, so the request\nnames them. The plan finds its floor from the subfloor or slab, the\ndimension strings their openings from the headers, and the elevations\ntheir plate from the top plates.",
+        "properties": {
+          "feature_id": {
+            "description": "The base feature that builds the body",
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "plugin_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 3,
+                "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plugin whose member it is",
+            "title": "Plugin Id"
+          },
+          "role": {
+            "description": "The member's manifest role ('header')",
+            "maxLength": 64,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_id",
+          "role"
+        ],
+        "title": "DrawingMember",
         "type": "object"
       },
       "DrawingResponse": {
@@ -5435,6 +5686,14 @@
       "DrawingViewResult": {
         "description": "One requested view's projection outcome inside a 200 (design \u00a71.3/\u00a71.5).\n\nOn success, ``edges`` carries the view's canonically-ordered visible+hidden 2D\nedges and ``error`` is null. On an exact-HLR failure (a fragile body \u2014 tangent\nedges, self-intersections, \u00a71.5), ``edges`` is empty and ``error`` is a typed\n``view_projection_failed`` (the boundary form of\n``geometry.drawings.ViewProjectionError``) \u2014 never a 500, never a silently\nempty success. A per-view failure NEVER fails the whole request; the other\nrequested views still project (mirroring the per-feature/per-mate posture).\n\nFor a ``flat_pattern`` view (sheet-metal.md \u00a77) the SAME ``edges`` list carries\nthe unfold's outline \u2014 cut edges as ``edge_role=\"body\"``, fold lines as\n``edge_role=\"bend\"`` \u2014 and ``bend_table`` carries the per-bend fold data the\nfrontend renders as an annotation table. ``bend_table`` is empty for every\nstandard HLR view (additive \u2014 a non-sheet-metal consumer is unaffected). A\n``flat_pattern`` asked of a non-sheet-metal body is a typed per-view\n``flat_pattern_not_sheet_metal`` error, and an unresolvable bend a\n``subshape_unresolved`` (never a wrong flat pattern \u2014 \u00a75).",
         "properties": {
+          "auto_dimensions": {
+            "description": "Automatic dimensions (HOUSE-DRAWINGS): a plan's exterior strings, an elevation's head and plate heights. Empty for every other view.",
+            "items": {
+              "$ref": "#/components/schemas/ViewAutoDimension"
+            },
+            "title": "Auto Dimensions",
+            "type": "array"
+          },
           "bend_table": {
             "description": "Per-bend fold rows for a flat_pattern view (sheet-metal.md \u00a76/\u00a77); empty for every standard HLR view and on error",
             "items": {
@@ -5482,7 +5741,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "View",
             "type": "string"
@@ -6133,6 +6398,15 @@
             "title": "Features",
             "type": "array"
           },
+          "members": {
+            "description": "The part's plugin members (HOUSE-DRAWINGS): a plan finds its floor, openings and framing by role. Empty: a plan is cut 48 in above the part's lowest point and draws no strings.",
+            "items": {
+              "$ref": "#/components/schemas/DrawingMember"
+            },
+            "maxItems": 5000,
+            "title": "Members",
+            "type": "array"
+          },
           "part_id": {
             "description": "The referenced part's identity (echoed)",
             "format": "uuid",
@@ -6161,7 +6435,7 @@
             "type": "integer"
           },
           "views": {
-            "description": "The standard views to project (subset of front/top/right/iso); processed and returned in request order. Bounded by MAX_DRAWING_VIEWS (work bound, audit G2 \u2014 HLR runs per view).",
+            "description": "The views to project, in request order; bounded by MAX_DRAWING_VIEWS (work bound, audit G2 \u2014 HLR runs per view).",
             "items": {
               "enum": [
                 "front",
@@ -6169,7 +6443,13 @@
                 "right",
                 "iso",
                 "flat_pattern",
-                "section"
+                "section",
+                "plan",
+                "elevation_front",
+                "elevation_back",
+                "elevation_left",
+                "elevation_right",
+                "materials"
               ],
               "type": "string"
             },
@@ -12069,7 +12349,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "View",
             "type": "string"
@@ -19796,6 +20082,62 @@
         "title": "VerticalConstraint",
         "type": "object"
       },
+      "ViewAutoDimension": {
+        "description": "A dimension the composer draws on its own (Chief's automatic dimensions).\n\n``start`` and ``end`` are view-plane points (mm at the view scale, the\nframe of the view's edges). The value is ``value_mm`` (model-true) along\n``axis``; the dimension line sits ``side`` of the view's drawn extent, on\nstring ``tier`` (0 nearest the geometry). The segments of one string share\na side and a tier and chain end to end.",
+        "properties": {
+          "axis": {
+            "description": "The view axis measured along",
+            "enum": [
+              "x",
+              "y"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "end": {
+            "$ref": "#/components/schemas/AutoDimensionPoint",
+            "description": "Second witness point (view mm)"
+          },
+          "side": {
+            "description": "Which side of the view it is placed",
+            "enum": [
+              "below",
+              "above",
+              "left",
+              "right"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/components/schemas/AutoDimensionPoint",
+            "description": "First witness point (view mm)"
+          },
+          "tier": {
+            "description": "String row, 0 nearest the view",
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Tier",
+            "type": "integer"
+          },
+          "value_mm": {
+            "description": "The model-true length (mm)",
+            "minimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "axis",
+          "side",
+          "tier",
+          "value_mm"
+        ],
+        "title": "ViewAutoDimension",
+        "type": "object"
+      },
       "ViewCreate": {
         "description": "Add a view referencing a part / assembly at a projection (design \u00a72.2).\n\n``ref_document_id`` is a cross-document reference, NOT an FK (design \u00a72.2,\nidentical to an assembly instance): documents enforces existence at write time\nand deleting the referenced document is a 409-with-dependents. v1 tracks the\nreferenced document's TIP (``ref_pinned_version`` present but NULL \u2014 design\n\u00a72.3, the schema is pin-ready). ``projection`` is the standard orthographic /\niso direction (all documents stores \u2014 mapping it to a 3D frame + HLR is\ngeometry's job). ``order_index`` is appended at the tip when omitted.",
         "properties": {
@@ -19829,7 +20171,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "Projection",
             "type": "string"
@@ -19937,7 +20285,13 @@
               "right",
               "iso",
               "flat_pattern",
-              "section"
+              "section",
+              "plan",
+              "elevation_front",
+              "elevation_back",
+              "elevation_left",
+              "elevation_right",
+              "materials"
             ],
             "title": "Projection",
             "type": "string"
@@ -20071,7 +20425,13 @@
                   "right",
                   "iso",
                   "flat_pattern",
-                  "section"
+                  "section",
+                  "plan",
+                  "elevation_front",
+                  "elevation_back",
+                  "elevation_left",
+                  "elevation_right",
+                  "materials"
                 ],
                 "type": "string"
               },
@@ -22629,6 +22989,74 @@
           }
         ],
         "summary": "Export Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/materials/csv": {
+      "get": {
+        "description": "The materials list of a drawing's sheet as a CSV download: the drawn part's\ncut list as a yard order, priced from your price book, line for line the\nsheet and the cut-list panel.",
+        "operationId": "get_drawing_materials_csv_api_v1_drawings__drawing_id__materials_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The materials sheet (a sheet id from the drawing tree); omit for the drawing's first sheet with a materials list.",
+            "in": "query",
+            "name": "sheet",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The materials sheet (a sheet id from the drawing tree); omit for the drawing's first sheet with a materials list.",
+              "title": "Sheet"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The sheet's materials list as CSV (RFC 4180, CRLF, UTF-8): System, Item, Qty, Size, Length, Material and Price, then the Total row; `Content-Disposition` names the file."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Drawing Materials Csv",
         "tags": [
           "drawings"
         ]
