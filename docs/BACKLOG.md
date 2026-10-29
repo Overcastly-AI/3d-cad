@@ -290,6 +290,8 @@ One line each. The founder triages weekly; most are closed without work.
 - FOUNDATION-SAME-NAME-POURS: pours from separate features with the same member name share a line but round separately; untested.
 - FOUNDATION-VENT-MATERIAL: vents and access doors carry steel_1018 as a placeholder; real units are plastic or galvanized.
 - FOUNDATION-UPDATE-MAP: a stored foundation 1.0.0 lists no vents until updated to 1.1.0; add the 1.0 -> 1.1 map to the plugin-update action.
+- ROOF-NOOP-UPDATE: a stored 1.5.0 roof is offered an Update to 1.6.0 that changes nothing (joists map to None).
+- CEILING-JOISTS-SILENT-NONE: a hip or typed-bearing roof set to joists beside each common frames none and says nothing.
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
 - CEILING-JOISTS-HIP: a `loft.roof` 1.6.0 hip (and a gable on its typed bearing) frames no ceiling joists; Chief stops a hip's joists at the hip jacks and frames them from rooms, so a hip house still has no rafter ties.
 - CEILING-JOISTS-LAP: a ceiling joist is one piece wall face to wall face (NO-SPLICE-SPANS), so past 24 ft it lists no stock; framers lap joists over a bearing partition instead.
