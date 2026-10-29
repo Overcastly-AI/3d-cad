@@ -11,7 +11,13 @@ import {
   type SectionViewParams,
   createSheet,
   createView,
+  updateSheet,
 } from "../../api/drawings";
+import {
+  HOUSE_SCALE,
+  HOUSE_SET,
+  HOUSE_SHEET_SIZE,
+} from "../../drawing/houseSet";
 import { fetchFeatureTree } from "../../api/parts";
 import {
   AUTO_SCALE,
@@ -409,6 +415,80 @@ export function useLayoutActions(
     ],
   );
 
+  // The house set (HOUSE-DRAWINGS): one action lays out a builder's set — the
+  // plan, the four elevations and the materials list, each on its own sheet of
+  // ANSI B at 1:48 — the way Chief Architect's plan, elevation and materials
+  // sheets come out of one model. An empty first sheet becomes the Plan; the
+  // composer places every view itself (the positions are centred seeds).
+  const handleHouseSet = useCallback(() => {
+    if (hasLayout || selectedSourceId === null || busy) return;
+    if (selectedSourceKind !== "part") return;
+    setBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        let version = docVersion;
+        const dims = sheetDimensions(HOUSE_SHEET_SIZE, "landscape");
+        for (const [index, entry] of HOUSE_SET.entries()) {
+          let sheetId: string;
+          if (index === 0 && sheet !== null) {
+            const updated = await updateSheet(drawingId, sheet.id, {
+              name: entry.name,
+              size: HOUSE_SHEET_SIZE,
+              orientation: "landscape",
+              expected_version: version,
+            });
+            version = updated.doc_version;
+            sheetId = sheet.id;
+          } else {
+            const created = await createSheet(drawingId, {
+              name: entry.name,
+              size: HOUSE_SHEET_SIZE,
+              orientation: "landscape",
+              projection: sheet?.projection ?? "third_angle",
+              expected_version: version,
+            });
+            version = created.doc_version;
+            sheetId = created.sheet.id;
+          }
+          for (const projection of entry.views) {
+            const made = await createView(drawingId, sheetId, {
+              projection,
+              ref_document_id: selectedSourceId,
+              ref_document_kind: "part",
+              scale: HOUSE_SCALE,
+              position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+              auto_place: true,
+              clear_title_block: false,
+              expected_version: version,
+            });
+            version = made.doc_version;
+          }
+        }
+        await queryClient.invalidateQueries({
+          queryKey: ["drawing", drawingId],
+        });
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The house set could not be laid out.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [
+    hasLayout,
+    selectedSourceId,
+    selectedSourceKind,
+    busy,
+    docVersion,
+    sheet,
+    drawingId,
+    queryClient,
+  ]);
+
   const handleToggleSection = useCallback(() => {
     setSectionError(null);
     setSectionOpen((open) => !open);
@@ -425,5 +505,6 @@ export function useLayoutActions(
     handleFlatPattern,
     handleAuthorSection,
     handleToggleSection,
+    handleHouseSet,
   };
 }

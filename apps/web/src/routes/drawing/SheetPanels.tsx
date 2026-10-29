@@ -30,7 +30,7 @@ import {
   reanchoredAnchor,
 } from "../../drawing/anchorHeal";
 import { formatDimensionLabel } from "../../drawing/dimensions";
-import { VIEW_LABEL } from "../../drawing/layout";
+import { HOUSE_VIEWS, VIEW_LABEL } from "../../drawing/layout";
 
 /** The right-hand "Views" panel — a functional legend + per-view line count. It
  * lists exactly the projections placed on the sheet (the standard four, or a lone
@@ -63,7 +63,11 @@ export function ViewsPanel({
     <div className="border border-hairline bg-anvil">
       <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
         <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-          {flatPattern ? "Flat pattern" : "Standard views"}
+          {flatPattern
+            ? "Flat pattern"
+            : projections.some((p) => HOUSE_VIEWS.includes(p))
+              ? "House set"
+              : "Standard views"}
         </h2>
         <span className="grow" />
         {projecting ? (
@@ -98,7 +102,11 @@ export function ViewsPanel({
                   failed ? "text-flag" : "text-gauge"
                 }`}
               >
-                {failed ? "failed" : `${count} edges`}
+                {failed
+                  ? "failed"
+                  : projection === "materials"
+                    ? "schedule"
+                    : `${count} edges`}
               </span>
             </li>
           );

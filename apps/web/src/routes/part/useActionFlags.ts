@@ -68,6 +68,8 @@ export function useActionFlags({ editor, features }: ActionFlagsParams) {
   // in the same corner saying a near-identical sentence is how a UI starts
   // lying about how many things went wrong.
   const [flatDxfBusy, setFlatDxfBusy] = useState(false);
+  // The Drawing command (QA-PART-DRAWING-CMD): creating the drawing failed.
+  const [drawingError, setDrawingError] = useState<string | null>(null);
   // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
   const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
@@ -84,6 +86,8 @@ export function useActionFlags({ editor, features }: ActionFlagsParams) {
     setFlatPatternError,
     flatDxfBusy,
     setFlatDxfBusy,
+    drawingError,
+    setDrawingError,
     offsetPlaneBusy,
     setOffsetPlaneBusy,
     offsetPlaneError,

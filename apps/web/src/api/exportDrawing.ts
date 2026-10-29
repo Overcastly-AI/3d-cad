@@ -21,6 +21,38 @@ export type DrawingExportFormat = NonNullable<
 >;
 
 /**
+ * A house set's materials list as CSV (HOUSE-DRAWINGS, DRAWING-PARTS-LIST-EXPORT):
+ * `GET /api/v1/drawings/{id}/materials/csv?sheet=` — the drawn part's cut list as
+ * a yard order (Item, Qty, Size, Length, Material, Price), line for line the
+ * sheet's table and the cut-list panel.
+ */
+export async function exportDrawingMaterialsCsv(
+  drawingId: string,
+  sheetId?: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<ExportedFile> {
+  const { data, error, response } = await client.GET(
+    "/api/v1/drawings/{drawing_id}/materials/csv",
+    {
+      params: {
+        path: { drawing_id: drawingId },
+        query: sheetId ? { sheet: sheetId } : {},
+      },
+      parseAs: "blob",
+    },
+  );
+  if (error !== undefined || data === undefined) {
+    throw new Error("The materials list could not be written as CSV.");
+  }
+  const blob = data as unknown as Blob;
+  const filename = parseContentDispositionFilename(
+    response.headers.get("Content-Disposition"),
+    "materials.csv",
+  );
+  return { blob, filename };
+}
+
+/**
  * Export a laid-out drawing via the gateway
  * (`POST /api/v1/drawings/{id}/export?format=&sheet=`). The server composes the
  * sheet from the SAME persisted placement the on-screen sheet shows —

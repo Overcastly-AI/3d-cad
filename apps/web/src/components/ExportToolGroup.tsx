@@ -1,4 +1,4 @@
-import { ToolButton, ToolGroup } from "@loft/design";
+import { type FlyoutItem, ToolButton, ToolGroup } from "@loft/design";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { EXPORT_FORMATS, useExportAction } from "../features/exportAction";
@@ -46,6 +46,11 @@ export interface ExportToolGroupProps {
   confirmReason?: string | null;
   /** The confirm button's words when they are not the pose default. */
   confirmLabel?: string | null;
+  /**
+   * The group's ▾ menu: the deliverables that are not a file format (the
+   * part's Drawing, QA-PART-DRAWING-CMD). Omitted: no menu, as before.
+   */
+  more?: readonly FlyoutItem[];
 }
 
 /**
@@ -78,6 +83,7 @@ export function ExportToolGroup({
   labelPriority,
   confirmReason = null,
   confirmLabel = null,
+  more,
 }: ExportToolGroupProps) {
   const { busy, failed, failure, request, armed, confirm, cancel } =
     useExportAction(exporter, confirmReason !== null);
@@ -94,6 +100,8 @@ export function ExportToolGroup({
       data-testid={`${testIdPrefix}-controls`}
       data-export-state={state}
       className="relative"
+      more={more}
+      moreTestId={more !== undefined ? `${testIdPrefix}-more` : undefined}
     >
       {EXPORT_FORMATS.map(({ format, label, caption, name, icon }) => (
         <ToolButton

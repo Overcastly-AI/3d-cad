@@ -37,11 +37,13 @@ import {
 } from "../../features/assemblyExport";
 import {
   AUTO_SCALE,
+  HOUSE_VIEWS,
   STANDARD_VIEWS,
   type OrientationFit,
   chooseSheetSize,
   proposeOrientation,
 } from "../../drawing/layout";
+import { drawingMembers, hasMaterialsView } from "../../drawing/houseSet";
 import { drawingSourceKind, drawingSourceOptions } from "../../drawing/source";
 import { drawingRoute } from "../../router";
 import {
@@ -98,6 +100,8 @@ export function useDrawingData(drawingId: string) {
     return ordered.length > 0 ? ordered : [...STANDARD_VIEWS];
   }, [views]);
   const isFlatPatternSheet = requestedViews.includes("flat_pattern");
+  // A house set's materials sheet: its yard order downloads as CSV.
+  const isMaterialsSheet = hasMaterialsView(views);
   // The persisted section view (v1: at most one) and its cutting-plane params.
   const sectionView = useMemo(
     () => views.find((view) => view.projection === "section") ?? null,
@@ -371,6 +375,11 @@ export function useDrawingData(drawingId: string) {
         ),
         dimensions: dimensionInputs,
         section_params: sectionParamsByIndex,
+        // A house view reads the bodies by their plugin roles (HOUSE-DRAWINGS),
+        // as the composed sheet does, so the picks land on the drawn plan.
+        members: requestedViews.some((v) => HOUSE_VIEWS.includes(v))
+          ? drawingMembers(t.features.filter((feature) => !feature.rolled_back))
+          : [],
       };
       return evaluateDrawingViews(request);
     },
@@ -518,6 +527,7 @@ export function useDrawingData(drawingId: string) {
     views,
     requestedViews,
     isFlatPatternSheet,
+    isMaterialsSheet,
     dimensions,
     annotations,
     hasLayout,

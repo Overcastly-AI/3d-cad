@@ -75,6 +75,7 @@ export function DrawingPage() {
     views,
     requestedViews,
     isFlatPatternSheet,
+    isMaterialsSheet,
     dimensions,
     annotations,
     hasLayout,
@@ -115,6 +116,7 @@ export function DrawingPage() {
     handleFlatPattern,
     handleAuthorSection,
     handleToggleSection,
+    handleHouseSet,
   } = useLayoutActions(data, ctx);
 
   // "What IS item 2?" — open the document a parts-list line names, in its own
@@ -168,6 +170,7 @@ export function DrawingPage() {
     handleExportSvg,
     handleExportPdf,
     handleExportDxf,
+    handleExportCsv,
   } = useDrawingExport(data, ctx);
 
   const {
@@ -286,6 +289,12 @@ export function DrawingPage() {
         event.preventDefault();
         handleToggleSection();
       }
+      // H lays out the house set (plan, elevations, materials). Pre-layout
+      // only, mirroring the command band's House set action.
+      if (event.key.toLowerCase() === "h" && !hasLayout) {
+        event.preventDefault();
+        handleHouseSet();
+      }
       // E exports the laid-out sheet to a .svg (keyboard-first, mirrors the
       // command band's Export SVG action). No-op before layout.
       if (event.key.toLowerCase() === "e" && hasLayout) {
@@ -312,6 +321,7 @@ export function DrawingPage() {
     handleLayout,
     handleFlatPattern,
     handleToggleSection,
+    handleHouseSet,
     handleReproject,
     handleExportSvg,
     handleExportPdf,
@@ -371,6 +381,9 @@ export function DrawingPage() {
             onFlatPattern={handleFlatPattern}
             onToggleSection={handleToggleSection}
             sectionOpen={sectionOpen}
+            onHouseSet={handleHouseSet}
+            isMaterialsSheet={isMaterialsSheet}
+            onExportCsv={handleExportCsv}
             onReproject={handleReproject}
             onExportSvg={handleExportSvg}
             onExportPdf={handleExportPdf}

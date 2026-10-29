@@ -132,8 +132,9 @@ test.describe("Export is reachable", () => {
     // a decision, not an accident. Decided 2026-10-17: the Build group (Wall,
     // Deck, BUILD ▾) sits ahead of export and measures 36; every further Build
     // tool on the row raises this, until the band is one roving Tab stop
-    // (TOOLBAR-ROVING-TABINDEX).
-    expect(band ?? 999).toBeLessThanOrEqual(36);
+    // (TOOLBAR-ROVING-TABINDEX). Decided 2026-10-29: EXPORT ▾ (the part's
+    // Drawing, QA-PART-DRAWING-CMD) is one stop ahead of STEP: 37.
+    expect(band ?? 999).toBeLessThanOrEqual(37);
   });
 
   test("keeps the panel strip's honest reason in the band when there is no body", async ({

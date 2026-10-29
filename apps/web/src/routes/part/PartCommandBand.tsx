@@ -53,6 +53,7 @@ export function PartCommandBand({
   openCreateCombine,
   pluginCatalog,
   openCreatePlugin,
+  partDrawing,
 }: {
   partDocument: Pick<PartDocument, "mode" | "tree">;
   timelineHistory: Pick<
@@ -136,6 +137,8 @@ export function PartCommandBand({
   /** The installed plugins (the Build group), undefined while loading. */
   pluginCatalog?: readonly PluginManifest[] | undefined;
   openCreatePlugin?: (manifest: PluginManifest) => void;
+  /** Draft this part on a new drawing (QA-PART-DRAWING-CMD). */
+  partDrawing?: { drawingBusy: boolean; openDrawing: () => void };
 }) {
   const { mode, tree } = partDocument;
   const { canUndo, canRedo, historyStep, triggerUndo, triggerRedo } =
@@ -244,6 +247,8 @@ export function PartCommandBand({
           canMeasure={hasBody}
           measuring={measureActive}
           onToggleMeasure={toggleMeasure}
+          onOpenDrawing={partDrawing?.openDrawing}
+          drawingBusy={partDrawing?.drawingBusy}
           activeCommand={activeCommand}
           onCommandOk={() => useCommandActionStore.getState().requestSubmit()}
           onCommandCancel={closeEditor}

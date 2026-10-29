@@ -9,6 +9,7 @@
  */
 import {
   FlatPatternIcon,
+  HouseSetIcon,
   RectIcon,
   SectionIcon,
   SelectField,
@@ -84,6 +85,15 @@ export interface DrawingCommandBandProps {
   onToggleSection: () => void;
   /** True while the section-view author panel is open. */
   sectionOpen: boolean;
+  /**
+   * Lay out the house set (HOUSE-DRAWINGS): the plan, the four elevations and
+   * the materials list, each on its own sheet. A part verb, like Flat pattern.
+   */
+  onHouseSet?: () => void;
+  /** The active sheet carries a materials list (its CSV downloads). */
+  isMaterialsSheet?: boolean;
+  /** Download the materials list as CSV (the yard order's lines). */
+  onExportCsv?: () => void;
   onReproject: () => void;
   /** Serialize the laid-out sheet to a downloadable `.svg` (#5). */
   onExportSvg: () => void;
@@ -114,6 +124,9 @@ export function DrawingCommandBand({
   onFlatPattern,
   onToggleSection,
   sectionOpen,
+  onHouseSet,
+  isMaterialsSheet = false,
+  onExportCsv,
   onReproject,
   onExportSvg,
   onExportPdf,
@@ -287,6 +300,23 @@ export function DrawingCommandBand({
               data-testid="drawing-section"
               onClick={onToggleSection}
             />
+            {onHouseSet !== undefined ? (
+              <ToolButton
+                icon={<HouseSetIcon />}
+                label="House set"
+                showLabel
+                shortcut="H"
+                disabled={!canPartOnly}
+                caption={
+                  partOnlyReason ??
+                  (busy
+                    ? "Laying out the set…"
+                    : "Plan · four elevations · materials list — ANSI B at 1:48")
+                }
+                data-testid="drawing-house-set"
+                onClick={onHouseSet}
+              />
+            ) : null}
           </>
         )}
       </ToolGroup>
@@ -353,6 +383,21 @@ export function DrawingCommandBand({
           data-testid="drawing-export-dxf"
           onClick={onExportDxf}
         />
+        {/* A materials sheet's list as CSV (HOUSE-DRAWINGS): the yard order a
+            spreadsheet or a yard's portal takes, line for line the sheet. */}
+        {isMaterialsSheet && onExportCsv !== undefined ? (
+          <ToolButton
+            icon={<SheetExportIcon />}
+            label="Export CSV"
+            showLabel
+            disabled={busy || exporting}
+            caption={
+              exporting ? "Composing…" : "Download the materials list as .csv"
+            }
+            data-testid="drawing-export-csv"
+            onClick={onExportCsv}
+          />
+        ) : null}
       </ToolGroup>
     </div>
   );
