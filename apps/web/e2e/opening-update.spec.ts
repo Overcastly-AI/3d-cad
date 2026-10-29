@@ -21,18 +21,20 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * editor says what "Update to 1.5.0" adds, and the tree offers one "Update
  * all Build features". That one step takes the headers to 18 plies (was 12)
  * and draws 12 spacers of 1/2 plywood, cut from one 4x8, and ties the gable
- * with its 11 ceiling joists: 264 852.3789 + 1 769.625 + 1 179.75 +
- * 22 887.596423 = 290 689.3503 in³ (golden `b7-update-all`). Ctrl+Z restores
+ * with its 11 ceiling joists and frames its gable ends (22 studs, 12 OSB
+ * panels: GABLE-END-STUDS): 264 852.3789 + 1 769.625 + 1 179.75 +
+ * 22 887.596423 + 4 268 + 4 992.0374 = 299 949.3876 in³ (golden
+ * `b7-update-all`). Ctrl+Z restores
  * 264 852.3789 and every pin.
  */
 
-const AFTER = 290689.350289;
+const AFTER = 299949.387649;
 
 const UPDATED = {
   Floor: "1.3.0",
   Walls: "1.4.0",
   ...Object.fromEntries(OPENING_NAMES.map((n) => [n, "1.5.0"])),
-  Roof: "1.6.0",
+  Roof: "1.7.0",
 };
 
 test.describe("Updating B7's out-of-date Build features", () => {
