@@ -389,6 +389,35 @@ def test_a_side_edge_runs_out_along_x() -> None:
     assert fronts[1] - 192 == pytest.approx(11.125, abs=1e-9)
 
 
+def test_the_left_edge_runs_out_along_minus_x() -> None:
+    """On the left edge (X 0, the end joist's face) the stair runs -X; looking
+    down it the left is -Y, so the left stringer is the low-Y one and the
+    handrail's posts stand below Y 54."""
+    expansion = stair({"deck": DECK_REF, "edge": "left", "position_mm": 72 * IN})
+    planes = _sides(expansion, "stringer")
+    assert [-offset for _, offset in planes] == [54.0, 71.25, 88.5]
+    treads = _boxes(expansion, "tread")
+    assert max(t[1] for t in treads) == 0.0
+    assert {(t[2], t[3]) for t in treads} == {(54.0, 90.0)}
+    posts = _boxes(expansion, "handrail_post")
+    assert {(p[2], p[3]) for p in posts} == {(50.5, 54.0)}
+
+
+def test_a_freestanding_deck_with_joists_along_the_house() -> None:
+    """Joists along the house run their boards along Y in rows across X, so
+    the front's overhang is the typed one and its end joist carries the
+    stringers; without rims a side has nothing to hang them on."""
+    deck = {"attachment": "freestanding", "joist_direction": "along"}
+    got = lay({"deck": DECK_REF}, deck)
+    assert got.site.overhang == 0.0
+    assert got.site.origin == (96.0, 144.0)
+    error = _refused(
+        {"deck": DECK_REF, "edge": "right", "position_mm": 72 * IN},
+        {**deck, "rim_joists": "no"},
+    )
+    assert error.input == "edge"
+
+
 def test_counts_by_role() -> None:
     roles = Counter(m.role for m in stair({"deck": DECK_REF}))
     assert (roles["stringer"], roles["tread"], roles["riser"]) == (3, 6, 0)
