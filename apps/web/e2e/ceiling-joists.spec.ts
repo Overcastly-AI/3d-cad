@@ -16,6 +16,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * 264; the gable-end rafters get none). The sketch's 288 set to 336 re-lays
  * them with the rafters: 13. Golden `b7-ceiling-joists` pins the geometry
  * (each end snipped 1.560920 down and 3.121840 along to the roof plane).
+ * Gable ends (roof 1.7.0, GABLE-END-STUDS: gable-studs.spec.ts) is set to
+ * None here, so the Roof group is the rafters, the ridge and the joists.
  */
 
 const IN = 25.4;
@@ -205,6 +207,7 @@ test.describe("Ceiling joists — B7's gable tied at the plates", () => {
     await expect(
       page.getByTestId("plugin-input-ceiling_joist_profile"),
     ).toHaveValue("us_2x8");
+    await choose(page, "gable_ends", "none");
     await joists.scrollIntoViewIfNeeded();
     await page.mouse.move(800, 990);
     await page.screenshot({
@@ -251,7 +254,7 @@ test.describe("Ceiling joists — B7's gable tied at the plates", () => {
       ["Ceiling joist", "13", "192", "16 ft"],
     ]);
 
-    // Stored at 1.6.0 with the default kept.
+    // Stored at 1.7.0 with the joists' default kept.
     const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });
@@ -267,7 +270,7 @@ test.describe("Ceiling joists — B7's gable tied at the plates", () => {
         }[];
       }
     ).features;
-    expect(features[3]?.feature.params.plugin_version).toBe("1.6.0");
+    expect(features[3]?.feature.params.plugin_version).toBe("1.7.0");
     expect(features[3]?.feature.params.inputs?.ceiling_joists).toBe(
       "beside_common",
     );

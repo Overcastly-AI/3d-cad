@@ -11,11 +11,13 @@ import { expectSeatsSettled, SCREENSHOT_DIR, seedSession } from "./support";
  * slope. No line id and no corner coordinate is typed anywhere.
  *
  * Then BACKLOG's edit 1 as one action: the sketch's 288 dimension set to
- * 336, after which the floor, the walls and the roof follow (246 bodies,
- * then 265: golden `b7-outline`'s 217 and 234, plus one more header ply
+ * 336, after which the floor, the walls and the roof follow (280 bodies,
+ * then 299: golden `b7-outline`'s 217 and 234, plus one more header ply
  * over each of the six openings, as 1.4.0 fills a 2x6 wall with three,
- * the two 1/2 in plywood spacers 1.5.0 draws in each header, and the
- * 1.6.0 roof's ceiling joists, 11 and then 13: CEILING-JOISTS).
+ * the two 1/2 in plywood spacers 1.5.0 draws in each header, the 1.6.0
+ * roof's ceiling joists, 11 and then 13 (CEILING-JOISTS), and the 1.7.0
+ * roof's 22 gable studs and 12 gable panels, at either length, since the
+ * end walls stay 181 long: GABLE-END-STUDS).
  *
  * The sketch is seeded as the Rectangle tool leaves it, dimensioned
  * `length` 288 and `width` 192 with a corner on the origin; drawing it is
@@ -293,20 +295,20 @@ test.describe("B7 from one outline sketch", () => {
     await submit(page);
     await expect(rows).toHaveCount(10);
     await expectSolved(page);
-    await expectBodies(page, 246);
+    await expectBodies(page, 280);
     await page.getByTestId("view-iso").click();
     await frameShot(page, "outline-b7-288");
 
     // EDIT 1, one action: the sketch's 288 dimension set to 336, read and
     // typed in the part's inches as every length field is.
     await editLength(page, "288", "336");
-    await expectBodies(page, 265);
+    await expectBodies(page, 299);
     await frameShot(page, "outline-b7-336");
 
     // The same dimension as a FORMULA over the sketch's own names: the walls
-    // follow what it evaluates to (width + 96 in = 288 in), back to 246.
+    // follow what it evaluates to (width + 96 in = 288 in), back to 280.
     await editLength(page, "336", "width + 96 in");
-    await expectBodies(page, 246);
+    await expectBodies(page, 280);
 
     // Stored: the openings and the roof name their walls by line, not by
     // anything the edit moved.

@@ -1,35 +1,35 @@
 {
-  "description": "B7 SAVED AT BATCH48'S RELEASES, AFTER ONE UPDATE ALL (PLUGIN-UPDATE-ALL; docs/reference-parts/buildings.md B7, docs/BACKLOG.md PLUGIN-UPDATE-ALL): b7-outline's tree (B7's 288 x 192 outline sketch, loft.floor 1.2.0, loft.wall 1.3.0 on the floor, the door and five windows at 1.1.0, loft.roof 1.4.0) with every Build feature updated to its newest release by loft_plugins.updates: the floor at 1.3.0 on Joists bear on 'Long walls' (1.2.0's floor byte for byte), the walls at 1.4.0, the openings at 1.5.0 (each header filled with a middle 2x6 ply and two 1/2 in plywood spacers) and the roof at 1.6.0 with its default ceiling joists, one 2x8 beside each of the 11 inner common pairs. It is B7 built fresh today, member for member. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_update_all.py pins both; services/geometry/tests/test_update_all_b7.py checks the STEP, interference and the mass).",
+  "description": "B7 SAVED AT BATCH48'S RELEASES, AFTER ONE UPDATE ALL (PLUGIN-UPDATE-ALL; docs/reference-parts/buildings.md B7, docs/BACKLOG.md PLUGIN-UPDATE-ALL): b7-outline's tree (B7's 288 x 192 outline sketch, loft.floor 1.2.0, loft.wall 1.3.0 on the floor, the door and five windows at 1.1.0, loft.roof 1.4.0) with every Build feature updated to its newest release by loft_plugins.updates: the floor at 1.3.0 on Joists bear on 'Long walls' (1.2.0's floor byte for byte), the walls at 1.4.0, the openings at 1.5.0 (each header filled with a middle 2x6 ply and two 1/2 in plywood spacers) and the roof at 1.7.0 with its default ceiling joists, one 2x8 beside each of the 11 inner common pairs, and its default gable ends (GABLE-END-STUDS): 11 2x6 gable studs on each end wall's plate and the end walls' OSB carried up to the roof, 12 panels. It is B7 built fresh today, member for member. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_update_all.py pins both; services/geometry/tests/test_update_all_b7.py checks the STEP, interference and the mass).",
   "derivation": [
-    "INDEPENDENT of the plugins: services/geometry/tests/test_update_all_b7.py builds test_opening_update_b7.script() (B7's independent build123d script plus each opening's middle ply and two spacers, 235 solids) and test_ceiling_joists_b7.joists() (11 joists typed from buildings.md, the (Y, Z) hexagon of b7-ceiling-joists extruded X c + 0.75 .. c + 2.25 for c = 24 .. 264). The STEP matches the 246 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
+    "INDEPENDENT of the plugins: services/geometry/tests/test_update_all_b7.py builds test_opening_update_b7.script() (B7's independent build123d script plus each opening's middle ply and two spacers, 235 solids) and test_ceiling_joists_b7.joists() (11 joists typed from buildings.md, the (Y, Z) hexagon of b7-ceiling-joists extruded X c + 0.75 .. c + 2.25 for c = 24 .. 264) and test_gable_ends_b7.gable_members() (b7-gable-ends' 22 studs and 12 panels, typed from buildings.md). The STEP matches the 280 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
     "",
-    "volume (analytic): b7-opening-update's 264 852.3788656 + 6 plies of 8.25 x 214.5 (1 769.625) + 12 spacers of 2.75 x 429 (1 179.75) = 267 801.7538656 in^3, plus b7-ceiling-joists' 11 joists of 2 088 - 3d^2 (d = 29/3 - 7.25 sqrt(1.25)) = 22 887.596423 in^3: 290 689.3502886 in^3 = 4763544987.302072 mm^3 (the backlog's 267 801.7539 + 22 887.596423 = 290 689.350323 sums the rounded figure; they agree to 3.4e-5 in^3).",
+    "volume (analytic): b7-opening-update's 264 852.3788656 + 6 plies of 8.25 x 214.5 (1 769.625) + 12 spacers of 2.75 x 429 (1 179.75) = 267 801.7538656 in^3, plus b7-ceiling-joists' 11 joists of 2 088 - 3d^2 (d = 29/3 - 7.25 sqrt(1.25)) = 22 887.596423 in^3, plus b7-gable-ends' 22 studs (2 x 2 134 = 4 268 in^3) and 12 panels (2 x 5 705.185554 in^2 x 7/16 = 4 992.037360 in^3): 299 949.3876486 in^3 = 4915289812.158651 mm^3 (the backlog's 267 801.7539 + 22 887.596423 = 290 689.350323 sums the rounded figures before the gable ends; they agree to 3.4e-5 in^3).",
     "",
     "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582, osb 641 and plywood 577 kg/m^3.",
     "",
-    "bounding_box: b7-outline's: the plies, spacers and joists all lie inside it.",
+    "bounding_box: b7-gable-ends': the plies, spacers and joists lie inside b7-outline's box, and the gable OSB's peak (162.282829 in) is the top.",
     "",
-    "topology and MESH from the script's B-rep: b7-opening-update's 1 628 faces, 3 474 edges and 235 shells plus 11 joists of 8 faces and 18 edges: 1 716 faces, 3 672 edges, 246 shells; every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices: 6 948 + 11 x 36 = 7 344 vertices and 3 692 + 11 x 20 = 3 912 triangles. The kernel's build of model.json meets every count exactly.",
+    "topology and MESH from the script's B-rep: b7-opening-update's 1 628 faces, 3 474 edges and 235 shells plus 11 joists of 8 faces and 18 edges, 22 studs and 10 gable panels of 6 faces and 12 edges and 2 peak panels of 7 faces and 15 edges: 1 922 faces, 4 086 edges, 280 shells; every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices: 6 948 + 11 x 36 + 32 x 24 + 2 x 30 = 8 172 vertices and 3 692 + 11 x 20 + 32 x 12 + 2 x 16 = 4 328 triangles. The kernel's build of model.json meets every count exactly.",
     "",
-    "Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly): the spacers meet their plies face to face, and each joist meets its rafter face to face and stands on the eave walls' top plates."
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly): the spacers meet their plies face to face, and each joist meets its rafter face to face and stands on the eave walls' top plates. Each gable stud's cut top meets its end rafter's underside face to face and the gable OSB lies outside the framing."
   ],
   "tolerance": 2e-5,
-  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as b7-ceiling-joists' bound. The bounds are ABSOLUTE and the part is ~4.76e9 mm^3 summed over 246 bodies, so the double-precision sum carries round-off of a few ULPs of the sum (~9.5e-7 each): the kernel differs from the script by +6.7e-06 mm^3 on the volume, -3.0e-07 mm^2 on the area, <= 1.4e-12 mm on the centroid, <= 5.9e-12 mm on the centre of mass and 1.4e-09 g on the mass, b7-ceiling-joists' summation class over 18 more boxes. 2e-5 is 3x the volume's measured order; one joist missed takes 34 096 000 mm^3, one spacer 22 600 000 and one snip left square 640 mm^3, so any fails by seven orders or more.",
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), as b7-ceiling-joists' bound, and re-measured 2026-10-29 with the roof at 1.7.0's gable ends (GABLE-END-STUDS). The bounds are ABSOLUTE and the part is ~4.92e9 mm^3 summed over 280 bodies, so the double-precision sum carries round-off of a few ULPs of the sum (~9.5e-7 each): the kernel differs from the script by +7.6e-06 mm^3 on the volume, -3.0e-07 mm^2 on the area, <= 1.6e-12 mm on the centroid, <= 5.0e-12 mm on the centre of mass, 1.4e-09 g on the mass and 0 on the bounds; summing the kernel's 280 solid volumes in 200 shuffled orders spreads -2.9e-06 .. +1.14e-05 mm^3 about the analytic volume, so it is summation order, not geometry. 2e-5 is 1.75x the worst order; one joist missed takes 34 096 000 mm^3, one spacer 22 600 000, one gable stud at least 383 000 and one snip left square 640 mm^3, so any fails by seven orders or more.",
   "roundtrip_tolerance": 0.001,
-  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline's class, measured 2026-10-29: OCCT's STEP writer rounds the 26 sloped rafters', the notched OSB panels' and the 11 snipped joists' irrational coordinates. Round-trip drift: volume -2.90e-4 mm^3, area -2.64e-5 mm^2, centroid <= 1.4e-10 mm, inside b7-ceiling-joists' -3.19e-4 (whose build123d twin drifts -3.76e-4, so it is OCCT's STEP, not Loft's export); the 18 header plies and spacers are boxes and add nothing. 1e-3 is 3.4x the measured drift and the b2-roof goldens' bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline's class, measured 2026-10-29: OCCT's STEP writer rounds the 26 sloped rafters', the notched OSB panels', the 11 snipped joists' and the 22 sloped gable studs' and 12 gable panels' irrational coordinates. Round-trip drift: volume -2.36e-4 mm^3, area -2.31e-5 mm^2, centroid <= 1.1e-10 mm; the independent build123d twin (test_update_all_b7.script(), exported with build123d's export_step) drifts -2.66e-4 / -2.30e-5, so it is OCCT's STEP, not Loft's export; the 18 header plies and spacers are boxes and add nothing. 1e-3 is 3.8x the worst and the b2-roof goldens' bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
   "properties": {
-    "volume": 4763544987.302072,
-    "surface_area": 412631237.75623995,
+    "volume": 4915289812.158651,
+    "surface_area": 432655357.9701075,
     "centroid": {
-      "x": 3660.59982583765,
-      "y": 2423.6443536556662,
-      "z": 1426.8827321974081
+      "x": 3660.5072152157477,
+      "y": 2424.0998899629312,
+      "z": 1481.1058975958388
     },
-    "mass_g": 2375325.3232234097,
+    "mass_g": 2459235.2180284453,
     "center_of_mass": {
-      "x": 3660.3071712394235,
-      "y": 2431.7523145269297,
-      "z": 1374.4082178139465
+      "x": 3660.214801688005,
+      "y": 2431.9791356885057,
+      "z": 1436.342281398424
     },
     "bounding_box": {
       "min": {
@@ -40,17 +40,17 @@
       "max": {
         "x": 7326.3125,
         "y": 5181.599999999999,
-        "z": 4112.45887569496
+        "z": 4121.983875694959
       }
     }
   },
   "topology": {
-    "faces": 1716,
-    "edges": 3672,
-    "shells": 246
+    "faces": 1922,
+    "edges": 4086,
+    "shells": 280
   },
   "mesh": {
-    "vertices": 7344,
-    "triangles": 3912
+    "vertices": 8172,
+    "triangles": 4328
   }
 }

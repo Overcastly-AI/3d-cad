@@ -185,8 +185,12 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # measured 3.2e-4 mm^3 (the twin 3.8e-4).
     "b7-ceiling-joists": 1e-3,
     # B7 saved at batch48's releases after one Update all (PLUGIN-UPDATE-ALL):
-    # b7-outline's class, measured -2.90e-4 mm^3 (area -2.64e-5 mm^2).
+    # b7-outline's class, measured -2.36e-4 mm^3 with its gable ends (area
+    # -2.31e-5 mm^2; -2.90e-4 before GABLE-END-STUDS).
     "b7-update-all": 1e-3,
+    # B7's gables framed and sheathed (GABLE-END-STUDS): b7-outline's class,
+    # measured 2.7e-4 mm^3 (the twin 3.3e-4).
+    "b7-gable-ends": 1e-3,
     # Casework (CASEWORK): summation drift, 1.0e-7 to 3.6e-7 mm^3 measured;
     # C1 turned 30 deg, OCCT's turned-plane STEP drift, 1.05e-4 mm^3.
     "c1-b27-frameless-casework": 5e-7,

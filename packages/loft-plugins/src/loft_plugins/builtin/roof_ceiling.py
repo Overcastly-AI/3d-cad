@@ -184,12 +184,15 @@ def ceiling_joists(
     length: float,
     place: GablePlace,
     notes: list[str] | None = None,
+    clear: Sequence[tuple[float, float]] = (),
 ) -> list[Member]:
     """The gable's ceiling joists at *place* (none when the input is None),
     each a datum, a section and the joist, numbered after the roof's
     *members* of each role. A joist that does not fit under the ridge
     frames none, and why is appended to *notes* (the stored roof's
-    warning, never a refusal)."""
+    warning, never a refusal). A joist that would meet one of the *clear*
+    extents along the ridge (1.7.0's framed end walls, GABLE-END-STUDS) is
+    not framed: the end wall carries the ceiling edge there."""
     if inputs.choice("ceiling_joists") != CEILING_BESIDE:
         return []
     joist = inputs.lumber("ceiling_joist_profile")
@@ -229,6 +232,8 @@ def ceiling_joists(
         far = x0 + t
         x = far if far + tj <= end_face + 1e-9 else x0 - tj
         at = x if start == 0.0 else start + x
+        if any(min(b, at + tj) - max(a, at) > 1e-9 for a, b in clear):
+            continue
         plane_name = f"{axis}/{number_name(at)}"
         offset = _mm(at) if place.along_x else -_mm(at) + 0.0
         out.append(

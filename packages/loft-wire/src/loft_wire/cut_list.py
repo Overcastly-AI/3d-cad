@@ -218,8 +218,10 @@ ONE_PIECE_ROLES: Final[frozenset[str]] = frozenset(
         "valley_jack",
         "hip",
         "valley",
-        # a gable's ceiling joists, its rafter ties (CEILING-JOISTS)
+        # a gable's ceiling joists, its rafter ties (CEILING-JOISTS), and the
+        # studs of its end walls (GABLE-END-STUDS), columns
         "ceiling_joist",
+        "gable_stud",
         # timber frame
         "tie_beam",
         "girt",

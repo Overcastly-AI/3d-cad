@@ -316,8 +316,12 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # class, 3.8e-4 at worst (the twin's); the joists' snips add nothing.
         "b7-ceiling-joists",
         # B7 saved at batch48's releases after one Update all
-        # (PLUGIN-UPDATE-ALL): the two above together, b7-outline's class.
+        # (PLUGIN-UPDATE-ALL), its roof at 1.7.0 (GABLE-END-STUDS): b7-outline's
+        # class, 2.7e-4 at worst (the twin's).
         "b7-update-all",
+        # B7's gables framed and sheathed (GABLE-END-STUDS): b7-outline's
+        # class, 3.3e-4 at worst (the twin's); 2.7e-4 the plugin's.
+        "b7-gable-ends",
         # Casework (CASEWORK): C1 at 27 in and in face frame, C3 in face frame
         # and C2's 91 panels, the summation drift (1.0e-7 to 3.6e-7 mm^3);
         # C1 turned 30 deg, OCCT's STEP drift on turned planes (1.05e-4).

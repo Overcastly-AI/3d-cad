@@ -17,19 +17,21 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * parameter at its default, so each Build release maps to its newest: the
  * floor 1.2.0 -> 1.3.0 (Joists bear on Long walls frames the same joists,
  * byte for byte), the walls 1.3.0 -> 1.4.0, the openings 1.1.0 -> 1.5.0 and
- * the roof 1.4.0 -> 1.6.0, which ties the gable with its 11 ceiling joists.
- * The badge names what an update adds ("adds 11 ceiling joists"); the floor
+ * the roof 1.4.0 -> 1.7.0, which ties the gable with its 11 ceiling joists
+ * and frames its gable ends (GABLE-END-STUDS). The badge names what an
+ * update adds ("adds 11 ceiling joists, 22 gable studs and ..."); the floor
  * and the walls change no member, so they wear none but ride in Update all.
  *
  * Update from an editor holding unsaved edits asks first: dismissed, the
  * edits stay and nothing is updated; confirmed, that one feature updates as
  * stored. Then one Update all leaves nothing out of date and builds B7 as
- * drawn today: 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423 =
- * 290 689.3503 in³ (golden `b7-update-all`). Each update is one Ctrl+Z.
+ * drawn today: 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423 +
+ * 4 268 + 4 992.0374 = 299 949.3876 in³ (golden `b7-update-all`). Each
+ * update is one Ctrl+Z.
  */
 
 const IN = 25.4;
-const AFTER = 290689.350289;
+const AFTER = 299949.387649;
 const WINDOW_1_OFFSET_MM = 228 * IN;
 
 test.describe("Update all on a saved B7", () => {
@@ -62,7 +64,7 @@ test.describe("Update all on a saved B7", () => {
     const roofBadge = page.getByTestId("feature-update-badge-9");
     await expect(roofBadge).toHaveAttribute(
       "title",
-      "Update to 1.6.0: adds 11 ceiling joists",
+      "Update to 1.7.0: adds 11 ceiling joists, 22 gable studs and 12 gable sheathing panels",
     );
     await expect(page.getByTestId("feature-update-badge-3")).toHaveAttribute(
       "title",
@@ -71,12 +73,12 @@ test.describe("Update all on a saved B7", () => {
     await page.mouse.move(800, 990);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/update-all-tree.png` });
 
-    // The roof's editor names the joists its update adds.
+    // The roof's editor names the joists and gable ends its update adds.
     await page.getByTestId("feature-select-9").click();
     const editor = page.getByTestId("plugin-editor");
     await expect(editor).toContainText("Edit Roof");
     await expect(page.getByTestId("plugin-update-notice")).toContainText(
-      "1.6.0: Adds 11 ceiling joists.",
+      "1.7.0: Adds 11 ceiling joists, 22 gable studs and 12 gable sheathing panels.",
     );
     await page.getByTestId("plugin-cancel").click();
     await expect(editor).toBeHidden();
@@ -128,7 +130,7 @@ test.describe("Update all on a saved B7", () => {
       Floor: "1.3.0",
       Walls: "1.4.0",
       ...Object.fromEntries(OPENING_NAMES.map((n) => [n, "1.5.0"])),
-      Roof: "1.6.0",
+      Roof: "1.7.0",
     });
     for (const row of Object.values(after)) {
       expect(row.plugin_update ?? null, row.name).toBeNull();

@@ -12,8 +12,8 @@ change no member, so their offers are ``quiet``. ``POST
 floor to 1.3.0 (Joists bear on Long walls, its members byte for byte), the
 walls to 1.4.0, the openings to 1.5.0 (their inputs carried by
 ``loft_plugins.updates``: Measured from the wall start, Custom size, Rough
-opening only, Header build Fill the wall) and the roof to 1.6.0 with its
-ceiling joists. The walls then frame 18 header plies (was 12) and the
+opening only, Header build Fill the wall) and the roof to 1.7.0 with its
+ceiling joists and gable ends. The walls then frame 18 header plies (was 12) and the
 openings draw 12 spacers; one Undo restores every row byte for byte, and Redo
 brings the update back. A feature with no update is refused, and a refusal on
 the last feature rolls back the first: nothing is written. B1's deck at
@@ -265,7 +265,7 @@ UPDATED = {
     "Floor": "1.3.0",
     "Walls": "1.4.0",
     **{name: "1.5.0" for name in OPENING_NAMES},
-    "Roof": "1.6.0",
+    "Roof": "1.7.0",
 }
 
 
@@ -281,9 +281,12 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
         assert (offer["adds"], offer["quiet"]) == ([], True)
         assert (offer["relays"], offer["separate"]) == ([], False)
     roof = offers["Roof"]
-    assert roof is not None and roof["to_version"] == "1.6.0"
-    assert (roof["adds"], roof["quiet"]) == (["11 ceiling joists"], False)
-    assert roof["summary"].startswith("Adds 11 ceiling joists. ")
+    assert roof is not None and roof["to_version"] == "1.7.0"
+    adds = ["11 ceiling joists", "22 gable studs", "12 gable sheathing panels"]
+    assert (roof["adds"], roof["quiet"]) == (adds, False)
+    assert roof["summary"].startswith(
+        "Adds 11 ceiling joists, 22 gable studs and 12 gable sheathing panels. "
+    )
     for name in OPENING_NAMES:
         offer = offers[name]
         assert offer is not None and offer["to_version"] == "1.5.0"
@@ -307,9 +310,10 @@ def test_update_all_is_one_edit_and_one_undo_step(client: TestClient) -> None:
     assert all(row.get("plugin_update") is None for row in rows.values())
     roles = _roles(rows)
     # 18 plies (was 12) and 12 spacers: 2 per opening, B7's 2x6 headers; and
-    # the gable's 11 ceiling joists (the new release's default).
+    # the gable's 11 ceiling joists and gable ends (the new defaults).
     assert (roles["header"], roles["spacer"], roles["foam"]) == (18, 12, 0)
     assert roles["ceiling_joist"] == 11
+    assert (roles["gable_stud"], roles["gable_sheathing"]) == (22, 12)
     # The openings' inputs, carried by the map: what 1.1.0 built, filled.
     door = rows["Door"]["feature"]["params"]["inputs"]
     assert {k: door[k] for k in ("measure_from", "size", "draw_unit")} == {
@@ -406,7 +410,7 @@ def test_the_evaluation_sends_the_spacers_with_their_material(
 
 
 def _bad_roof_map(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The roof's update refused: its map gives a pitch 1.6.0 has not."""
+    """The roof's update refused: its map gives a pitch 1.7.0 has not."""
 
     def bad_pitch(inputs: Any, _context: Any) -> dict[str, Any]:
         return {**inputs, "pitch": "rise_99"}

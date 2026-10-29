@@ -35,7 +35,14 @@ taken by Update all, which lists it as needing its own decision.
   them. A joist that cannot fit (it would pass the ridge board) is left out
   and the roof warns ``ceiling_joists_omitted``; the update never refuses.
   This replaces CEILING-JOISTS' review call (0d22c34) that an update maps
-  the joists to None (VISION, 2026-10-29).
+  the joists to None (VISION, 2026-10-29). Since 1.7.0 (GABLE-END-STUDS)
+  they go straight to 1.7.0, so Gable ends takes its default too.
+* ``loft.roof`` 1.6.0 -> 1.7.0, every input as it is, so Gable ends takes
+  1.7.0's default, Studs and sheathing: a gable on an outline gains its
+  gable studs on each end wall's plate and the end walls' sheathing carried
+  up to the roof (B7's 22 and 12). A ceiling joist that would lie on an end
+  wall's plate is no longer framed (the end wall carries the ceiling there),
+  which is a re-lay, so that update is offered on its own.
 * ``loft.floor`` 1.2.0 -> 1.3.0: Joist direction becomes the Joists bear on
   (Long walls first, then Front and back, then Left and right) whose
   expansion frames 1.2.0's joists, rims and sills member for member. 1.2.0
@@ -242,15 +249,22 @@ _WALL = (
     "Frames the backing of partitions that meet it and can take an inside "
     "gypsum finish; its framing is unchanged."
 )
+_GABLE_ENDS = (
+    "frames its end walls up to the roof with gable studs on their layout and "
+    "carries their sheathing up the gables"
+)
 _ROOF = (
-    "Notches the wall sheathing round the rafter tails, as framers do, and "
-    "ties a gable with a ceiling joist beside each common (one that cannot "
-    "fit under the ridge is left out, with a warning)."
+    "Notches the wall sheathing round the rafter tails, as framers do, ties a "
+    "gable with a ceiling joist beside each common (one that cannot fit under "
+    f"the ridge is left out, with a warning) and {_GABLE_ENDS}."
 )
 _ROOF_1_5 = (
     "Ties a gable with a ceiling joist beside each common (one that cannot "
-    "fit under the ridge is left out, with a warning); a hip or a typed "
-    "bearing is unchanged."
+    f"fit under the ridge is left out, with a warning) and {_GABLE_ENDS}; a "
+    "hip or a typed bearing is unchanged."
+)
+_ROOF_1_6 = (
+    f"A gable on its walls {_GABLE_ENDS}; a hip or a typed bearing is unchanged."
 )
 _FLOOR = (
     "Joists bear on replaces Joist direction, set to the span this floor "
@@ -292,8 +306,9 @@ _TABLE: tuple[tuple[str, tuple[str, ...], str, str, InputMap, str], ...] = (
     ),
     ("loft.door", ("1.4.0",), "1.5.0", _OPENING_INFILL, _opening_to_1_5, ""),
     ("loft.wall", ("1.2.0", "1.3.0"), "1.4.0", _WALL, _same, ""),
-    ("loft.roof", ("1.2.0", "1.3.0", "1.4.0"), "1.6.0", _ROOF, _same, ""),
-    ("loft.roof", ("1.5.0",), "1.6.0", _ROOF_1_5, _same, ""),
+    ("loft.roof", ("1.2.0", "1.3.0", "1.4.0"), "1.7.0", _ROOF, _same, ""),
+    ("loft.roof", ("1.5.0",), "1.7.0", _ROOF_1_5, _same, ""),
+    ("loft.roof", ("1.6.0",), "1.7.0", _ROOF_1_6, _same, ""),
     (
         "loft.floor",
         ("1.2.0",),
@@ -408,6 +423,7 @@ _NOUNS: Mapping[tuple[str, str], str] = {
     ("loft.door", "foam"): "header foam insert",
     ("loft.floor", "subfloor"): "subfloor panel",
     ("loft.cabinets", "drawer_end"): "drawer end",
+    ("loft.roof", "gable_sheathing"): "gable sheathing panel",
 }
 
 #: What a long list of re-laid nouns is summed as, by plugin ("75 panels").

@@ -33,7 +33,12 @@ from loft_plugins.builtin.openings import (
     WINDOW_V1_5,
 )
 from loft_plugins.builtin.roof import ROOF_V1, ROOF_V1_1
-from loft_plugins.builtin.roof_outline import ROOF_V1_4, ROOF_V1_5, ROOF_V1_6
+from loft_plugins.builtin.roof_outline import (
+    ROOF_V1_4,
+    ROOF_V1_5,
+    ROOF_V1_6,
+    ROOF_V1_7,
+)
 from loft_plugins.builtin.roof_valley import ROOF_V1_2, ROOF_V1_3
 from loft_plugins.builtin.sheathing import FLOOR_V1_1, WALL_V1_2
 from loft_plugins.builtin.slab import SLAB_V1
@@ -83,4 +88,5 @@ BUILTIN_PLUGINS: tuple[Plugin, ...] = (
     ROOF_V1_6,
     CABINETS_V1_1,
     STAIR_V1,
+    ROOF_V1_7,
 )

@@ -6,8 +6,9 @@ B3's hip (``loft.roof`` 1.3.0) on B2's four walls (``loft.wall`` 1.2.0 with
 7/16 OSB) shares 33.2551 in^3 with the OSB over 30 (member, panel) pairs:
 22 tails x 1.22021484375 and 4 hip corners x 1.602597506 (the hand figures,
 packages/loft-plugins/tests/test_roof_sheathing.py). The roof picks its
-walls, so the warning offers the latest Roof, 1.6.0, which notches them
-(a hip frames no ceiling joists, so 1.6.0 builds it as 1.5.0). Re-pinning is an
+walls, so the warning offers the latest Roof, 1.7.0, which notches them
+(a hip frames no ceiling joists or gable ends, so 1.7.0 builds it as 1.5.0).
+Re-pinning is an
 ordinary feature edit with the same inputs: the warning goes and Undo brings
 the 1.3.0 roof, and its warning, back. Nothing is re-pinned on read. A roof on
 its typed bearing picks no walls: it is warned with no update.
@@ -144,21 +145,21 @@ def test_a_hip_on_sheathed_walls_warns_and_offers_the_update(
         assert warning["code"] == "roof_through_sheathing"
         assert warning["pairs"] == 30
         assert warning["overlap_in3"] == pytest.approx(NOTCHES, abs=1e-9)
-        assert warning["update_to"] == "1.6.0"
+        assert warning["update_to"] == "1.7.0"
         assert "33.2551 in³" in warning["message"]
-        assert "Update to 1.6.0" in warning["message"]
+        assert "Update to 1.7.0" in warning["message"]
         assert "says what else it adds" in warning["message"]
     # A hip frames no ceiling joists: its update adds none (PLUGIN-UPDATE-ALL).
     offer = part.tree()[roof["id"]]["plugin_update"]
-    assert (offer["to_version"], offer["adds"], offer["quiet"]) == ("1.6.0", [], False)
+    assert (offer["to_version"], offer["adds"], offer["quiet"]) == ("1.7.0", [], False)
     # Reading never re-pins.
     assert part.tree()[roof["id"]]["feature"]["params"]["plugin_version"] == "1.3.0"
     for wall in (f for f in part.tree().values() if f["id"] != roof["id"]):
         assert "plugin_warnings" not in wall
 
     updated = part.update(roof["id"])
-    assert updated["feature"]["params"]["plugin_version"] == "1.6.0"
-    # Ceiling joists takes 1.6.0's default; a hip frames none.
+    assert updated["feature"]["params"]["plugin_version"] == "1.7.0"
+    # Ceiling joists takes its default; a hip frames none.
     inputs = updated["feature"]["params"]["inputs"]
     assert inputs["ceiling_joists"] == "beside_common"
     assert not any(
@@ -176,7 +177,7 @@ def test_a_hip_on_sheathed_walls_warns_and_offers_the_update(
     part.undo()
     back = part.tree()[roof["id"]]
     assert back["feature"]["params"]["plugin_version"] == "1.3.0"
-    assert back["plugin_warnings"][0]["update_to"] == "1.6.0"
+    assert back["plugin_warnings"][0]["update_to"] == "1.7.0"
 
 
 def test_a_typed_roof_is_warned_with_no_update(client: TestClient) -> None:
