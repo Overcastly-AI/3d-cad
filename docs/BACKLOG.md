@@ -116,13 +116,17 @@ into an item are named in it and removed from Notes.
    5/4x4 corner boards on each outside corner (one each face) and 5/4x4
    picture-frame casing round each unit; siding bought net of the cased
    openings with a 10% allowance (an input). Gables follow
-   GABLE-END-STUDS. _Accept:_ B7: 960 x 108.59375 = 104 250 in² gross,
-   less cased openings 3 x 43 x 55 + 2 x 31 x 43 + 43 x 83.5 = 13 351.5,
-   leaves 90 898.5 in² (631.24 ft²): / 1 008 x 1.10 = 99.19, **100
-   boards**; 8 corner boards of 108.59375; casing 1 094 in (91.17 ft:
-   door 210, 36 in windows 3 x 196, 24 in windows 2 x 148); Vinyl buys
-   6.94, **7 squares**; no interference; every line priced; stored walls
-   are byte-identical.
+   GABLE-END-STUDS: `loft.roof` 1.8.0 carries the finish up the gable OSB.
+   _Accept:_ B7 drawn today: the lap runs 939.5 in between the corner
+   boards on the OSB's face (not the framing's 960) from Z 0 to 108.59375,
+   102 023.83 in² gross, less cased openings 3 x 43 x 55 + 2 x 31 x 43 +
+   44.5 x 85.5 (the door cased on its 37.5 x 82 frame) = 13 565.75 and 22
+   tail notches (89.55): 88 368.53 in² on the walls, plus 2 x 5 705.19 on
+   the gables, 99 778.90 x 1.10 / 1 008 = 108.89, **109 boards** (walls
+   alone 97); 8 corner boards of 108.59375; casing 1 099.5 in (door 215.5,
+   36 in windows 3 x 196, 24 in windows 2 x 148); Vinyl **8 squares**; no
+   interference; every line priced; stored walls are byte-identical.
+   (Corrected by the kernel-architect, RESEARCH §23.)
 
 ## Next
 
@@ -285,6 +289,12 @@ delegated log; reverse any there. Open for the founder:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- SIDING-RIM-OSB: below the subfloor B7's siding stands 7/16 in proud of the floor's rim, which has no OSB (SHEATHING-WALL-BASE); a framer laps the wall sheathing down over the rim.
+- SIDING-TYPED-CORNERS: a typed (line) wall 1.5.0 is sided end to end with no corner boards; only outline walls trim their outside corners.
+- SIDING-INSIDE-CORNER-TRIM: an outline's inside corner gets no trim; its two sidings close it with a 5/16 x 7/16 in slot.
+- SIDING-RAKE-TRIM: a gable's siding stops at the rafters' top plane with no rake or frieze board, and the eave siding is notched round open rafter tails (no frieze blocking).
+- TRIM-NESTING: each casing piece and corner board is bought as its own stick (23 x 8 ft for B7's 1 099.5 in of casing); trim pieces are not nested on stock.
+- FACE-IS-INSIDE-FAR: geometry's faces.py and assembly patterns still call build123d's Face.is_inside, the 3D classifier that fails about 300 in from the origin; extrude's profile test moved to BRepClass_FaceClassifier (SIDING-TRIM).
 - UPDATE-DRYRUN-PICKERS: an update offer's dry run checks the feature and its host only, not its pickers or the tree after earlier updates in the same Update all.
 - UPDATE-CABINETS-REFUSAL: a cabinets 1.0 -> 1.1 update that 1.1 refuses (a run past a partition) only surfaces as an Update all skip, with no preview on the row.
 - DECK-RESIZE-STAIR-REFUSAL: on `loft.deck` 1.3.0 a deck edit that leaves a stair past the edge (narrowed under it) now refuses the deck write, naming the stair; before 1.3.0 the stair alone failed.

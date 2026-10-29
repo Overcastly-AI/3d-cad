@@ -3430,6 +3430,81 @@ and reframe it, a material per member, and a cut list that is always current.
     script on STEP; nothing interferes, in B7, at 28 ft, at 8/12, in B10,
     at 291, on a 171 span (a ridge post each gable) and turned off the
     origin, probed exactly.
+- **Decided while siding the house** (SIDING-TRIM, 2026-10-29; Chief
+  Architect's wall types carry a siding layer outside the sheathing, and its
+  Materials List counts siding by area net of the openings, with corner
+  boards and exterior casing as lines of their own):
+  - *A wall option, drawn as its layer.* `loft.wall` 1.5.0 adds Exterior
+    finish (Lap, fibre cement 8-1/4 at 7 in, the default; Vinyl, double 4,
+    by the square; Cedar bevel 1/2 x 8 at 6-1/4 in; None) and Siding waste
+    (10 %, 0-30). With None it is 1.4.0 member for member; with a finish it
+    is 1.4.0's members, then per wall a plane on the sheathing's outer face
+    (a wall with no exterior sheathing takes none: a shed's studs stay
+    bare) and its `siding`, `corner_board` and
+    `casing` members, named under the wall's line. The siding is ONE body
+    per connected region of a face at the product's own thickness (5/16,
+    0.044, 15/32), not course by course (VISION 2026-10-29): what is bought
+    is its measured area, and a lap course's geometry would multiply the
+    bodies by 15 for no quantity a builder uses.
+  - *Foundation top to plate top.* On a floor the siding starts at the
+    floor's underside (its sills' bearing, Z 0 on B7), so it covers the rim;
+    on a slab or no floor at the wall's base. The floor's rim has no OSB
+    (SHEATHING-WALL-BASE), so over it the lap stands 7/16 in proud of the
+    rim (BACKLOG note).
+  - *Corners and casing are 5/4x4, 1 x 3.5, standing on the sheathing.* The
+    siding butts them, as fibre-cement and cedar are installed: cut out
+    round each casing's outer edge and stopped at each corner board's inner
+    edge, so nothing overlaps. An outside corner is two identical boards,
+    the fitted wall's lapping the through wall's 1 in edge (its sheathing's
+    convention), so the faces show 3.5 and 4.5 in. Casing is a picture
+    frame mitred at the corners, its inner edge on the UNIT: a window's
+    frame (36 x 48 for a 3040), a door's prehung frame (37.5 x 82 for a
+    3068, the slab's 36 x 80 plus its jambs and threshold), its legs on the
+    sill. Inside corners get no trim; the through wall's siding runs to the
+    other's OSB face and the fitted wall's starts at the through wall's
+    siding face. A typed line wall is sided end to end with no boards
+    (BACKLOG note). Refused, naming the opening: a casing on a corner board,
+    past the siding into an inside corner, below the siding, or on another
+    casing.
+  - *The roof notches what it crosses.* The eave walls' siding and corner
+    boards run to the plate under the rafter tails, so the tail notch every
+    roof from 1.4.0 makes in the OSB now also cuts the siding and corner
+    boards it crosses (listed after the OSB in its Objects To Cut). A wall
+    before 1.5.0 has neither, so every stored roof expands byte for byte;
+    the generic hip notch reads them the same way.
+  - *Gables follow the gable ends: the roof's.* Chief's gable wall is one
+    wall to the roof plane and carries its wall type's siding up; here the
+    roof frames and sheathes the gable (GABLE-END-STUDS), and the wall
+    cannot see the later roof's plane, so `loft.roof` 1.8.0 carries the end
+    walls' finish up over the gable OSB (`gable_siding`, one body a gable,
+    the wall's product and allowance). With no finish 1.8.0 is 1.7.0
+    exactly (VISION delegated log).
+  - *Bought by measured net area, once a line.* Siding bodies of one
+    product, material and allowance are one cut-list line under a new
+    system, Siding and trim (after Sheathing; the trim lumber with them),
+    ordering ceil(net x (1 + waste) / coverage) boards (1 008 in^2 a 12 ft
+    lap board, 900 a cedar one) or squares over the line's total. A board
+    is priced Each at 12 ft or per foot, vinyl per square (a new price unit,
+    migration 0031). Fibre cement weighs 75 pcf (HardiePlank's 2.3 lb/ft^2
+    of wall), western red cedar 388 kg/m^3 (NDS Western Cedars, G 0.36).
+  - *The PM's numbers, re-derived.* The siding drawn runs 939.5 in round B7
+    between its corner boards on the OSB's face, not the framing's 960
+    (which runs under the boards and ignores the OSB's 7/16 outset):
+    102 023.83 in^2 gross; the cased openings are 13 565.75 (the door cased
+    on its frame, 44.5 x 85.5, not 43 x 83.5); the 22 inner tails notch
+    89.55 more: 88 368.53 in^2 on the walls, 97 boards. With the gables
+    (2 x 5 705.19) 99 778.90 in^2: 109 boards, 8 squares of vinyl, 122
+    cedar boards; 8 corner boards of 108.59375; casing 1 099.5 in (the
+    PM's 1 094). Golden `b7-siding` (B7 drawn today, units drawn): 329
+    bodies, 349 796.857 in^3, solid for solid against an independent
+    build123d script on STEP, nothing interfering, probed exactly, in B7,
+    vinyl, cedar, 28 ft, 8/12, unsheathed, an L on a hip, turned, B8, B9
+    and B10.
+  - *A kernel fault found on the way.* A profile's hole test used
+    build123d's `Face.is_inside`, OCCT's 3D solid classifier on a bare face,
+    which calls every point outside once the face's plane is about 300 in
+    from the origin: B7 at 28 ft could not draw its right wall's window
+    unit. The test now uses `BRepClass_FaceClassifier` (2D, any distance).
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
