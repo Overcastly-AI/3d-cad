@@ -3156,9 +3156,13 @@ and reframe it, a material per member, and a cut list that is always current.
     studs). Distance runs from the end of the finished face: the face's
     board runs from the board of the wall it meets (`interior_wall`'s
     corner rules), so a run at 0 stands in the finished corner and never
-    cuts the other wall's board; with no board, from where the framing's
-    inside face meets the wall it runs to (a through wall's inside face
-    starts a wall's depth in from its end; 1.0.0 measured from the end). The
+    cuts the other wall's board. At a room corner the face ends at the
+    finished face of the wall it meets: a through wall's own board runs on
+    under the side wall's board to the framing, so its finished face stops
+    a wall's depth plus that board in from its end (with no board, a wall's
+    depth; 1.0.0 measured from the end). Tested with a B24 at Distance 0
+    from both ends of every wall and partition face, with and without the
+    walls' gypsum, probed exactly. The
     run must fit between the finished ends, and a run that would pass a
     partition meeting its face (the partition with its boards) is refused,
     naming it: Mozaik will not place a cabinet through a wall.

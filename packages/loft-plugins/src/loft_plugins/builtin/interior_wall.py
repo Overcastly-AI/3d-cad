@@ -841,9 +841,9 @@ def wall_faces_of(
 ) -> dict[str | None, FinishedFace]:
     """The inside face of each wall a stored ``loft.wall`` stands for, by
     line (``None`` for a line wall): its inside gypsum (1.4.0), where that
-    runs (:func:`_inside_run`; with none, where the framing's inside face
-    runs between the walls it meets), and the partitions of each earlier
-    Interior wall on these walls that meet it."""
+    finished face runs (:func:`_finished_span`, the walls it meets' boards
+    included), and the partitions of each earlier Interior wall on these
+    walls that meet it."""
     specs = house.wall_specs_of(feature_id, envelope, earlier, parameters)
     if None in dict(specs):
         spec = dict(specs)[None]
@@ -870,7 +870,7 @@ def wall_faces_of(
     out: dict[str | None, FinishedFace] = {}
     for wall in walls:
         spec, t = wall.spec, wall.spec.thickness
-        first, last = _inside_span(wall, 0.0 if good is None else good.thickness_in)
+        first, last = _finished_span(wall, 0.0 if good is None else good.thickness_in)
         meeting = [m for f in found for m in _meeting(f, ("wall", wall.line_id), t)]
         out[wall.line_id] = FinishedFace(
             spec,
@@ -882,6 +882,23 @@ def wall_faces_of(
             tuple(meeting),
         )
     return out
+
+
+def _finished_span(wall: house.OutlineWall, g: float) -> tuple[float, float]:
+    """Where an outline wall's FINISHED inside face runs along it, its
+    boards *g* thick (0 with none): at an outside corner of the outline (a
+    room's corner) to the face of the wall it meets, that wall's board
+    included, so a through wall's face stops ``t + g`` in from its end
+    though its own board runs on under the other's to ``t``; at an inside
+    corner to its own board's end past the corner (:func:`_inside_run`)."""
+    spec, t = wall.spec, wall.spec.thickness
+    if wall.through:
+        first = t + g if wall.convex_start else -g
+        last = spec.length - t - g if wall.convex_end else spec.length + g
+    else:
+        first = g if wall.convex_start else -t
+        last = spec.length - g if wall.convex_end else spec.length + t
+    return _r(first), _r(last)
 
 
 def partition_faces_of(
@@ -1206,13 +1223,7 @@ def _inside_run(wall: house.OutlineWall, good: SheetGood) -> tuple[float, float]
     """Where an outline wall's inside gypsum runs along it (module docstring:
     the met face to the meeting framing, the meeting face to the met board,
     and past an inside corner)."""
-    return _inside_span(wall, good.thickness_in)
-
-
-def _inside_span(wall: house.OutlineWall, g: float) -> tuple[float, float]:
-    """:func:`_inside_run` for a board *g* thick; with 0, where the inside
-    face of the framing itself runs between the walls it meets."""
-    spec, t = wall.spec, wall.spec.thickness
+    spec, g, t = wall.spec, good.thickness_in, wall.spec.thickness
     if wall.through:
         first = t if wall.convex_start else -g
         last = spec.length - t if wall.convex_end else spec.length + g

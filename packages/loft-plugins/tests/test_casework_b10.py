@@ -26,6 +26,7 @@ by this module: ``uv run python packages/loft-plugins/tests/test_casework_b10.py
 kernel acceptance is ``services/geometry/tests/test_casework_b10.py``.
 """
 
+import gzip
 import json
 import sys
 import uuid
@@ -39,7 +40,7 @@ from loft_wire.features import AuthoredEnvelope, ExpandedMember, FeatureRef
 from loft_wire.plugins import ChoiceInput, FeatureReferenceInput
 
 sys.path.insert(0, str(Path(__file__).parent))
-from test_building_outline import WALLS_ID, boxes, overlaps
+from test_building_outline import ROOT, WALLS_ID, boxes, overlaps
 from test_building_outline import members_json as house_members_json
 from test_building_outline import request_of as house_request_of
 from test_cabinets import (
@@ -404,6 +405,91 @@ def test_a_partition_needs_its_line() -> None:
         c4(wall_segment=[])
 
 
+# --- A B24 in every corner -----------------------------------------------------------
+
+#: B10's faces a run may stand on: each wall's inside face and each
+#: partition's two, from either end.
+FACES: list[tuple[str, str, str | None]] = [
+    *((seg, "wall", None) for seg in ("e1", "e2", "e3", "e4")),
+    *((seg, "partition", face) for seg in ("e5", "e6") for face in ("left", "right")),
+]
+CORNERS = (
+    ROOT
+    / "services"
+    / "geometry"
+    / "tests"
+    / "fixtures"
+    / "casework-b10-corners.json.gz"
+)
+
+
+def corner_runs(rows: Rows) -> list[tuple[str, list[ExpandedMember]]]:
+    """A B24 at Distance 0 from each end of each face of B10: in its
+    finished corner, so touching the boards (or framing) there."""
+    out: list[tuple[str, list[ExpandedMember]]] = []
+    for seg, kind, face in FACES:
+        for end in ("start", "end"):
+            name = f"{seg}/{face or 'inside'}/{end}"
+            host = WALLS_ID if kind == "wall" else INTERIOR_ID
+            raw: dict[str, Any] = {
+                "wall": FeatureRef(kind="feature", feature_id=host),
+                "wall_segment": [seg],
+                "measure_from": end,
+                "boxes": [box("base", 24)],
+            }
+            if face is not None:
+                raw["face"] = face
+            out.append((name, run(rows, raw, uuid.uuid5(RUN_ID, name))))
+    return out
+
+
+def corners() -> str:
+    """Each house golden's corner runs as one request (geometry probes
+    them exactly against the golden's solids)."""
+    cases = [
+        {
+            "house": house,
+            "runs": [name for name, _ in runs],
+            "request": request_of([m for _, ms in runs for m in ms]).model_dump(
+                mode="json"
+            ),
+        }
+        for house, runs in (
+            ("b10-partitions", corner_runs(b10())),
+            ("b10-inside-gypsum", corner_runs(b10_gypsum())),
+        )
+    ]
+    return json.dumps(cases, indent=1) + NEWLINE
+
+
+NEWLINE = chr(10)
+
+
+@pytest.mark.parametrize("gypsum", [False, True])
+def test_a_b24_in_every_corner_touches_nothing(gypsum: bool) -> None:
+    """At Distance 0 from either end of each wall's inside face and each
+    partition's two faces, with the walls' gypsum and without: the run
+    stands in the finished corner and meets no board, stud or block. The
+    front and back walls run through: their boards pass under the side
+    walls' to the framing, so their finished face stops 1/2 in short."""
+    rows = b10_gypsum() if gypsum else b10()
+    runs = corner_runs(rows)
+    for name, members in runs:
+        assert touching_nothing(members, rows), name
+    ends = {name: span(ms) for name, ms in runs}
+    g = 0.5 if gypsum else 0.0
+    assert ends["e3/inside/start"][0] == 5.5 + g
+    assert ends["e3/inside/end"][1] == 282.5 - g
+    assert ends["e1/inside/start"][1] == 282.5 - g
+    assert ends["e1/inside/end"][0] == 5.5 + g
+    assert ends["e4/inside/end"][3] == 186.5 - g
+    assert ends["e2/inside/start"][3] == 186.5 - g
+
+
+def test_the_corner_fixture_is_the_plugin_s_expansion() -> None:
+    assert gzip.decompress(CORNERS.read_bytes()).decode() == corners()
+
+
 # --- The goldens ----------------------------------------------------------------------
 
 
@@ -459,6 +545,7 @@ def test_the_house_golden_is_the_plugins_expansion() -> None:
 
 
 if __name__ == "__main__":
+    CORNERS.write_bytes(gzip.compress(corners().encode(), mtime=0))
     for name, members in golden_members().items():
         folder = GOLDENS / name
         folder.mkdir(exist_ok=True)

@@ -15,7 +15,9 @@ never learns plugins exist: checked here against panels typed from
    stopped at the walls' boards, and the walls' 27 inside panels, solid for
    solid, and nothing in it interferes;
 3. C2 interferes with nothing of B10 with gypsum, C4 and its V3621 edit
-   with nothing of B10 (``b10-partitions``): every pair probed exactly;
+   with nothing of B10 with or without it, nor does a B24 at Distance 0
+   from either end of any wall or partition face (the corner fixture):
+   every pair probed exactly;
 4. C4's cut list: melamine, 1/2 and 1/4 plywood sheets, PVC banding by the
    foot, 4 hinges and 3 pairs of 20 in slides, every line priced, the total
    the lines by hand; its Pieces are the 35 panels and the 7 hardware items.
@@ -28,6 +30,7 @@ never learns plugins exist: checked here against panels typed from
 # goldens the same way, so it uses that module's helpers.
 # pyright: reportPrivateUsage=false
 
+import gzip
 import itertools
 import json
 import math
@@ -41,6 +44,7 @@ from build123d import Solid
 from geometry.kernel import measure_shape
 from geometry.kernel.interference import probe_overlap
 from loft_wire.cut_list import CutListResponse
+from loft_wire.features import EvaluateTreeRequest
 from loft_wire.price_book import PriceBookResponse
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -458,6 +462,42 @@ def test_c4_touches_nothing_of_b10(
     # V3621 ends 3/4 clear of P2's board (Y 134.25).
     low = min(s.bounding_box().min.Y for s in run) / IN
     assert low == pytest.approx(141.0 if name == C4 else 135.0, abs=1e-9)
+
+
+def test_c4_touches_nothing_of_b10_with_gypsum(
+    house_solids: list[Solid], tmp_path: Path
+) -> None:
+    """C4 starts 1/2 in off the back wall's framing, room for its board: with
+    the walls' gypsum on it stands against it and still touches nothing."""
+    for name in (C4, V3621):
+        run = _step(_request(name), tmp_path / f"{name}.step")
+        assert _interfering(run, house_solids) == [], name
+
+
+#: A B24 at Distance 0 from each end of each of B10's faces, with and
+#: without the walls' gypsum (packages/loft-plugins/tests/test_casework_b10.py
+#: writes and pins it).
+CORNERS = Path(__file__).resolve().parent / "fixtures" / "casework-b10-corners.json.gz"
+
+
+@pytest.mark.parametrize("house", ["b10-partitions", HOUSE])
+def test_a_b24_in_every_corner_touches_nothing(
+    house: str,
+    house_solids: list[Solid],
+    b10_solids: list[Solid],
+    tmp_path: Path,
+) -> None:
+    """Each wall's inside face and each partition's two, from either end:
+    16 runs of 15 panels, every panel probed exactly against every solid of
+    the house golden whose box meets its box."""
+    cases: list[dict[str, Any]] = json.loads(gzip.decompress(CORNERS.read_bytes()))
+    case = next(c for c in cases if c["house"] == house)
+    assert len(case["runs"]) == 16
+    request = EvaluateTreeRequest.model_validate(case["request"])
+    runs = _step(request, tmp_path / "corners.step")
+    assert len(runs) == 16 * 15
+    solids = house_solids if house == HOUSE else b10_solids
+    assert _interfering(runs, solids) == []
 
 
 # --- 4. C4's cut list -----------------------------------------------------------------

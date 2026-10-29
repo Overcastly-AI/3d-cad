@@ -13,8 +13,8 @@ Ranked 2026-10-29 (ninth pass) by the product-manager, by "would a
 working builder use this today". The founder: "it's all needed"; the
 orchestrator leads. Done in batch52 (97fc65d) and dropped
 (`git log --grep=<ID>`): OPENING-UPDATE, DECK-FOOTINGS, CEILING-JOISTS and
-FOUNDATION-TAKEOFF. Carried, in a blocking-fix round: **CASEWORK-B10**
-(its acceptance is unchanged: `git show 97fc65d:docs/BACKLOG.md`). The
+FOUNDATION-TAKEOFF; CASEWORK-B10 in batch53 (`loft.cabinets` 1.1.0; C2's
+filler is 3 in on B10, not 3.5; the Pieces total drops only banding). The
 order: every saved house takes every plugin release first, because each
 item below ships one; then the deck gets its stair; then the house gets its
 gables closed, its drawings and its siding. Founder-triage Notes folded
@@ -312,6 +312,8 @@ One line each. The founder triages weekly; most are closed without work.
 - FOUNDATION-SAME-NAME-POURS: pours from separate features with the same member name share a line but round separately; untested.
 - FOUNDATION-VENT-MATERIAL: vents and access doors carry steel_1018 as a placeholder; real units are plastic or galvanized.
 - CEILING-JOISTS-SILENT-NONE: a hip or typed-bearing roof set to joists beside each common frames none and says nothing.
+- CASEWORK-B10-PARTITION-ENDS: the corner tests assert exact run ends only on e1-e4; on partition faces they prove no overlap but not that a run reaches the corner.
+- CASEWORK-B10-INSIDE-CORNER: `_finished_span`'s inside-corner branches are untested (B10 is a rectangle).
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
 - CEILING-JOISTS-HIP: a `loft.roof` 1.6.0 hip (and a gable on its typed bearing) frames no ceiling joists; Chief stops a hip's joists at the hip jacks and frames them from rooms, so a hip house still has no rafter ties.
 - CASEWORK-UPDATE: no `loft.cabinets` 1.0.0 -> 1.1.0 update map; a 1.0.0 run with a 1/2 in Back gap on a wall later given gypsum would sit 1/2 in off the board after a plain re-pin (the map should zero the gap).
