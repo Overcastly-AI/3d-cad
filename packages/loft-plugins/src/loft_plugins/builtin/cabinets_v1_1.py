@@ -15,7 +15,8 @@ finished walls; 1.1.0 does the same, and every box and panel is 1.0.0's:
   Inside gypsum, a partition's Gypsum), on its framing otherwise, plus the
   Back gap (0: on it);
 * **Distance** runs from the end of the finished face: the board's end at
-  a corner (it stops at the board of the wall it meets), else the framing's;
+  a corner (it stops at the board of the wall it meets), else where the
+  framing's face meets that wall (a through wall's a wall's depth in);
   the run must fit between the finished ends;
 * a run that would pass a partition meeting its face (the partition with
   its boards) is refused, naming it.
@@ -80,8 +81,8 @@ def _input(item: PluginInput) -> PluginInput:
         return item.model_copy(
             update={
                 "description": "From the end of the finished face (its gypsum's "
-                "end at a corner, else the framing's), along it, to the run's "
-                "first box."
+                "end at a corner, else the face of the wall it meets), along "
+                "it, to the run's first box."
             }
         )
     if item.name == "gap_mm":

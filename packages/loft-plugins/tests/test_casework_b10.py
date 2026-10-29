@@ -253,6 +253,39 @@ def test_a_run_must_fit_the_finished_face() -> None:
         run(rows, {**wall, "offset_mm": 48.5 * IN, "boxes": C2_B10_BASE}, RUN_ID)
 
 
+def test_a_through_wall_s_face_runs_between_the_walls_it_meets() -> None:
+    """B7's back wall runs through, X 0..288 outside, but its inside face
+    (no gypsum) runs X 5.5..282.5, between the side walls': a run from its
+    start stands in the room's corner, where 1.0.0's stood in the side
+    wall's framing."""
+    from test_cabinets import b7_house
+
+    _, earlier = b7_house()
+    raw = {
+        "wall": FeatureRef(kind="feature", feature_id=WALLS_ID),
+        "wall_segment": ["e3"],
+        "boxes": [box("base", 24)],
+    }
+    new = expand(V1_1, RUN_ID, canonical_inputs(V1_1.manifest, raw), dict(earlier))
+    old = expand(V1, RUN_ID, canonical_inputs(V1.manifest, raw), dict(earlier))
+    assert (span(new)[0], span(new)[1], span(new)[3]) == (5.5, 29.5, 186.5)
+    assert span(old)[:2] == (0.0, 24.0)
+
+
+def test_a_wall_run_past_a_partition_meeting_it_is_refused() -> None:
+    """B10's back wall from its board's start (X 5.5): 7 x B24 would end
+    at X 173.5, clear of P1 (X 178.25..181.75 with its boards from 177.75);
+    8 would pass it."""
+    rows = b10()
+    raw = {
+        "wall": FeatureRef(kind="feature", feature_id=WALLS_ID),
+        "wall_segment": ["e3"],
+    }
+    run(rows, {**raw, "boxes": [box("base", 24)] * 7}, RUN_ID)
+    with pytest.raises(PluginError, match="would pass partition e5"):
+        run(rows, {**raw, "boxes": [box("base", 24)] * 8}, RUN_ID)
+
+
 # --- C4 on P1 -------------------------------------------------------------------------
 
 VDB1521 = box("vanity", 15, fronts="drawers")

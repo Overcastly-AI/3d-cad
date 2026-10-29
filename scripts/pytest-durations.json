@@ -426,7 +426,7 @@
     "packages/loft-plugins/tests/test_body_names_b7.py": 2,
     "packages/loft-plugins/tests/test_building_outline.py": 89,
     "packages/loft-plugins/tests/test_cabinets.py": 30,
-    "packages/loft-plugins/tests/test_casework_b10.py": 16,
+    "packages/loft-plugins/tests/test_casework_b10.py": 18,
     "packages/loft-plugins/tests/test_ceiling_joists.py": 17,
     "packages/loft-plugins/tests/test_deck.py": 26,
     "packages/loft-plugins/tests/test_deck_fixture.py": 4,
