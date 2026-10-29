@@ -317,6 +317,7 @@ One line each. The founder triages weekly; most are closed without work.
 - CASEWORK-UPDATE: no `loft.cabinets` 1.0.0 -> 1.1.0 update map; a 1.0.0 run with a 1/2 in Back gap on a wall later given gypsum would sit 1/2 in off the board after a plain re-pin (the map should zero the gap).
 - CASEWORK-FACE-INPUT: 1.1.0's Face input shows for a wall too, where it is ignored (a wall's run is on its inside face).
 - CASEWORK-PARTITION-NAME: the run-past-a-partition refusal names "partition e6" by its line id, as the partition refusals do, while the form lists it as "Partition 2".
+- CASEWORK-MEASURE-LABELS: on a partition the cabinets form still reads Measured from "Wall start" / "Wall end" (the partition's start and end).
 - PIECES-REBAR: the Pieces total still counts a rebar line's runs, bought in sticks rather than Each.
 - CEILING-JOISTS-LAP: a ceiling joist is one piece wall face to wall face (NO-SPLICE-SPANS), so past 24 ft it lists no stock; framers lap joists over a bearing partition instead.
 
