@@ -41,6 +41,7 @@ export const PRICE_UNIT_LABEL: Record<PriceUnit, string> = {
   linear_foot: "Per ft",
   board_foot: "Per BF",
   cubic_yard: "Per yd³",
+  square: "Per square",
 };
 
 /** Why a save was refused: the stored book is no longer the one drafted. */

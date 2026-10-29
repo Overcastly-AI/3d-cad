@@ -3187,7 +3187,7 @@ export interface components {
              * Material
              * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
         };
         /**
          * BodyMaterialAssignment
@@ -3212,7 +3212,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar";
         };
         /**
          * BodyName
@@ -4832,7 +4832,7 @@ export interface components {
              * Material
              * @description Library material, or null.
              */
-            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
+            material: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
             /**
              * Member
              * @description Member role title (e.g. 'Joist'); null when the body is not a plugin member.
@@ -4857,7 +4857,7 @@ export interface components {
              * Price Unit
              * @description Which entry priced the line: 'each' for its stock length, else 'linear_foot', else 'board_foot'; null when unpriced.
              */
-            price_unit: ("each" | "linear_foot" | "board_foot" | "cubic_yard") | null;
+            price_unit: ("each" | "linear_foot" | "board_foot" | "cubic_yard" | "square") | null;
             /**
              * Profile
              * @description Section or sheet product as sold (e.g. '2x10', '7/16 OSB'); null when unclassified.
@@ -4875,6 +4875,11 @@ export interface components {
              * @description A sheet line's sheet ('4x8', '4x9', '4x10', '4x12'): the shortest that covers each of its panels; null for lumber, or for panels no sheet covers.
              */
             sheet?: ("4x8" | "4x9" | "4x10" | "4x12") | null;
+            /**
+             * Siding
+             * @description A siding line (SIDING-TRIM): its product's price-book key. Its bodies' measured net area is area_mm2, and stock_quantity orders it with waste_percent over in whole boards of stock_length_ft (length_mm a board's) or, with no stock length, squares of 100 ft². Absent on every other line.
+             */
+            siding?: ("fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8") | null;
             /**
              * Stock Length Ft
              * @description Shortest standard stock that covers the piece (ft); null for a piece that is not lumber, or is spliced (stock_pieces_ft), or is longer than any stock it may be bought in (stock_note).
@@ -4900,7 +4905,7 @@ export interface components {
              * @description The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; a structural sheet good is 'sheathing', gypsum board 'walls' and a cabinet panel 'casework'; a body that is no plugin member is 'other'.
              * @enum {string}
              */
-            system: "foundation" | "floor" | "walls" | "roof" | "sheathing" | "deck" | "stairs" | "frame" | "casework" | "other";
+            system: "foundation" | "floor" | "walls" | "roof" | "sheathing" | "siding" | "deck" | "stairs" | "frame" | "casework" | "other";
             /**
              * Total Length Mm
              * @description quantity x length; for a sheet line, the sheets' lengths (stock_quantity x length).
@@ -9678,7 +9683,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
             /**
              * Name
              * @description Nominal size as sold, e.g. '2x10' or '5/4x6'.
@@ -9896,7 +9901,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -9931,7 +9936,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
         };
         /**
          * MaterialInput
@@ -9939,7 +9944,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -10016,6 +10021,11 @@ export interface components {
              * @description The sheets they are sold in, shortest first: 4x8, 4x9, 4x10, 4x12 (each product in its own: gypsum board in 4x8 and 4x12).
              */
             sheet_sizes: components["schemas"]["SheetSize"][];
+            /**
+             * Siding Products
+             * @description Siding products (SIDING-TRIM): what a siding price is keyed by ('vinyl_d4'), its material, how it is sold (a 12 ft board Each, or vinyl per square) and what one covers.
+             */
+            siding_products?: components["schemas"]["SidingProduct"][];
         };
         /**
          * MeasureRequest
@@ -10169,7 +10179,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -10185,6 +10195,8 @@ export interface components {
              * @description The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.
              */
             rebar?: components["schemas"]["RebarRun"][] | null;
+            /** @description Set on a siding body (SIDING-TRIM): the cut list lists its measured net area and orders its product with the wall's waste allowance, in whole boards or squares. Absent otherwise. */
+            siding?: components["schemas"]["SidingTakeoff"] | null;
             /** @description Set on the bodies of a bought window or door unit (OPENING-UNITS): the cut list lists the unit once, Each, on its counted body. Absent on every other member. */
             unit?: components["schemas"]["OpeningUnitPart"] | null;
         };
@@ -12114,7 +12126,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -12122,9 +12134,9 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.
+             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', casework item, e.g. 'hinge', or siding product, e.g. 'vinyl_d4'.
              */
-            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24") | ("fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
@@ -12137,10 +12149,10 @@ export interface components {
             stock_length_ft?: number | null;
             /**
              * Unit
-             * @description 'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only), or 'cubic_yard' (ready-mix concrete only, per yd³ ordered).
+             * @description 'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only, and a siding board per foot), 'cubic_yard' (ready-mix concrete only, per yd³ ordered), or 'square' (vinyl siding only, per 100 ft² of wall).
              * @enum {string}
              */
-            unit: "each" | "linear_foot" | "board_foot" | "cubic_yard";
+            unit: "each" | "linear_foot" | "board_foot" | "cubic_yard" | "square";
         };
         /**
          * PriceBookResponse
@@ -13405,6 +13417,97 @@ export interface components {
              * @description Uniform inward wall thickness (mm). Must be small enough that the inward cavity does not self-intersect; too large is a `shell_thickness_too_large` rebuild error.
              */
             thickness_mm: number;
+        };
+        /**
+         * SidingProduct
+         * @description One siding product: how it is drawn, what it covers and how it is sold.
+         */
+        SidingProduct: {
+            /**
+             * Coverage In2
+             * @description Wall area one board (exposure x length) or one square covers (in²).
+             */
+            coverage_in2: number;
+            /**
+             * Exposure In
+             * @description What a course shows (in).
+             */
+            exposure_in: number;
+            /**
+             * Key
+             * @description Price-book key, e.g. 'vinyl_d4'.
+             * @enum {string}
+             */
+            key: "fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8";
+            /**
+             * Label
+             * @description As the Exterior finish offers it.
+             */
+            label: string;
+            /**
+             * Material
+             * @description Library material the product is drawn, weighed and priced as.
+             * @enum {string}
+             */
+            material: "fibre_cement" | "pvc" | "western_red_cedar";
+            /**
+             * Name
+             * @description As listed, e.g. 'Fibre-cement lap 8-1/4'.
+             */
+            name: string;
+            /**
+             * Price Unit
+             * @description How a price-book entry prices it: a board Each at its stock length (or per linear foot), vinyl per square.
+             * @enum {string}
+             */
+            price_unit: "each" | "square";
+            /**
+             * Sale
+             * @description Sold by the board or by the square.
+             * @enum {string}
+             */
+            sale: "board" | "square";
+            /**
+             * Stock Length Ft
+             * @description A board's stock length (ft), what an 'each' price is for; null for a product sold by the square.
+             */
+            stock_length_ft?: number | null;
+            /**
+             * Thickness In
+             * @description The drawn layer's thickness (in): one board's.
+             */
+            thickness_in: number;
+            /**
+             * Trim Material
+             * @description The library material of its 5/4x4 corner boards and casing.
+             * @enum {string}
+             */
+            trim_material: "fibre_cement" | "pvc" | "western_red_cedar";
+            /**
+             * Width In
+             * @description A board's (or course's) face (in).
+             */
+            width_in: number;
+        };
+        /**
+         * SidingTakeoff
+         * @description Set on a siding body (SIDING-TRIM): the cut list lists its MEASURED net
+         *     area and orders its product with this allowance, in whole boards or
+         *     squares.
+         */
+        SidingTakeoff: {
+            /**
+             * Product
+             * @description The siding product.
+             * @enum {string}
+             */
+            product: "fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8";
+            /**
+             * Waste Percent
+             * @description Ordered over the net area (percent), then rounded up to whole boards or squares.
+             * @default 10
+             */
+            waste_percent: number;
         };
         /**
          * SingleBodyImportResult
