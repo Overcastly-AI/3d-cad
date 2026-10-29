@@ -76,12 +76,13 @@ into an item are named in it and removed from Notes.
    up to the same plane, both members of the roof. _Accept:_ B7 at 6/12
    (2x8 rafters, underside 106.1770833 + Y/2 at the front wall's outside
    face): each stud's long point is d/2 - 2.416667 in, d the distance of
-   its higher face from the nearer eave wall's outside face; with the side
-   walls laid out from the front, 11 studs a gable (centres Y 21.5, 37.5,
-   ..., 181.5), long points summing 262.791667 in; each gable's OSB is
-   2 x (91.1667² / 4) = 4 155.68 in² before the ridge, sheets by
-   `sheets_to_cut`; no interference; 8/12 re-cuts them; stored roofs are
-   byte-identical.
+   its higher face from the nearer eave wall's outside face; 11 studs a
+   gable, on each wall's own layout (left from the front, Y 21.5, 37.5,
+   ..., 181.5; right from the back, Y 170.5, ..., 10.5), long points
+   summing 262.791667 in; each gable's OSB runs to the rafters' top plane
+   (covering the end rafter): 5 705.19 in², the 12 panels on 6 4x8 sheets
+   by `sheets_to_cut`; no interference; 8/12 re-cuts them; stored roofs
+   are byte-identical. (Corrected by the kernel-architect, RESEARCH §23.)
 4. [ ] **HOUSE-DRAWINGS** (frontend-builder for the Drawing command on a
    part and the plan view; kernel-architect for a horizontal-section view
    that holds on about 450 bodies; backend-builder for feet-inch
@@ -331,6 +332,9 @@ One line each. The founder triages weekly; most are closed without work.
 - CASEWORK-MEASURE-LABELS: on a partition the cabinets form still reads Measured from "Wall start" / "Wall end" (the partition's start and end).
 - PIECES-REBAR: the Pieces total still counts a rebar line's runs, bought in sticks rather than Each.
 - CEILING-JOISTS-LAP: a ceiling joist is one piece wall face to wall face (NO-SPLICE-SPANS), so past 24 ft it lists no stock; framers lap joists over a bearing partition instead.
+- GABLE-SHEET-NESTING: a sloped gable panel is measured along its sloped edge (its frame is its two largest perpendicular faces), so B7's 12 gable panels buy 6 4x8 sheets where their plan rectangles nest in 4 and paired triangles in fewer.
+- GABLE-THROUGH-CORNER: a through end wall's gable OSB stops at the framing's corner, so above the plate a 7/16 x 7/16 column is left open beside the eave wall's corner rip (B7 turned; not B7).
+- GABLE-RIDGE-PARTIAL: a gable stud partly under the ridge board is cut square across its full width at the board's underside, leaving a gap under the rafters beyond the board (no B7 stud is under the ridge).
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
 - SKETCH-LINE-ANGLE-ZERO: the angle cell takes (0, 180) as `AngleConstraint` does; 0 or 180 is refused with a message rather than becoming Horizontal (or Collinear to the previous segment), which Fusion does.

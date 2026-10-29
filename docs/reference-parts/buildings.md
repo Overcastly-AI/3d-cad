@@ -404,12 +404,22 @@ rafters' top plane at the wall's outside face is 106.1770833 +
 7.25√1.25 = 1.560920 down and 2Δ along: 2 088 - 3Δ² = 2 080.690584 in³ a
 joist, 22 887.596423 in³ for the 11. At 28 ft, 13.
 
-**Gable ends** (GABLE-END-STUDS): 2x6 studs on each side wall's top plate
-at its 16 in layout centres, cut on the slope to the rafters' underside,
-106.1770833 + d/2 at distance d from the nearer eave wall's outside face;
-a stud's long point is d/2 - 2.416667 at its higher face. Laid out from
-the front: 11 a gable, Y 21.5, 37.5, ..., 181.5, long points 262.791667
-in in all. OSB carried up: 2 x 91.1667² / 4 = 4 155.68 in² a gable.
+**Gable ends** (GABLE-END-STUDS, `loft.roof` 1.7.0): 2x6 studs on each
+side wall's top plate at its inner 16 in layout centres, cut on the slope
+to the rafters' underside, 106.1770833 + d/2 at distance d from the nearer
+eave wall's outside face; a stud's long point is d/2 - 2.416667 at its
+higher face, and the gable-end rafter bears on the cut tops. Each wall
+lays out from its own start, clockwise: the left wall from the front (11,
+Y 21.5, 37.5, ..., 181.5), the right wall from the back (11, Y 170.5,
+154.5, ..., 10.5, the mirror); long points 262.791667 in a gable, 2 134
+in³. OSB carried up in the wall's columns and corner rips (Y -7/16 .. 192
+7/16) to the rafters' TOP plane, 114.282829 + d/2, which covers the end
+rafter's outside face: 2 x (5.689079 x 96.4375 + (96² - (7/16)²) / 4) =
+5 705.19 in² a gable (stopped at the underside it would be 2 x 91.1667² / 4
+= 4 155.68 and leave the end rafter bare); the 12 panels are cut from 6
+4x8 sheets (`sheets_to_cut` on their measured extents). Golden
+`b7-gable-ends`: 262 bodies, 297 000.0126 in³. At 8/12: 2d/3 - 2.416667,
+359.25 in a gable, 7 358.36 in².
 
 **Siding and trim** (SIDING-TRIM): fibre-cement lap 8.25 at 7 in exposure
 (1 008 in² a 12 ft board) from Z 0 to the top plate: 960 x 108.59375 =

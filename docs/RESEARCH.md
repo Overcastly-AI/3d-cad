@@ -3308,6 +3308,71 @@ and reframe it, a material per member, and a cut list that is always current.
     `free-stair-107`, matched solid for solid to an independent build123d
     script on STEP, the throat measured on every exported stringer, no pair
     interfering (the deck's members among them), probed exactly.
+- **Decided while closing the gables** (GABLE-END-STUDS, 2026-10-29;
+  Chief Architect's Build Framing frames a gable wall up to the roof with
+  its studs in line with the wall below and carries the wall's layers up
+  with it):
+  - *A roof option, as the ceiling joists.* `loft.roof` 1.7.0 adds Gable
+    ends (Studs and sheathing, the default, or None). 1.0.0-1.6.0 are
+    unchanged and every stored roof expands by its pin; 1.7.0 with None, a
+    hip or a typed bearing is 1.6.0 member for member (a typed bearing
+    knows no end walls). With them it is 1.6.0's members, then per end wall
+    (the outline walls that do not define the slope, clockwise from the
+    first line) its face plane, its studs (role `gable_stud`, named by the
+    wall's slot, `e4/slot/3`) and its panels (`gable_sheathing`, named by
+    the wall's column, `e4/exterior/1`, `e4/corner/start`).
+  - *The studs are the wall's.* One at each of the end wall's INNER layout
+    centres (`stud_centres` from its start: the start and end studs stand
+    under the eave walls' rafters, where there is no triangle), in the
+    wall's stud profile and material, the wall's depth deep, on its top
+    plate. Each is one quad sketched on the wall's face plane, extruded
+    inward: cut on the slope to the rafters' UNDERSIDE plane, long point
+    up, so the gable-end rafter (flush with the wall's outside face) bears
+    on the cut tops face to face. A stud under the ridge board is cut
+    square to its underside, as a ridge post; one under 1/16 in at its
+    short point is not framed. The wall decides the layout, not the PM's
+    guess: an outline's walls run clockwise, so B7's left wall lays out
+    from the front (Y 21.5 .. 181.5) and its right wall from the BACK
+    (Y 170.5 .. 10.5, the mirror); the long points sum 262.791667 either
+    way.
+  - *The sheathing goes to the TOP plane, not the underside* (the PM's
+    spec said the same plane as the studs). The OSB lies outside the
+    framing, over the end rafter's outside face; stopped at the underside
+    it would leave a 7.25 sqrt(1.25) = 8.11 in band of the end rafter bare
+    on each slope, with nothing behind its top edge between studs. A
+    framer sheathes a gable with no rake overhang to the top of the end
+    rafter, where the roof deck laps it, and Chief's exterior layers run
+    up to the roof surface. So each panel runs from the wall's top to the
+    rafters' top plane (peaked at the ridge line), in the wall's own
+    columns and its corner rips (a through end wall has none: its face
+    is the outline's). B7: 5 705.19 in^2 a gable, not 4 155.68.
+  - *Sheets.* The gable panels are separate pieces on the wall's line
+    (Sheathing, 7/16 OSB); they fit 4x8 sheets, so they make a 4x8 line of
+    their own beside the walls' 4x9s. `sheets_to_cut` counts them on their
+    MEASURED extents, and a trapezoid's frame lies along its sloped edge
+    (its second-largest face), so B7's 12 panels are cut from 6 sheets
+    where bounding rectangles would nest in 4 (BACKLOG note).
+  - *A joist on an end wall's plate is left off.* At 291 the layout common
+    at 288 sits over the right wall and 1.6.0 laid its ceiling joist on
+    that wall's plate, where the gable studs stand. With the gable ends
+    framed the end wall carries the ceiling edge there, as at the end
+    rafters, so 1.7.0 frames no joist that meets an end wall's extent.
+  - *An update adds them, and says so.* Per VISION's 2026-10-29 call every
+    roof 1.2.0-1.6.0 maps to the newest, 1.7.0, Gable ends at its default
+    (one row per map in `loft_plugins.updates`), so one Update all leaves
+    no roof out of date; the badge names what it adds ("adds 11 ceiling
+    joists, 22 gable studs and 12 gable sheathing panels" for B7 at 1.4.0).
+    A 1.6.0 roof whose joist lay on an end wall's plate (291 long) loses
+    that joist: a re-lay, so its update is offered on its own. Golden
+    `b7-update-all` gains the 34 bodies: 280, 299 949.387649 in^3.
+  - *Numbers.* B7 at 6/12: 11 studs a gable, long points d / 2 - 29/12 at
+    the higher face, 262.791667 in, 2 134 in^3 a gable; the OSB 5 705.19
+    in^2 a gable, 4 992.04 in^3 for both; 8/12 re-cuts them (2d / 3 -
+    29/12, 359.25 in; 7 358.36 in^2). Golden `b7-gable-ends`: 262 bodies,
+    297 000.0126 in^3, matched solid for solid to an independent build123d
+    script on STEP; nothing interferes, in B7, at 28 ft, at 8/12, in B10,
+    at 291, on a 171 span (a ridge post each gable) and turned off the
+    origin, probed exactly.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
