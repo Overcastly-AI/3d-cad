@@ -4873,7 +4873,7 @@ export interface components {
             total_price_cents: number | null;
             /**
              * Total Quantity
-             * @description Sum of every line's quantity.
+             * @description The Pieces total: every line's quantity but edge banding's, so each body once and each item bought Each (hardware, units, bolts, vents) by its count. A banding line's quantity re-counts the panels it bands, and it is bought by the foot (CASEWORK-B10).
              */
             total_quantity: number;
             /**

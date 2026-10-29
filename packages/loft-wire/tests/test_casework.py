@@ -200,6 +200,10 @@ def test_banding_and_hardware_are_lines_under_casework_priced() -> None:
     sheet = by["3/4 plywood"]
     assert (sheet.sheet, sheet.stock_quantity) == ("4x8", 1)
     assert cut.total_price_cents == 13 * 40 + 900 + 6995
+    # Pieces (CASEWORK-B10): the two panels and the two hinges, not the
+    # banding line's two banded panels again.
+    assert sum(line.quantity for line in cut.lines) == 2 + 2 + 2
+    assert cut.total_quantity == 2 + 2
     rows = list(csv.DictReader(io.StringIO(cut_list_csv(cut))))
     banding = next(r for r in rows if r["Profile"] == "Edge banding 7/8 in")
     assert (banding["System"], banding["Section (in)"]) == ("Casework", "")

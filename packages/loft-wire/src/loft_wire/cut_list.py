@@ -592,7 +592,13 @@ class CutListResponse(BaseModel):
         description="The document's display unit (the CSV is written in it)."
     )
     lines: list[CutListLine] = Field(default_factory=list[CutListLine])
-    total_quantity: int = Field(ge=0, description="Sum of every line's quantity.")
+    total_quantity: int = Field(
+        ge=0,
+        description="The Pieces total: every line's quantity but edge "
+        "banding's, so each body once and each item bought Each (hardware, "
+        "units, bolts, vents) by its count. A banding line's quantity re-counts "
+        "the panels it bands, and it is bought by the foot (CASEWORK-B10).",
+    )
     unclassified: int = Field(ge=0, description="How many pieces matched no profile.")
     missing: list[CutListMissing] = Field(
         default_factory=list[CutListMissing],
@@ -1406,7 +1412,9 @@ def cut_list_response(
         name=name,
         length_unit=length_unit,
         lines=lines,
-        total_quantity=sum(line.quantity for line in lines),
+        total_quantity=sum(
+            line.quantity for line in lines if line.casework != "edge_banding"
+        ),
         unclassified=sum(
             line.quantity for line in lines if line.classification == "unclassified"
         ),
