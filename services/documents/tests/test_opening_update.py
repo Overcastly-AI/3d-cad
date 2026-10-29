@@ -589,3 +589,39 @@ def test_b9_at_foundation_1_0_0_lists_its_vents_and_access_door(
     assert [
         (o["item"], o["quantity"]) for o in stem["metadata"]["foundation_openings"]
     ] == [("foundation_vent", 5), ("crawl_access_door", 1)]
+
+
+def test_an_update_it_cannot_preview_is_left_for_its_own_decision(
+    client: TestClient,
+) -> None:
+    """A suppressed floor drawn clockwise (its update would re-lay it, but a
+    suppressed row's dry run is not run): its offer cannot say what it moves,
+    so it is separate, says so, and Update all leaves and lists it."""
+    part = _Part(client)
+    sketch = part.add("Outline", _outline(CLOCKWISE))
+    floor = part.add(
+        "Floor",
+        _custom("loft.floor", "1.2.0", outline=_ref(sketch), joist_profile="us_2x10"),
+    )
+    part.add("Deck", _custom("loft.deck", "1.1.0", width_mm=192 * IN))
+    suppressed = client.patch(
+        f"/api/v1/parts/{part.id}/features/{floor}/suppress",
+        json={"suppressed": True, "expected_tree_version": part.version},
+        headers=HEADERS,
+    )
+    assert suppressed.status_code == 200, suppressed.text
+    part.version = int(suppressed.json()["tree_version"])
+    offer = part.rows()["Floor"]["plugin_update"]
+    assert offer is not None and offer["separate"]
+    assert offer["summary"].startswith(
+        "Can't preview this update (suppressed or refused); update it on its own."
+    )
+    response = part.update()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    (skipped,) = body["skipped_updates"]
+    assert (skipped["name"], skipped["reason"]) == ("Floor", "separate")
+    assert _pins({f["name"]: f for f in body["features"]}) == {
+        "Floor": "1.2.0",
+        "Deck": "1.2.0",
+    }

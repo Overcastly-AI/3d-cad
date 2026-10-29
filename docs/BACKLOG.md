@@ -284,6 +284,8 @@ delegated log; reverse any there. Open for the founder:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- UPDATE-DRYRUN-PICKERS: an update offer's dry run checks the feature and its host only, not its pickers or the tree after earlier updates in the same Update all.
+- UPDATE-CABINETS-REFUSAL: a cabinets 1.0 -> 1.1 update that 1.1 refuses (a run past a partition) only surfaces as an Update all skip, with no preview on the row.
 - SLAB-PRICE-DOWNGRADE: migration 0027's downgrade deletes the foundation prices without bumping price_books.version, so an open draft's If-Match still matches (0025's downgrade does the same).
 - CASEWORK-HARDWARE-MATERIAL: hinges and slides are keyed to steel_1018 in the price book, so a book cannot price a nickel or zinc hinge apart.
 - CASEWORK-FRONT-GRAIN: a drawer front's plywood grain is fixed vertical, like a door's; many shops run it across.

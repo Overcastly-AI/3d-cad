@@ -1213,6 +1213,11 @@ _EFFECTS: OrderedDict[tuple[uuid.UUID, int, uuid.UUID], UpdateEffect | None] = (
 )
 _EFFECTS_MAX = 2048
 
+#: The summary of an update whose effect cannot be read (PLUGIN-UPDATE-ALL).
+CANNOT_PREVIEW = (
+    "Can't preview this update (suppressed or refused); update it on its own."
+)
+
 
 def _update_effect(
     part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
@@ -1298,7 +1303,13 @@ def plugin_update_of(
         return None
     effect = _update_effect(part, row, rows)
     if effect is None:
-        return PluginUpdateOffer(to_version=update.to_version, summary=update.summary)
+        # Suppressed, or its dry run refused: what it would move is unknown,
+        # so it is never taken by Update all unseen.
+        return PluginUpdateOffer(
+            to_version=update.to_version,
+            summary=f"{CANNOT_PREVIEW} {update.summary}",
+            separate=True,
+        )
     return PluginUpdateOffer(
         to_version=update.to_version,
         summary=f"{effect.sentence} {update.summary}".strip(),
