@@ -2785,6 +2785,41 @@ and reframe it, a material per member, and a cut list that is always current.
     interference, every line priced ($3,040.65 on B7's book with a 4x8 of
     1/2 plywood at $32.98). Golden `b7-opening-update`, matched solid for
     solid by `test_outline_b7.script` plus the 18 boxes typed by hand.
+- **Decided while updating every Build release** (PLUGIN-UPDATE-ALL,
+  2026-10-29; Onshape's custom-feature update, where new parameters take
+  their defaults; VISION's delegated decision of the same date):
+  - *Every stored release maps to its newest.* Besides the openings, walls
+    and roofs above: `loft.floor` 1.2.0 -> 1.3.0 sets Joists bear on to the
+    first of Long walls, Front and back, Left and right whose joists run the
+    way 1.2.0's did (it reads the outline, through the map's context, since
+    1.2.0 ran its width along the outline's first line); B7's floor is Long
+    walls and byte for byte. A drawing whose first line is a side frames
+    the same joists, rims and sills, but 1.3.0 lays the subfloor from the
+    outline's least corner, so its panels move. `loft.deck` 1.1.0 -> 1.2.0
+    and `loft.foundation` 1.0.0 -> 1.1.0 carry every input. Every older
+    `loft.cabinets` release maps to the newest with every input
+    (`updates.SAME_INPUTS`: only 1.0.0 is released). Still unmapped, as a
+    guess could move a member: `loft.wall` 1.0.0-1.1.0 and `loft.deck`
+    1.0.0 (ordinal ids), `loft.floor` 1.0.0-1.1.0 and `loft.roof`
+    1.0.0-1.1.0 (typed releases from before the outline).
+  - *New inputs take their defaults, named.* An update may add members
+    (ceiling joists, pier footings, header spacers), so the offer
+    (`plugin_update`) carries `adds` ("3 pier footings", "3 post bases"),
+    read by a dry run of the update against the tree as stored: the row
+    re-expanded at the new release, a hosted row's host with it, and each
+    body counted by its noun, with what their metadata lists (post bases,
+    vents, access doors). The summary starts with them; the badge's title
+    names them. An update that changes no member byte for byte is `quiet`:
+    no badge, not counted by the strip, but Update all takes it.
+  - *The editor asks.* Its Update re-pins the STORED feature, so with
+    unsaved form edits it first asks to discard them (dismiss keeps them).
+  - *Numbers.* B7 saved at batch48's releases, one Update all: nothing out
+    of date, B7 built fresh today member for member, 264 852.3789 + 1 769.625
+    + 1 179.75 + 22 887.596423 = 290 689.3503 in³ (the kernel's
+    290 689.350289), 246 bodies, no interference. Golden `b7-update-all`.
+    B1 at deck 1.1.0 gains 3 piers of 7 238.23 in³ (8 bags) and 3 post
+    bases, every 1.1.0 member kept under its id; B9 at foundation 1.0.0
+    lists 5 vents and 1 access door and is 1.1.0's B9 exactly.
 - **Decided while naming member bodies** (BODY-NAMES, 2026-10-23; Fusion's
   browser and its STEP export, SolidWorks' multibody import):
   - *The name.* A member's body is `<feature> · <member>`, the member as the
@@ -3110,12 +3145,12 @@ and reframe it, a material per member, and a cut list that is always current.
     deepest joist that fits (a 2x6 there), or a steeper pitch or deeper
     ridge when none does. Documents raises it from the stored roof by
     re-running the pure expansion (`roof_outline.ceiling_joist_note`).
-  - *An update adds nothing.* The declared update of a roof 1.2.0-1.5.0 to
-    1.6.0 (`loft_plugins.updates`) sets Ceiling joists to None, so it builds
-    1.5.0's roof exactly; its summary and the through-sheathing warning's
-    "Update to 1.6.0" say it adds nothing new. Only a new roof takes the
-    default, Beside each common; an updated roof gains joists when the user
-    chooses them.
+  - *An update adds the joists* (PLUGIN-UPDATE-ALL, 2026-10-29, reversing
+    the first call, that it set Ceiling joists to None). The declared update
+    of a roof 1.2.0-1.5.0 to 1.6.0 carries every input as it is, so Ceiling
+    joists takes its default, Beside each common, as a new roof does, and
+    its offer names them ("adds 11 ceiling joists"). A joist that cannot fit
+    is left out with the warning above; the update never refuses.
   - *The snip.* Each top corner is cut to the rafters' top plane, as a
     framer snips the joist so the sheathing lies flat: at the wall's outside
     face that plane is `plate - heel + plumb depth`, so the cut is `delta =

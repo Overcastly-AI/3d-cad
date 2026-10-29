@@ -51,11 +51,12 @@ import { featureTypeLabel } from "../features/featureLabels";
 import type { PluginManifest } from "../api/plugins";
 import { isCustomRow } from "../features/customFeature";
 import {
+  addsList,
   featureUpdate,
   outOfDateFeatures,
   outOfDateSentence,
   UPDATE_ALL_LABEL,
-  updateToLabel,
+  updateBadgeTitle,
 } from "../features/pluginUpdate";
 import {
   customFeatureBadge,
@@ -809,13 +810,19 @@ export function FeatureTreePanel({
                               command holds this row, what it is ABOUT TO
                               CHANGE outranks what type it is, and a 24px row
                               has no width for both. */}
-                            {update !== null && !scoped ? (
+                            {update !== null && !update.quiet && !scoped ? (
                               // Out of date (Fusion's badge): its newer
-                              // release, and what updating it changes.
+                              // release, and what updating it adds. A quiet
+                              // update (it changes no member) wears none,
+                              // but Update all takes it along.
                               <Stamp
                                 tone="brass"
-                                title={`${updateToLabel(update.toVersion)}: ${update.summary}`}
-                                aria-label={`Out of date: ${update.toVersion} available`}
+                                title={updateBadgeTitle(update)}
+                                aria-label={
+                                  update.adds.length > 0
+                                    ? `Out of date: ${update.toVersion} available, adds ${addsList(update.adds)}`
+                                    : `Out of date: ${update.toVersion} available`
+                                }
                                 data-testid={`feature-update-badge-${index}`}
                               >
                                 Update

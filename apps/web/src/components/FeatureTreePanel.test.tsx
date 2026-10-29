@@ -761,7 +761,12 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
   function custom(
     id: string,
     name: string,
-    update: { to_version: string; summary: string } | null,
+    update: {
+      to_version: string;
+      summary: string;
+      adds: string[];
+      quiet: boolean;
+    } | null,
   ): FeatureResponse {
     return {
       ...sketch(id, name),
@@ -777,14 +782,26 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
       ...(update === null ? {} : { plugin_update: update }),
     } as FeatureResponse;
   }
-  const SPACERS = { to_version: "1.5.0", summary: "Draws the spacers." };
+  const SPACERS = {
+    to_version: "1.5.0",
+    summary: "Adds 2 header spacers and 1 header ply. Draws the spacers.",
+    adds: ["2 header spacers", "1 header ply"],
+    quiet: false,
+  };
+  // An update that changes no member (B7's floor to 1.3.0): no badge.
+  const QUIET = {
+    to_version: "1.3.0",
+    summary: "Joists bear on replaces Joist direction.",
+    adds: [],
+    quiet: true,
+  };
 
-  it("badges each out-of-date row and offers one Update all", () => {
+  it("badges each out-of-date row with what it adds and offers one Update all", () => {
     const onUpdatePlugins = vi.fn();
     renderPanel(
       [
         sketch("f1", "Outline"),
-        custom("f2", "Floor", null),
+        custom("f2", "Floor", QUIET),
         custom("f3", "Window 1", SPACERS),
         custom("f4", "Window 2", SPACERS),
       ],
@@ -796,7 +813,11 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
     expect(badge).toHaveTextContent("Update");
     expect(badge).toHaveAttribute(
       "title",
-      "Update to 1.5.0: Draws the spacers.",
+      "Update to 1.5.0: adds 2 header spacers and 1 header ply",
+    );
+    expect(badge).toHaveAttribute(
+      "aria-label",
+      "Out of date: 1.5.0 available, adds 2 header spacers and 1 header ply",
     );
     expect(screen.getByTestId("feature-update-badge-3")).toBeInTheDocument();
     expect(screen.getByTestId("feature-update-strip")).toHaveTextContent(
@@ -806,9 +827,13 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
     expect(onUpdatePlugins).toHaveBeenCalledWith(null);
   });
 
-  it("shows no Update all when every feature is current", () => {
+  it("shows no Update all when every feature is current or quiet", () => {
     renderPanel(
-      [sketch("f1", "Outline"), custom("f2", "Floor", null)],
+      [
+        sketch("f1", "Outline"),
+        custom("f2", "Floor", QUIET),
+        custom("f3", "Walls", null),
+      ],
       undefined,
       {
         onUpdatePlugins: vi.fn(),

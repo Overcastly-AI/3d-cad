@@ -254,6 +254,7 @@
     "timeline.spec.ts": 65.2,
     "toolbar-overflow.spec.ts": 41.7,
     "undo-redo.spec.ts": 25.0,
+    "update-all.spec.ts": 84.0,
     "view-fit.spec.ts": 25.8,
     "viewcube.spec.ts": 114.4,
     "viewport-error.spec.ts": 6.5,
