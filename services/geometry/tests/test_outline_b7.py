@@ -103,6 +103,9 @@ DENSITY = {
     PLY_M: 577.0,
     PVC: 1400.0,
     GLASS: 2500.0,
+    # The exterior finish's (SIDING-TRIM, test_siding_b7.py).
+    "fibre_cement": 1200.0,
+    "western_red_cedar": 388.0,
 }  # kg/m^3
 
 Bounds = tuple[float, float, float, float, float, float]

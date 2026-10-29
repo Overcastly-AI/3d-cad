@@ -1,7 +1,9 @@
 """OPENING-UPDATE acceptance: B7 updated in one step, on STEP.
 
 ``goldens/b7-opening-update`` is ``b7-outline`` after "Update all": its
-walls at ``loft.wall`` 1.4.0, the door and the five windows at
+walls at ``loft.wall`` 1.5.0 (their Exterior finish at its default,
+fibre-cement lap with corner boards and casing, SIDING-TRIM: the finish is
+``_siding_builder.wall_finish_members``), the door and the five windows at
 ``loft.door``/``loft.window`` 1.5.0 and the roof at ``loft.roof`` 1.5.0
 (the floor, 1.2.0, is offered no update). ``model.json`` and
 ``members.json`` are pinned to the plugins by
@@ -40,6 +42,7 @@ from loft_wire.cut_list import CutListMember, cut_list_response, part_pieces
 from loft_wire.price_book import PriceBookResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _siding_builder as finish
 import test_outline_b7 as b7
 
 GOLDENS = Path(__file__).resolve().parent.parent / "goldens"
@@ -69,6 +72,11 @@ def added_boxes() -> list[tuple[str, str, b7.Bounds]]:
 
 
 def script() -> list[b7.Member]:
+    return [*framed(), *finish.wall_finish_members()]
+
+
+def framed() -> list[b7.Member]:
+    """B7 with the plies and spacers, before its finish."""
     return [
         *b7.script(),
         *(b7.Member(m, mat, b7.box(b)) for m, mat, b in added_boxes()),
@@ -87,6 +95,10 @@ def added_volume() -> Fraction:
 
 
 def analytic_volume() -> float:
+    return framed_volume() + finish.wall_finish_volume()
+
+
+def framed_volume() -> float:
     return b7.analytic_volume(288) + float(added_volume())
 
 
@@ -108,12 +120,12 @@ def test_the_volume_is_b7s_plus_the_plies_and_spacers() -> None:
     spacers = Fraction(11, 4) * 429  # 2.75 x 429 = 1 179.75
     assert (plies, spacers) == (Fraction(14157, 8), Fraction(4719, 4))
     assert added_volume() == plies + spacers
-    assert analytic_volume() == pytest.approx(267801.7538656, abs=1e-6)
+    assert framed_volume() == pytest.approx(267801.7538656, abs=1e-6)
 
 
 def test_the_step_is_the_independent_scripts(step_solids: list[Solid]) -> None:
     mine = script()
-    assert len(step_solids) == len(mine) == 217 + 18
+    assert len(step_solids) == len(mine) == 217 + 18 + 4 + 8 + 23
     assert b7._unmatched(step_solids, [m.solid for m in mine]) == []  # pyright: ignore[reportPrivateUsage]
     volume = sum(float(measure_shape(s).volume) for s in step_solids) / IN**3
     assert volume == pytest.approx(analytic_volume(), abs=1e-4)
@@ -128,7 +140,9 @@ def test_nothing_interferes(step_solids: list[Solid]) -> None:
 
 # --- 3. The cut list and its price -------------------------------------------------
 
-#: B7's book (test_outline_b7.BOOK) and a 4x8 sheet of 1/2 plywood, $32.98.
+#: B7's book (test_outline_b7.BOOK), a 4x8 sheet of 1/2 plywood, $32.98, and
+#: the finish's lap ($13.98 a 12 ft board) and 5/4x4 trim (10 ft $14.98, 8 ft
+#: $11.98).
 BOOK = PriceBookResponse.model_validate(
     {
         "currency": "USD",
@@ -141,6 +155,20 @@ BOOK = PriceBookResponse.model_validate(
                 "sheet": "4x8",
                 "price_cents": 3298,
             },
+            *(
+                {
+                    "material": finish.FC,
+                    "profile": p,
+                    "unit": "each",
+                    **stock,
+                    "price_cents": c,
+                }
+                for p, stock, c in [
+                    ("fibre_cement_lap_8_25", {"stock_length_ft": 12}, 1398),
+                    ("us_5_4x4", {"stock_length_ft": 10}, 1498),
+                    ("us_5_4x4", {"stock_length_ft": 8}, 1198),
+                ]
+            ),
         ],
     }
 )
@@ -190,6 +218,7 @@ def test_the_cut_list_lists_18_plies_and_one_sheet_of_spacers() -> None:
         (line.member, line.quantity, round(line.length_mm / IN, 4))
         for line in cut_list.lines
         if line.member not in ("Header", "Spacer", "Subfloor", "Sheathing")
+        and line.system != "siding"
     )
     want = sorted(
         (m, q, round(v, 4))
@@ -199,7 +228,13 @@ def test_the_cut_list_lists_18_plies_and_one_sheet_of_spacers() -> None:
     assert rest == want
     assert cut_list.unpriced_lines == 0
     assert cut_list.unclassified == 0
-    assert cut_list.total_price_cents == 296879 + 6 * 648 + 3298 == 304065
+    # The finish (SIDING-TRIM): the walls' 88 368.53125 in² of lap x 1.10 /
+    # 1 008 = 96.43, 97 boards; 8 corner boards on 10 ft and 23 casing
+    # pieces on 8 ft stock.
+    (siding,) = [line for line in cut_list.lines if line.siding is not None]
+    assert (siding.quantity, siding.stock_quantity) == (4, 97)
+    lap = 97 * 1398 + 8 * 1498 + 23 * 1198
+    assert cut_list.total_price_cents == 296879 + 6 * 648 + 3298 + lap
 
 
 # --- Mass ---------------------------------------------------------------------------
@@ -225,32 +260,44 @@ def _expected(name: str) -> dict[str, Any]:
 
 def test_the_golden_is_b7_outlines_plus_eighteen_boxes() -> None:
     """Each added body is a separate box: 6 faces, 12 edges and a shell;
-    meshed, 4 vertices and 2 triangles a face. A ply of length L adds
+    meshed, 4 vertices and 2 triangles a face; the walls' finish adds its
+    script's solids as measured (``_siding_builder``). A ply of length L adds
     2 (8.25 + 7 L) in^2 of area and a spacer 2 (2.75 + 6 L): with 214.5 in
     of each ply and 429 in of spacers, 99 + 3 003 + 66 + 5 148 = 8 316 in^2.
     The mass adds 1 769.625 in^3 of SPF (450) and 1 179.75 of plywood (577)."""
     old, new = _expected("b7-outline"), _expected(NAME)
+    trim = finish.numbers_of(finish.wall_finish_members())
     assert new["topology"] == {
-        "faces": old["topology"]["faces"] + 18 * 6,
-        "edges": old["topology"]["edges"] + 18 * 12,
-        "shells": old["topology"]["shells"] + 18,
+        "faces": old["topology"]["faces"] + 18 * 6 + trim["faces"],
+        "edges": old["topology"]["edges"] + 18 * 12 + trim["edges"],
+        "shells": old["topology"]["shells"] + 18 + 35,
     }
     assert new["mesh"] == {
-        "vertices": old["mesh"]["vertices"] + 18 * 24,
-        "triangles": old["mesh"]["triangles"] + 18 * 12,
+        "vertices": old["mesh"]["vertices"] + 18 * 24 + trim["vertices"],
+        "triangles": old["mesh"]["triangles"] + 18 * 12 + trim["triangles"],
     }
     old_p, new_p = old["properties"], new["properties"]
     mm3 = IN**3
     plies, spacers = 1769.625 * mm3, 1179.75 * mm3
-    assert new_p["volume"] == pytest.approx(old_p["volume"] + plies + spacers, abs=1e-5)
-    assert new_p["surface_area"] == pytest.approx(
-        old_p["surface_area"] + 8316 * IN**2, abs=1e-5
+    lap = finish.wall_finish_volume() * mm3
+    assert new_p["volume"] == pytest.approx(
+        old_p["volume"] + plies + spacers + lap, abs=1e-5
     )
-    added_mass = (plies * 450 + spacers * 577) * 1e-6
+    assert new_p["surface_area"] == pytest.approx(
+        old_p["surface_area"] + 8316 * IN**2 + trim["area"], abs=1e-5
+    )
+    added_mass = (plies * 450 + spacers * 577) * 1e-6 + trim["mass"]
     assert new_p["mass_g"] == pytest.approx(old_p["mass_g"] + added_mass, abs=1e-5)
-    # The centroid: b7-outline's moment plus each box's volume at its centre.
-    moment = [old_p["volume"] * old_p["centroid"][k] for k in "xyz"]
-    mass_moment = [old_p["mass_g"] * old_p["center_of_mass"][k] for k in "xyz"]
+    # The centroid: b7-outline's moment plus each box's volume at its centre,
+    # plus the finish's.
+    moment = [
+        old_p["volume"] * old_p["centroid"][k] + trim["moment"][i]
+        for i, k in enumerate("xyz")
+    ]
+    mass_moment = [
+        old_p["mass_g"] * old_p["center_of_mass"][k] + trim["mass_moment"][i]
+        for i, k in enumerate("xyz")
+    ]
     for _, material, b in added_boxes():
         v = (b[1] - b[0]) * (b[3] - b[2]) * (b[5] - b[4]) * mm3
         density = 450 if material == SPF else 577
@@ -265,7 +312,15 @@ def test_the_golden_is_b7_outlines_plus_eighteen_boxes() -> None:
         assert new_p["center_of_mass"][axis] == pytest.approx(
             mass_moment[k] / new_p["mass_g"], abs=1e-9
         )
-    assert new_p["bounding_box"] == old_p["bounding_box"]
+    box = new_p["bounding_box"]
+    # The finish stands 1 7/16 in proud of the framing at its corner boards.
+    # The side walls' boards: X -1 7/16 and 289 7/16; Y and Z are the eaves'
+    # and the ridge's, as before.
+    assert box["min"]["x"] == pytest.approx(-(7 / 16 + 1) * IN, abs=1e-9)
+    assert box["max"]["x"] == pytest.approx((288 + 7 / 16 + 1) * IN, abs=1e-9)
+    for key in ("y", "z"):
+        assert box["min"][key] == old_p["bounding_box"]["min"][key]
+        assert box["max"][key] == old_p["bounding_box"]["max"][key]
 
 
 # --- expected.json's numbers ---------------------------------------------------------

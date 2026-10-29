@@ -446,6 +446,25 @@ def _panel(panel_id: uuid.UUID, features: Features) -> Panel | None:
 
 
 def _names(prefix: str, features: Features, wall_id: uuid.UUID) -> Iterator[uuid.UUID]:
+    """Every exterior panel a wall emitted under *prefix*: its sheathing's
+    columns and rows from 0 while they exist, its corner rips and returns,
+    then (``loft.wall`` 1.5.0, SIDING-TRIM) its siding regions and its
+    corner boards, which lie outside the sheathing under the same tails. A
+    wall before 1.5.0 emits none, so a stored roof is notched as before."""
+    yield from _sheathing_names(prefix, features, wall_id)
+    k = 0
+    while (pid := member_id(wall_id, "siding", 0, f"{prefix}siding/{k}")) in features:
+        yield pid
+        k += 1
+    for end in ("start", "end"):
+        pid = member_id(wall_id, "corner_board", 0, f"{prefix}corner/{end}")
+        if pid in features:
+            yield pid
+
+
+def _sheathing_names(
+    prefix: str, features: Features, wall_id: uuid.UUID
+) -> Iterator[uuid.UUID]:
     """Every sheathing panel a wall emitted under *prefix*: its columns and
     rows from 0 while they exist, its corner rips and returns."""
     col = 0

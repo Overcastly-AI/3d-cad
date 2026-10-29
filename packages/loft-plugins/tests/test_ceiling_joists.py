@@ -314,13 +314,13 @@ def test_with_no_joist_that_fits_the_warning_asks_for_pitch_or_ridge() -> None:
 
 def test_an_update_takes_ceiling_joists_beside_each_common() -> None:
     """An update takes the new release's defaults (PLUGIN-UPDATE-ALL): every
-    roof 1.2.0-1.5.0 is offered the newest, 1.7.0 (GABLE-END-STUDS), with
+    roof 1.2.0-1.5.0 is offered the newest, 1.8.0 (SIDING-TRIM), with
     its inputs as they are, so Ceiling joists is its default, Beside each
     common, and the summary says it ties a gable with them."""
-    newest = REGISTRY.get("loft.roof", "1.7.0")
+    newest = REGISTRY.get("loft.roof", "1.8.0")
     for version in ("1.2.0", "1.3.0", "1.4.0", "1.5.0"):
         update = update_for("loft.roof", version, REGISTRY)
-        assert update is not None and update.to_version == "1.7.0", version
+        assert update is not None and update.to_version == "1.8.0", version
         assert "ceiling joist" in update.summary.lower()
         stored = {"style": "gable", "pitch": "rise_6"}
         assert updated_inputs(update, stored) == stored
@@ -329,7 +329,7 @@ def test_an_update_takes_ceiling_joists_beside_each_common() -> None:
 
 
 def test_an_updated_gable_gains_its_joists_and_one_that_cannot_fit_warns() -> None:
-    """B7's gable stored at 1.4.0: updated by the map at 6/12 it is 1.7.0's
+    """B7's gable stored at 1.4.0: updated by the map at 6/12 it is 1.8.0's
     new roof exactly, 1.5.0's members then 11 joists (then its gable ends,
     GABLE-END-STUDS); at 1/12 (a 2x8 joist
     would pass its 2x10 ridge) the update still succeeds, builds 1.5.0's
@@ -340,7 +340,7 @@ def test_an_updated_gable_gains_its_joists_and_one_that_cannot_fit_warns() -> No
     assert update is not None
     for raw, joists_built in ((B7_GABLE, 11), (B7_1_12, 0)):
         stored = canonical_inputs(old.manifest, {"walls": [ref(WALLS_ID)], **raw})
-        newest = REGISTRY.get("loft.roof", "1.7.0")
+        newest = REGISTRY.get("loft.roof", "1.8.0")
         moved = canonical_inputs(newest.manifest, updated_inputs(update, stored))
         after = roof_of(roofed(rows, moved, newest))
         before = roof_of(roofed(rows, dict(stored), ROOF_1_5))

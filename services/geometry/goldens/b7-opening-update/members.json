@@ -2156,6 +2156,407 @@
     }
   },
   {
+    "feature_id": "cccff7f5-c8d9-5063-b5b9-f457eb971bd9",
+    "role": "siding",
+    "title": "Siding",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "Fibre-cement lap 8-1/4",
+      "material": "fibre_cement",
+      "nominal_size": null,
+      "siding": {
+        "product": "fibre_cement_lap_8_25",
+        "waste_percent": 10
+      }
+    }
+  },
+  {
+    "feature_id": "b9774ebd-087f-56ea-b407-f856d6c3d072",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "45f51cc8-a4ae-52b6-bf11-fb0397f75b32",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "36162a03-782c-5c50-903b-2286bcdff514",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fa6c4f84-2c97-5127-8099-69b6ef0400e9",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "112b9e01-719d-5f0e-abdb-eca487f9bacf",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f30399c1-73e1-5aed-83b7-5f668d75afd4",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bd98c170-b057-505f-9fe2-965cef82f98c",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e0d0a521-4560-5661-b512-a95e3469c55b",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "90740dbf-049f-59e1-9a18-9aab94a05cc4",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "be255d60-0435-55a2-a059-2098624048a9",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a22acbbf-534a-50f1-85fa-1b32b01c6998",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "de0988d8-b297-5f4c-8224-e7f16cc168fb",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "df4b6e29-8965-571c-b096-9113e019bcd5",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ad0aeb14-6d33-5168-8cc3-855cdd4aad6b",
+    "role": "siding",
+    "title": "Siding",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "Fibre-cement lap 8-1/4",
+      "material": "fibre_cement",
+      "nominal_size": null,
+      "siding": {
+        "product": "fibre_cement_lap_8_25",
+        "waste_percent": 10
+      }
+    }
+  },
+  {
+    "feature_id": "a396663d-638a-55aa-9254-c295ee06550d",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d6e8925f-6e5c-5fd8-8230-264086fcb8e9",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "71f1fe90-b2e9-576c-8775-93ff1352f6ee",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "854e3abc-0f36-5a13-ab9c-96402140c994",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d7364305-dc1a-51e6-93f4-3eca7c6a19a8",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3c43bd6e-90e1-5ffa-86db-eaae76f0a928",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bc01bc8d-e591-5cb2-9753-d92573d1e1ee",
+    "role": "siding",
+    "title": "Siding",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "Fibre-cement lap 8-1/4",
+      "material": "fibre_cement",
+      "nominal_size": null,
+      "siding": {
+        "product": "fibre_cement_lap_8_25",
+        "waste_percent": 10
+      }
+    }
+  },
+  {
+    "feature_id": "ce036973-5c78-5c79-8ac6-c4ab46830cdd",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "df56d249-75f5-5ee2-9b5b-b025ab520732",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7028e275-b196-513f-8e5b-a03603265ac0",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "794a098e-bb8c-5d37-b690-d6bac680933e",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "54e8200b-e77a-5d32-8b11-577b3016346b",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f6fabd96-087e-5762-804f-a0b85a29d1fa",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "94fa7b97-64f7-5a87-ba36-5af815845e18",
+    "role": "siding",
+    "title": "Siding",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "Fibre-cement lap 8-1/4",
+      "material": "fibre_cement",
+      "nominal_size": null,
+      "siding": {
+        "product": "fibre_cement_lap_8_25",
+        "waste_percent": 10
+      }
+    }
+  },
+  {
+    "feature_id": "a2082994-f05e-5cdd-a36a-6abbd0926d1a",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a918745f-7302-5327-8ff6-f446269fea86",
+    "role": "corner_board",
+    "title": "Corner board",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9c26b66c-3b12-5fea-b1b5-c7cc11ec0a93",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fd7bc673-2cf3-507c-9f72-0cb577eb9468",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3caa13b0-c16b-5a77-ba39-447d09b9af50",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "04dfa296-9a7d-51b4-b052-7aa88e9653ef",
+    "role": "casing",
+    "title": "Casing",
+    "plugin_id": "loft.wall",
+    "metadata": {
+      "profile": "5/4x4",
+      "material": "fibre_cement",
+      "nominal_size": null
+    }
+  },
+  {
     "feature_id": "accd1eaa-e949-5da8-9b95-3148cd92b55d",
     "role": "spacer",
     "title": "Spacer",

@@ -10,7 +10,8 @@ explicit map (``loft_plugins.updates``). Checked by hand against
   1/2 in gap of a filled header (two in 2x6, one in 2x4), none in a 2x8's
   1-3/8 in gaps, and an insulated header's foam;
 * ``b7-outline`` (walls 1.3.0, door and windows 1.1.0, roof 1.4.0) updated:
-  the walls (1.4.0) and the roof (1.5.0) expand to exactly what they did, and
+  the walls (1.5.0) frame exactly what they did and add their Exterior
+  finish (SIDING-TRIM), the roof notches it round its tails, and
   the six openings at 1.5.0 give 18 plies (the face plies keep their ids)
   and 12 spacers, 2 x 41, 6 x 39.5 and 4 x 27.5 (429 in, 2 359.5 in²,
   1 179.75 in³), 264 852.3789 + 1 769.625 + 1 179.75 = 267 801.7539 in³,
@@ -53,6 +54,7 @@ from loft_wire.features import (
     CustomFeature,
     EvaluateTreeRequest,
     ExpandedMember,
+    ExtrudeFeature,
     FeatureRef,
 )
 
@@ -87,13 +89,15 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
             for plugin in ("loft.window", "loft.door")
             for version in ("1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0")
         ),
-        ("loft.wall", "1.2.0", "1.4.0"),
-        ("loft.wall", "1.3.0", "1.4.0"),
-        ("loft.roof", "1.2.0", "1.7.0"),
-        ("loft.roof", "1.3.0", "1.7.0"),
-        ("loft.roof", "1.4.0", "1.7.0"),
-        ("loft.roof", "1.5.0", "1.7.0"),
-        ("loft.roof", "1.6.0", "1.7.0"),
+        ("loft.wall", "1.2.0", "1.5.0"),
+        ("loft.wall", "1.3.0", "1.5.0"),
+        ("loft.wall", "1.4.0", "1.5.0"),
+        ("loft.roof", "1.2.0", "1.8.0"),
+        ("loft.roof", "1.3.0", "1.8.0"),
+        ("loft.roof", "1.4.0", "1.8.0"),
+        ("loft.roof", "1.5.0", "1.8.0"),
+        ("loft.roof", "1.6.0", "1.8.0"),
+        ("loft.roof", "1.7.0", "1.8.0"),
         ("loft.floor", "1.2.0", "1.3.0"),
         ("loft.deck", "1.1.0", "1.3.0"),
         ("loft.deck", "1.2.0", "1.3.0"),
@@ -105,8 +109,8 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
 def test_the_latest_and_the_unmapped_releases_are_offered_none() -> None:
     for plugin, version in (
         ("loft.window", "1.5.0"),
-        ("loft.wall", "1.4.0"),
-        ("loft.roof", "1.7.0"),
+        ("loft.wall", "1.5.0"),
+        ("loft.roof", "1.8.0"),
         ("loft.floor", "1.3.0"),
         ("loft.deck", "1.3.0"),
         ("loft.foundation", "1.1.0"),
@@ -301,7 +305,9 @@ def test_the_stored_b7_rebuilds_as_its_golden() -> None:
 
 def test_a_typed_wall_1_2_0_updates_to_the_same_members() -> None:
     """B2's front wall typed at 1.2.0 with its OSB and a 1.0.0 door: at
-    1.4.0, same inputs, it frames the same members under the same ids."""
+    1.5.0, same inputs, it frames the same members under the same ids, then
+    takes the new Exterior finish's default (SIDING-TRIM): its siding and
+    the door's three casing pieces."""
     wall_id = uuid.UUID("00000000-0000-0000-0000-0000000002f0")
     door_id = uuid.UUID("00000000-0000-0000-0000-0000000002f1")
     raw = {
@@ -330,37 +336,53 @@ def test_a_typed_wall_1_2_0_updates_to_the_same_members() -> None:
         ),
     )
     update = update_for("loft.wall", "1.2.0", REGISTRY)
-    assert update is not None and update.to_version == "1.4.0"
+    assert update is not None and update.to_version == "1.5.0"
     old = REGISTRY.get("loft.wall", "1.2.0")
-    new = REGISTRY.get("loft.wall", "1.4.0")
+    new = REGISTRY.get("loft.wall", "1.5.0")
     stored = canonical_inputs(old.manifest, raw)
     moved = canonical_inputs(new.manifest, updated_inputs(update, stored))
     before = expand(old, wall_id, stored, {}, hosted=hosted)
     after = expand(new, wall_id, moved, {}, hosted=hosted)
-    assert len(before) > 0 and after == before
+    assert len(before) > 0 and after[: len(before)] == before
+    added = Counter(m.role for m in after[len(before) :] if m.metadata is not None)
+    assert added == Counter({"siding": 1, "casing": 3})
 
 
 def test_update_all_moves_every_pin_to_the_newest() -> None:
     assert pins(update_all(b7())) == [
         ("loft.floor", "1.3.0"),
-        ("loft.wall", "1.4.0"),
+        ("loft.wall", "1.5.0"),
         *[("loft.door", "1.5.0")],
         *[("loft.window", "1.5.0")] * 5,
-        ("loft.roof", "1.7.0"),
+        ("loft.roof", "1.8.0"),
     ]
 
 
 def test_with_the_openings_and_walls_updated_floor_and_roof_are_as_they_were() -> None:
+    """The floor is as it was. The roof (1.4.0) frames every member as it
+    did; each tail's notch also cuts the siding or corner board the walls'
+    new Exterior finish puts under it (SIDING-TRIM), listed after the
+    sheathing panels it cut before."""
     before, after = by_feature(b7()), by_feature(update_all(b7(), WALLS_OPENINGS))
     fids = [fid for fid, env, _ in b7() if isinstance(env, CustomFeature)]
     floor, roof = fids[0], fids[-1]
     assert after[floor] == before[floor]
-    assert after[roof] == before[roof]
+    assert [m.id for m in after[roof]] == [m.id for m in before[roof]]
+    for old, new in zip(before[roof], after[roof], strict=True):
+        if old.role != "cutter":
+            assert new == old
+            continue
+        assert isinstance(old.feature, ExtrudeFeature)
+        assert isinstance(new.feature, ExtrudeFeature)
+        was, now = old.feature.params.cut_bodies, new.feature.params.cut_bodies
+        assert isinstance(was, list) and isinstance(now, list)
+        assert now[: len(was)] == was and len(now) == len(was) + 1
 
 
 def test_the_walls_frame_what_they_framed_and_the_middle_plies() -> None:
-    """Wall 1.4.0 frames 1.3.0's members exactly, every id kept; the six
-    filled headers add one middle ply each (and its section)."""
+    """Wall 1.5.0 frames 1.3.0's members exactly, every id kept; the six
+    filled headers add one middle ply each (and its section), and the
+    Exterior finish its siding (SIDING-TRIM: test_siding_trim.py)."""
     stored, updated = b7(), update_all(b7())
     walls = [fid for fid, env, _ in stored if isinstance(env, CustomFeature)][1]
     before = {m.id: m for m in by_feature(stored)[walls]}
@@ -371,7 +393,17 @@ def test_the_walls_frame_what_they_framed_and_the_middle_plies() -> None:
         after[i].model_copy(update={"index": m.index}) == m for i, m in before.items()
     )
     added = Counter(m.role for i, m in after.items() if i not in before)
-    assert added == Counter({"header": 6, "section": 6})
+    assert added == Counter(
+        {
+            "header": 6,
+            "section": 6,
+            "siding_plane": 4,
+            "siding_section": 4 + 8 + 23,
+            "siding": 4,
+            "corner_board": 8,
+            "casing": 23,
+        }
+    )
 
 
 HEADER_LENGTHS = Counter({41.0: 3, 39.5: 9, 27.5: 6})
@@ -416,7 +448,10 @@ def test_no_two_framing_members_overlap_and_the_volume_adds_up() -> None:
     on the kernel, as b7-outline's are). The added volume is the 6 plies
     (8.25 x 214.5 = 1 769.625) and the spacers (1 179.75)."""
     members = members_of(update_all(b7(), WALLS_OPENINGS))
+    # The siding's box spans its cased openings, and the notched corner
+    # boards' the rafter tails': the kernel probes those exactly.
     skip = {"sheathing", "rafter", "common", "ridge", "subfloor"}
+    skip |= {"siding", "corner_board", "casing"}
     roles = tuple({m.role for m in members} - skip)
     assert overlaps(boxes(members, roles)) == []
     old = boxes(members_of(b7()), ("header",))
@@ -485,8 +520,10 @@ def test_the_golden_is_the_updated_expansion() -> None:
 
 
 def test_the_golden_has_b7s_bodies_and_eighteen_more() -> None:
+    """And the walls' exterior finish (SIDING-TRIM): 4 siding layers, 8
+    corner boards and 23 casing pieces."""
     _, metadata = golden()
-    assert len(metadata) == 217 + 6 + 12
+    assert len(metadata) == 217 + 6 + 12 + 4 + 8 + 23
 
 
 if __name__ == "__main__":

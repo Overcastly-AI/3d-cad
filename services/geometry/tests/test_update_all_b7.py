@@ -36,6 +36,7 @@ from build123d import Solid
 from geometry.kernel import measure_shape
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _siding_builder as finish
 import test_ceiling_joists_b7 as joists
 import test_gable_ends_b7 as gables
 import test_opening_update_b7 as openings
@@ -46,7 +47,14 @@ IN = b7.IN
 
 
 def script() -> list[b7.Member]:
-    return [*openings.script(), *joists.joists(), *gables.gable_members()]
+    """The walls' finish is in openings.script(); the gables' lap is roof
+    1.8.0's (SIDING-TRIM)."""
+    return [
+        *openings.script(),
+        *joists.joists(),
+        *gables.gable_members(),
+        *finish.gable_siding_members(),
+    ]
 
 
 def gable_volume() -> float:
@@ -55,7 +63,12 @@ def gable_volume() -> float:
 
 
 def analytic_volume() -> float:
-    return openings.analytic_volume() + 11 * joists.joist_volume() + gable_volume()
+    return (
+        openings.analytic_volume()
+        + 11 * joists.joist_volume()
+        + gable_volume()
+        + (finish.finish_volume() - finish.wall_finish_volume())
+    )
 
 
 @pytest.fixture(scope="module")
@@ -64,18 +77,23 @@ def step_solids(tmp_path_factory: pytest.TempPathFactory) -> list[Solid]:
 
 
 def test_the_volume_is_the_updated_openings_and_the_joists() -> None:
-    assert openings.analytic_volume() == pytest.approx(267801.7538656, abs=1e-6)
+    """And the exterior finish (SIDING-TRIM): the walls' 34 217.228516 in^3
+    of lap, corner boards and casing, the gables' 3 565.740971 of lap."""
+    assert openings.framed_volume() == pytest.approx(267801.7538656, abs=1e-6)
+    assert finish.wall_finish_volume() == pytest.approx(34217.228515625, abs=1e-9)
     assert round(11 * joists.joist_volume(), 6) == 22887.596423
     assert gable_volume() == pytest.approx(4268 + 4992.0373599, abs=1e-6)
-    assert round(analytic_volume(), 6) == 299949.387649
+    lap = finish.finish_volume() - finish.wall_finish_volume()
+    assert lap == pytest.approx(2 * 5705.185554 * 5 / 16, abs=1e-5)
     assert analytic_volume() == pytest.approx(
-        267801.7539 + 22887.596423 + 4268 + 4992.037360, abs=1e-4
+        267801.7539 + 34217.228516 + 22887.596423 + 4268 + 4992.037360 + 3565.740971,
+        abs=1e-4,
     )
 
 
 def test_the_step_is_the_independent_scripts(step_solids: list[Solid]) -> None:
     mine = script()
-    assert len(step_solids) == len(mine) == 217 + 18 + 11 + 22 + 12
+    assert len(step_solids) == len(mine) == 217 + 18 + 35 + 11 + 22 + 12 + 2
     assert b7._unmatched(step_solids, [m.solid for m in mine]) == []  # pyright: ignore[reportPrivateUsage]
     volume = sum(float(measure_shape(s).volume) for s in step_solids) / IN**3
     assert volume == pytest.approx(analytic_volume(), abs=1e-4)
@@ -104,8 +122,9 @@ def test_the_golden_is_the_two_releases_goldens_added() -> None:
     """b7-opening-update's bodies plus what b7-gable-ends adds to b7-outline:
     11 joists (8 faces, 18 edges, 36 mesh vertices and 20 triangles each)
     and the gable ends (22 studs and 10 panels of 6 faces, 12 edges, 24
-    vertices and 12 triangles, 2 peak panels of 7, 15, 30 and 16), and their
-    volume. The bounds are b7-gable-ends' (the OSB's peak is the top)."""
+    vertices and 12 triangles, 2 peak panels of 7, 15, 30 and 16), and the
+    gables' lap (2 peaked prisms of 7, 15, 30 and 16, SIDING-TRIM), and their
+    volume. The bounds are b7-gable-ends' but the corner boards' X."""
     base, gabled, new = (
         _expected("b7-opening-update"),
         _expected("b7-gable-ends"),
@@ -114,16 +133,25 @@ def test_the_golden_is_the_two_releases_goldens_added() -> None:
     outline = _expected("b7-outline")
     for key in ("faces", "edges", "shells"):
         added = gabled["topology"][key] - outline["topology"][key]
-        assert new["topology"][key] == base["topology"][key] + added
+        lap = {"faces": 2 * 7, "edges": 2 * 15, "shells": 2}[key]
+        assert new["topology"][key] == base["topology"][key] + added + lap
     for key in ("vertices", "triangles"):
         added = gabled["mesh"][key] - outline["mesh"][key]
-        assert new["mesh"][key] == base["mesh"][key] + added
+        lap = {"vertices": 2 * 30, "triangles": 2 * 16}[key]
+        assert new["mesh"][key] == base["mesh"][key] + added + lap
     added_volume = gabled["properties"]["volume"] - outline["properties"]["volume"]
+    lap_volume = (finish.finish_volume() - finish.wall_finish_volume()) * IN**3
     assert new["properties"]["volume"] == pytest.approx(
-        base["properties"]["volume"] + added_volume, abs=2e-5
+        base["properties"]["volume"] + added_volume + lap_volume, abs=2e-5
     )
-    assert new["properties"]["volume"] / IN**3 == pytest.approx(299949.387683, abs=1e-4)
-    assert new["properties"]["bounding_box"] == gabled["properties"]["bounding_box"]
+    assert new["properties"]["volume"] / IN**3 == pytest.approx(
+        analytic_volume(), abs=1e-6
+    )
+    box, top = new["properties"]["bounding_box"], gabled["properties"]["bounding_box"]
+    assert box["min"]["x"] == pytest.approx(-(7 / 16 + 1) * IN, abs=1e-9)
+    assert box["max"]["x"] == pytest.approx((288 + 7 / 16 + 1) * IN, abs=1e-9)
+    assert (box["min"]["y"], box["max"]["y"]) == (top["min"]["y"], top["max"]["y"])
+    assert (box["min"]["z"], box["max"]["z"]) == (top["min"]["z"], top["max"]["z"])
 
 
 def expected_numbers() -> dict[str, Any]:

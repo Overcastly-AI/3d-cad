@@ -293,7 +293,7 @@ def test_a_1_12_roof_updates_to_1_7_and_warns_of_the_joists_it_cannot_fit(
     part, _ = _house(client, roof="1.4.0", pitch="rise_1")
     before = part.rows()["Roof"]
     offer = before["plugin_update"]
-    assert offer is not None and offer["to_version"] == "1.7.0"
+    assert offer is not None and offer["to_version"] == "1.8.0"
     assert (offer["adds"], offer["quiet"]) == (
         ["22 gable studs", "12 gable sheathing panels"],
         False,
@@ -306,7 +306,7 @@ def test_a_1_12_roof_updates_to_1_7_and_warns_of_the_joists_it_cannot_fit(
     assert response.status_code == 200, response.text
     after = part.rows()["Roof"]
     params = after["feature"]["params"]
-    assert params["plugin_version"] == "1.7.0"
+    assert params["plugin_version"] == "1.8.0"
     assert params["inputs"]["ceiling_joists"] == "beside_common"
     old = before["feature"]["params"]["expansion"]
     assert params["expansion"][: len(old)] == old
@@ -336,7 +336,7 @@ def test_a_1_6_roof_updates_to_1_7_with_its_gable_ends(client: TestClient) -> No
     part, _ = _house(client, roof="1.6.0")
     before = part.rows()["Roof"]
     offer = before["plugin_update"]
-    assert offer is not None and offer["to_version"] == "1.7.0"
+    assert offer is not None and offer["to_version"] == "1.8.0"
     assert "gable studs" in offer["summary"]
     response = part.client.post(
         f"/api/v1/parts/{part.id}/features/plugin-updates",
@@ -346,7 +346,7 @@ def test_a_1_6_roof_updates_to_1_7_with_its_gable_ends(client: TestClient) -> No
     assert response.status_code == 200, response.text
     after = part.rows()["Roof"]
     params = after["feature"]["params"]
-    assert params["plugin_version"] == "1.7.0"
+    assert params["plugin_version"] == "1.8.0"
     assert params["inputs"]["gable_ends"] == "studs_sheathing"
     old = before["feature"]["params"]["expansion"]
     assert params["expansion"][: len(old)] == old

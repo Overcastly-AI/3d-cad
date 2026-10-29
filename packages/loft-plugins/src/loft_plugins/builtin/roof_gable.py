@@ -24,6 +24,14 @@ on picked walls (an outline):
   outside the framing).
 * **None**: 1.6.0's roof exactly.
 
+``loft.roof`` 1.8.0 (SIDING-TRIM) carries an end wall's EXTERIOR FINISH up
+too, as Chief Architect's gable wall carries its wall type's siding layer to
+the roof: when the wall (``loft.wall`` 1.5.0) has one, its product is laid on
+the gable sheathing's outer face over the sheathing's full width, from the
+plate's top to the rafters' top plane, one body a gable, in the wall's
+product and waste allowance, so the cut list buys it with the walls'
+siding. On walls with no finish 1.8.0 is 1.7.0 exactly.
+
 A layout ceiling joist that would lie on an end wall's top plate (a common
 hard by the end rafter, over the wall) is not framed when the gable ends
 are: the end wall carries the ceiling edge there, as at the end rafters.
@@ -33,7 +41,7 @@ frame no gable ends.
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -53,6 +61,7 @@ from loft_wire.plugins import (
     member_id,
 )
 from loft_wire.sheet_goods import SheetGood
+from loft_wire.siding import SidingProduct, SidingTakeoff
 from loft_wire.sketch import Point2D
 
 from loft_plugins.api import ExpandInputs, Member
@@ -66,6 +75,7 @@ from loft_plugins.builtin.sheathing import (
     loops_entities,
     strips,
 )
+from loft_plugins.builtin.wall_finish import outer_plane
 
 GABLE_STUDS = "studs_sheathing"
 GABLE_NONE = "none"
@@ -100,6 +110,13 @@ GABLE_ROLES = [
         description="An end wall's sheathing carried up its gable.",
     ),
 ]
+
+#: 1.8.0's (SIDING-TRIM): the end wall's exterior finish carried up.
+GABLE_SIDING_ROLE = PluginMemberRole(
+    role="gable_siding",
+    title="Siding",
+    description="An end wall's exterior finish carried up its gable.",
+)
 
 
 def _mm(value: float) -> float:
@@ -155,14 +172,22 @@ def gable_ends(
     good: SheetGood | None,
     section: GableSection,
     place: GablePlace,
+    finish: tuple[SidingProduct, int] | None = None,
 ) -> list[Member]:
     """Each end wall's gable studs, then its sheathing (module docstring),
     numbered after the roof's *members* of each role. *walls* are the
     outline walls that do not define the slope, in outline order; *good*
-    their sheathing (``None``: studs only)."""
+    their sheathing (``None``: studs only); *finish* their exterior finish
+    and its waste allowance, carried up over the sheathing (1.8.0)."""
     used = {
         role: sum(1 for m in members if m.role == role)
-        for role in ("plane", "section", "gable_stud", "gable_sheathing")
+        for role in (
+            "plane",
+            "section",
+            "gable_stud",
+            "gable_sheathing",
+            "gable_siding",
+        )
     }
     out: list[Member] = []
 
@@ -250,24 +275,14 @@ def gable_ends(
                 )
             )
 
-        if good is None:
-            continue
-        # The sheathing: the wall's columns, and its corner rips where it
-        # has them, carried up to the rafters' top plane.
-        columns: list[tuple[str, float, float]] = [
-            (f"exterior/{k}", u0, u1)
-            for k, (u0, u1) in enumerate(strips(spec.length, PANEL_WIDTH))
-        ]
-        rip = spec.thickness + good.thickness_in
-        for end, u0, u1 in (
-            ("start", -rip, 0.0),
-            ("end", spec.length, spec.length + rip),
-        ):
-            panel = member_id(wall_id, "sheathing", 0, f"{wall.line_id}/corner/{end}")
-            if panel in inputs.earlier:
-                columns.append((f"corner/{end}", u0, u1))
-        panel_meta = MemberMetadata(profile=good.name, material=good.material)
-        for col, u0, u1 in columns:
+        def up_to_roof(
+            u0: float,
+            u1: float,
+            across: Callable[[float], float] = across,
+            plate: float = plate,
+        ) -> list[tuple[float, float]]:
+            # (u, world Z) from the plate up to the rafters' top plane,
+            # peaked where the ridge passes over.
             a0, a1 = across(u0), across(u1)
             points = [(u0, plate), (u1, plate), (u1, section.top(a1))]
             lo, hi = min(a0, a1), max(a0, a1)
@@ -276,6 +291,31 @@ def gable_ends(
                 u = u0 + (section.peak - a0) / (a1 - a0) * (u1 - u0)
                 points.append((round(u, _DIGITS), section.top(section.peak)))
             points.append((u0, section.top(a0)))
+            return points
+
+        # The sheathing: the wall's columns, and its corner rips where it
+        # has them, carried up to the rafters' top plane.
+        columns: list[tuple[str, float, float]] = [
+            (f"exterior/{k}", u0, u1)
+            for k, (u0, u1) in enumerate(strips(spec.length, PANEL_WIDTH))
+        ]
+        if good is not None:
+            rip = spec.thickness + good.thickness_in
+            for end, u0, u1 in (
+                ("start", -rip, 0.0),
+                ("end", spec.length, spec.length + rip),
+            ):
+                panel = member_id(
+                    wall_id, "sheathing", 0, f"{wall.line_id}/corner/{end}"
+                )
+                if panel in inputs.earlier:
+                    columns.append((f"corner/{end}", u0, u1))
+        extent = (min(u0 for _, u0, _ in columns), max(u1 for _, _, u1 in columns))
+        if good is None:
+            columns = []
+        for col, u0, u1 in columns:
+            assert good is not None
+            points = up_to_roof(u0, u1)
             name = f"{wall.line_id}/{col}"
             section_name = f"gable_sheathing/{name}"
             out.append(
@@ -311,8 +351,86 @@ def gable_ends(
                             direction=outward,
                         ),
                     ),
-                    panel_meta,
+                    MemberMetadata(profile=good.name, material=good.material),
                     name=name,
                 )
             )
+        if finish is not None:
+            # The wall's exterior finish carried up over its sheathing
+            # (SIDING-TRIM, roof 1.8.0): one body a gable, as the wall's own
+            # siding is one a face.
+            out += _gable_siding(
+                inputs,
+                wall,
+                finish,
+                0.0 if good is None else good.thickness_in,
+                sketch,
+                up_to_roof(*extent),
+                index("plane"),
+                index("section"),
+                index("gable_siding"),
+            )
     return out
+
+
+def _gable_siding(
+    inputs: ExpandInputs,
+    wall: OutlineWall,
+    finish: tuple[SidingProduct, int],
+    sheathed: float,
+    sketch: Callable[[list[tuple[float, float]]], list[Point2D]],
+    points: list[tuple[float, float]],
+    plane_index: int,
+    section_index: int,
+    index: int,
+) -> list[Member]:
+    """One end wall's gable siding (1.8.0): its finish on the sheathing's
+    outer face (*sheathed* outside the framing), over the
+    sheathing's full width (*points*, the wall's ``(u, world Z)``) from the
+    plate's top to the rafters' top plane, in the wall's product and waste
+    allowance, so the cut list buys it with the wall's."""
+    product, waste = finish
+    plane = outer_plane(wall.spec, -sheathed)
+    datums, ref = plane.members(
+        inputs, f"gable/{wall.line_id}/siding/", plane_index, role="plane"
+    )
+    name = f"{wall.line_id}/siding"
+    section_name = f"gable_siding/{name}"
+    return [
+        *datums,
+        Member(
+            "section",
+            section_index,
+            SketchFeature(
+                type="sketch",
+                version=1,
+                params=SketchParamsV1(
+                    plane=ref,
+                    entities=list(loops_entities([sketch(points)])),
+                    constraints=[],
+                ),
+            ),
+            name=section_name,
+        ),
+        Member(
+            "gable_siding",
+            index,
+            ExtrudeFeature(
+                type="extrude",
+                version=1,
+                params=ExtrudeParamsV1(
+                    profile=inputs.ref("section", section_index, section_name),
+                    distance_mm=product.thickness_mm,
+                    operation="add",
+                    merge=False,
+                    direction="reverse" if plane.reverse else "normal",
+                ),
+            ),
+            MemberMetadata(
+                profile=product.name,
+                material=product.material,
+                siding=SidingTakeoff(product=product.key, waste_percent=waste),
+            ),
+            name=name,
+        ),
+    ]
