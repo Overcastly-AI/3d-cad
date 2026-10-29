@@ -279,6 +279,12 @@ One line each. The founder triages weekly; most are closed without work.
 - OPENING-UPDATE-EDITOR: Update from the editor closes it and drops unsaved form edits without asking.
 - OPENING-UPDATE-RETRY: on a stale tree_version the web silently retries an explicit-id update once.
 - OPENING-UPDATE-GW-TEST: the gateway test echoes /plugin-updates as UndoRedoRequest, so only the empty-list 422 covers its feature_ids check.
+- DECK-FOOTINGS-SYSTEM: `classify_body` sends every concrete pour to Foundation whichever plugin poured it, so a pour a future plugin wants under its own system cannot be.
+- DECK-FOOTINGS-STANDOFF: the post base's standoff is not modelled; the post still runs from grade (Z 0) to the beam, where an ABU66 raises it about 1 in.
+- DECK-FOOTINGS-OVERHANG: a corner pier (Ø16 under a post centred 2.75 in from the end) overhangs the deck's edge in plan by 5.25 in; Chief steps the end posts in.
+- DECK-FOOTINGS-LAZY-IMPORT: `group_pieces` imports `cut_list_foundation` (and `cut_list_casework`) inside the function to break the module cycle.
+- DECK-FOOTINGS-GALV: post bases are priced as `steel_1018`, casework hardware's steel; a galvanized-steel library material would name them truly.
+- DECK-FOOTINGS-UPDATE: `loft_plugins.updates` offers `loft.deck` 1.1.0 no 1.2.0 update, so a saved deck gets footings only by re-inserting it.
 - OPENING-SHEET-MEMBERS: CUT_TO_SIZE_PLUGINS sends any window/door sheet-good member to Walls with no panel gap; implicit for future opening members.
 - FOUNDATION-INSTANCE-POURS: each copy of a placed part is rounded as its own delivery, which over-orders many small identical pads placed as instances.
 - FOUNDATION-SAME-NAME-POURS: pours from separate features with the same member name share a line but round separately; untested.
