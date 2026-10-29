@@ -40,6 +40,7 @@ from typing import Any
 
 import pytest
 from loft_plugins import REGISTRY, canonical_inputs, update_for, updated_inputs
+from loft_plugins.updates import update_effect
 from loft_wire.cut_list import ONE_PIECE_ROLES, CutListMember
 from loft_wire.features import (
     DatumFeature,
@@ -430,6 +431,21 @@ def test_an_update_from_1_6_0_takes_the_new_default() -> None:
         roofed(rows, B7_GABLE, ROOF_1_7)
     )
     assert update_for("loft.roof", "1.7.0", REGISTRY) is None
+
+
+def test_the_update_names_what_it_adds_and_re_lays() -> None:
+    """B7 at 1.6.0 gains 22 gable studs and 12 panels and re-lays nothing; at
+    291 its joist on the right wall's plate goes, a re-lay, so that update
+    is offered on its own (PLUGIN-UPDATE-ALL)."""
+    for length, adds, relays in (
+        (288, ("22 gable studs", "12 gable sheathing panels"), ()),
+        (291, ("22 gable studs", "12 gable sheathing panels"), ("1 ceiling joist",)),
+    ):
+        rows = house(rectangle(length, 192), [], B7_STUDS, B7_FLOOR, None)
+        before = roof_of(roofed(rows, B7_GABLE, ROOF_1_6))
+        after = roof_of(roofed(rows, B7_GABLE, ROOF_1_7))
+        effect = update_effect([("loft.roof", before, after)], REGISTRY)
+        assert (effect.adds, effect.relays) == (adds, relays), length
 
 
 def test_new_roofs_are_1_7_0_and_frame_the_gable_ends() -> None:

@@ -450,7 +450,7 @@
     "packages/loft-plugins/tests/test_deck_footings.py": 13,
     "packages/loft-plugins/tests/test_floor.py": 22,
     "packages/loft-plugins/tests/test_floor_joist_span.py": 25,
-    "packages/loft-plugins/tests/test_gable_end_studs.py": 19,
+    "packages/loft-plugins/tests/test_gable_end_studs.py": 20,
     "packages/loft-plugins/tests/test_header_plies.py": 22,
     "packages/loft-plugins/tests/test_import_lint.py": 4,
     "packages/loft-plugins/tests/test_interior_walls.py": 22,
