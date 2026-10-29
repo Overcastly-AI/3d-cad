@@ -5186,7 +5186,7 @@
                 "type": "null"
               }
             ],
-            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`). Omitted when there are none.",
+            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, `stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, `stair_deck_guard`). Omitted when there are none.",
             "title": "Plugin Warnings"
           },
           "rolled_back": {
@@ -8236,6 +8236,7 @@
               "us_1x2",
               "us_1x4",
               "us_1x6",
+              "us_1x8",
               "us_5_4x6",
               "us_2x2",
               "us_2x3",
@@ -11047,11 +11048,43 @@
         "type": "object"
       },
       "PluginUpdate": {
-        "description": "A newer release a stored custom feature may be updated to\n(OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio\nhas a newer version and Fusion badges out-of-date content. Offered only\nwhere the plugin declares an explicit map of the stored inputs into the\nnewer release; the update is an ordinary edit, one undo step.",
+        "description": "The newest release a stored custom feature may be updated to\n(OPENING-UPDATE, PLUGIN-UPDATE-ALL), as Onshape marks a custom feature\nwhose Feature Studio has a newer version and Fusion badges out-of-date\ncontent. Offered only where the plugin declares an explicit map of the\nstored inputs into the newer release; new inputs take their defaults, so\nthe update may add members, and the offer names them. The update is an\nordinary edit, one undo step.",
         "properties": {
+          "adds": {
+            "description": "What the update adds to this feature (and to the feature hosting it), one count and noun each: \"11 ceiling joists\", \"3 post bases\". Empty when it adds nothing.",
+            "items": {
+              "maxLength": 80,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Adds",
+            "type": "array"
+          },
+          "quiet": {
+            "default": false,
+            "description": "True when the update changes no member of this feature or its host: the tree shows no badge, but Update all still takes it.",
+            "title": "Quiet",
+            "type": "boolean"
+          },
+          "relays": {
+            "description": "What the update moves of what this feature (or its host) already built, one count and noun each: \"19 joists\", \"20 subfloor panels\". Empty when it keeps every stored member in place.",
+            "items": {
+              "maxLength": 80,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Relays",
+            "type": "array"
+          },
+          "separate": {
+            "default": false,
+            "description": "True when the update re-lays stored members (``relays``): it is offered on this feature alone, and Update all leaves it, listed in ``skipped_updates``, for its own decision.",
+            "title": "Separate",
+            "type": "boolean"
+          },
           "summary": {
-            "description": "What the update changes, in the action's words",
-            "maxLength": 400,
+            "description": "What the update changes, in the action's words, starting with what it adds (\"Adds 3 pier footings and 3 post bases.\")",
+            "maxLength": 600,
             "title": "Summary",
             "type": "string"
           },
@@ -11070,7 +11103,7 @@
         "type": "object"
       },
       "PluginUpdateRequest": {
-        "description": "Update custom features to their newer releases (OPENING-UPDATE).\n\nOnshape's \"Update\" on a custom feature and its \"Update all\" on the Part\nStudio: each named feature (or, with ``feature_ids`` null, every feature\nwhose response carries ``plugin_update``) is re-pinned to that release,\nits inputs carried by the plugin's explicit map, and re-expanded with its\nhosts and the features that pick it. All of it is ONE edit: one\n``tree_version`` bump and one undo step. A feature with no update is\nrefused (422 ``plugin_update_unavailable``) and nothing is written.",
+        "description": "Update custom features to their newer releases (OPENING-UPDATE).\n\nOnshape's \"Update\" on a custom feature and its \"Update all\" on the Part\nStudio: each named feature (or, with ``feature_ids`` null, every feature\nwhose response carries ``plugin_update``, but a ``separate`` one) is\nre-pinned to that release, its inputs carried by the plugin's explicit\nmap, and re-expanded with its hosts and the features that pick it. All\nof it is ONE edit: one ``tree_version`` bump and one undo step. Named\nfeatures are all-or-nothing: one with no update, or a refused one,\nwrites nothing (422). Update all instead skips a refused feature and\nlists it, with each ``separate`` one, in ``skipped_updates``.",
         "properties": {
           "expected_tree_version": {
             "minimum": 0.0,
@@ -11102,15 +11135,89 @@
         "title": "PluginUpdateRequest",
         "type": "object"
       },
+      "PluginUpdateResponse": {
+        "description": "The tree after an update, and what Update all left out of date.",
+        "properties": {
+          "can_redo": {
+            "description": "True when a later history snapshot exists to restore (the history cursor is below the ring's top)",
+            "title": "Can Redo",
+            "type": "boolean"
+          },
+          "can_undo": {
+            "description": "True when an earlier history snapshot exists to restore (docs/design/undo-redo.md) \u2014 lets the toolbar disable undo without a second call",
+            "title": "Can Undo",
+            "type": "boolean"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureResponse"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "rollback_feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last INCLUDED feature; null = bar at the tip (\u00a73)",
+            "title": "Rollback Feature Id"
+          },
+          "skipped_updates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SkippedPluginUpdate"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set by Update all (`POST .../features/plugin-updates` with no ids): the features it left out of date, and why. Omitted otherwise.",
+            "title": "Skipped Updates"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "rollback_feature_id",
+          "features",
+          "can_undo",
+          "can_redo"
+        ],
+        "title": "PluginUpdateResponse",
+        "type": "object"
+      },
       "PluginWarning": {
         "description": "One stored custom feature's geometry warning, with its fix if any.",
         "properties": {
           "code": {
-            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them",
+            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them; 'stair_throat_thin': a stair's cut stringers keep under AWC DCA6's 5 in throat; 'stair_stringer_span': a stair's cut stringers span more than DCA6's 6'-0\" horizontally between supports; 'stair_guard_required': a stair's top tread is over 30 in up and its open sides have no guard (IRC R312.1.1); 'stair_deck_guard': the deck's guard runs across the stair's head",
             "enum": [
               "roof_through_sheathing",
               "crawl_height_low",
-              "ceiling_joists_omitted"
+              "ceiling_joists_omitted",
+              "stair_throat_thin",
+              "stair_stringer_span",
+              "stair_guard_required",
+              "stair_deck_guard"
             ],
             "title": "Code",
             "type": "string"
@@ -11400,6 +11507,7 @@
                   "us_1x2",
                   "us_1x4",
                   "us_1x6",
+                  "us_1x8",
                   "us_5_4x6",
                   "us_2x2",
                   "us_2x3",
@@ -14624,6 +14732,56 @@
           "points"
         ],
         "title": "SketchSpline",
+        "type": "object"
+      },
+      "SkippedPluginUpdate": {
+        "description": "A feature Update all left at its release (PLUGIN-UPDATE-ALL): one that\nre-lays what it built (offered alone), or whose update was refused (the\nrest still update, in one step, as VISION's omit-and-warn rule).",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The refusal's error code, when refused",
+            "title": "Code"
+          },
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Why, in the words the tree shows",
+            "maxLength": 1000,
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "separate",
+              "refused"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_id",
+          "name",
+          "reason",
+          "message"
+        ],
+        "title": "SkippedPluginUpdate",
         "type": "object"
       },
       "StepAssemblyImportResult": {
@@ -19743,7 +19901,7 @@
     },
     "/api/v1/parts/{part_id}/features/plugin-updates": {
       "post": {
-        "description": "Update custom features to their newer releases (OPENING-UPDATE): the\nnamed ones, or every one with ``plugin_update`` when ``feature_ids`` is\nnull (\"Update all\", as Onshape updates a Part Studio's custom features).\nEach is re-pinned with its inputs carried by its plugin's explicit map\nand re-expanded, in tree order, with its hosts and pickers. The whole\nupdate is ONE edit: one ``tree_version`` bump and one history step, so\none Undo restores every feature as it was. A feature without an update,\nor a refusal of any of them, writes nothing.",
+        "description": "Update custom features to their newest releases (OPENING-UPDATE,\nPLUGIN-UPDATE-ALL): the named ones, or with ``feature_ids`` null every\none with ``plugin_update`` (\"Update all\", as Onshape updates a Part\nStudio's custom features). Each is re-pinned with its inputs carried by\nits plugin's explicit map and re-expanded, in tree order, with its hosts\nand pickers. The whole update is ONE edit: one ``tree_version`` bump and\none history step, so one Undo restores every feature as it was.\n\nNamed features are all or nothing: one without an update, or a refusal\nof any, writes nothing. Update all omits and warns, never refuses on one\nfeature (VISION, 2026-10-29): it leaves each ``separate`` update (one\nthat re-lays what the feature built) for its own decision, skips a\nfeature whose update is refused with every row it touched restored, and\nlists both in ``skipped_updates``; the rest update.",
         "operationId": "update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post",
         "parameters": [
           {
@@ -19790,7 +19948,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                  "$ref": "#/components/schemas/PluginUpdateResponse"
                 }
               }
             },

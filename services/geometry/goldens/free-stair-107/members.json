@@ -1,0 +1,508 @@
+[
+  {
+    "feature_id": "59438a74-0f5d-5c91-a125-19f0c235d712",
+    "role": "stringer",
+    "title": "Stringer",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x12",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "79e5fea6-b580-5329-b24c-dfedc0381433",
+    "role": "stringer",
+    "title": "Stringer",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x12",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fcfb58a7-ccb1-5528-b960-6d05720cde0e",
+    "role": "stringer",
+    "title": "Stringer",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x12",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b232b41e-ef79-5f07-9d07-0257a0f64fef",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b2450e1b-57c1-50e9-af89-72178f374b94",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "eccc0a90-2b49-5262-a03a-ec0d126de256",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1154b9d2-b11f-5e80-9a17-dafb70ac7e6b",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "622b47d0-23e8-5aad-bc10-6ab451704ab2",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "43e868ed-df7c-5353-a7a6-1b7046d6b8a5",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b0ddbf09-5225-5a73-9f32-06d3d2fb558a",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5c7e6e47-366a-5b47-bd04-bf6cecc64485",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c20caa8b-e770-5cbd-9521-f31f67f7f54a",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1580a8de-e519-56ee-8329-f8597eb35ac7",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "71d3d19a-cb71-5f4e-bd93-9700f3754432",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e6ee78ec-fdbf-514d-bc39-f521b64ed5c2",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f168fd37-e98c-5500-a8b2-b869a7977fd2",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a28b24cc-476f-57bf-9002-250b6b582688",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4fab6312-d2d6-5c77-8fda-456797c1ea31",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "acbd96bc-1ad4-5b44-8ee2-3676f43d41c6",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "61b475d8-2fe2-5fe3-ac11-bea80551e15f",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e39ac076-ce42-5532-9e21-a49fdf6f6a8f",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "db143bf5-7c04-5310-a6f9-cd6cdf113f3e",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5808ec37-a8e9-598a-ac01-58b82e912366",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1042717b-68fd-5eb4-8cf5-d759deaedf23",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "013d91e0-2da6-513a-aafc-40c9ceb34b01",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "41c16088-87eb-5f2c-a534-702216284e43",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "10761eab-b5ef-5920-9286-b26cd6444de6",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "241886d2-6f52-5beb-8a9d-912406e10151",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fc134088-14ad-5698-be89-94de6f01fbe9",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8fa09976-1fa6-50b1-82f4-9dcfac86b667",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d0157f88-6e3d-5ba6-9912-133c63101f48",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "662dd3d0-2b1e-5c40-bec0-523038b2c948",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "33bfaecc-466c-551e-8955-8f2bddb7b4fb",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "69470bfa-40d7-5c84-af95-27aa7c406712",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8a2e016c-9956-500d-bbe8-70c002d2a927",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2a470d3f-13f1-5f16-a386-ac84f2e17c06",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6ee213a7-faae-58fe-89f5-acd9566737d2",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a472dedc-d4b0-5ef9-bb72-249ce9420ecc",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5159431f-1b62-5fc9-a31a-1fef4349e000",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d4d668f0-f429-582c-98f5-96ded9afef50",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3ee5e594-3b54-5a89-8485-79d5eb3360be",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "11874051-7816-5208-aec1-582d945f78b9",
+    "role": "riser",
+    "title": "Riser",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "1x8",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cced0e87-e858-5f29-988c-76162a352334",
+    "role": "handrail",
+    "title": "Handrail",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c4d35ed5-cc5c-55c9-a2c3-705ce79d0126",
+    "role": "handrail_post",
+    "title": "Handrail post",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "692c47e6-d292-5782-9d69-9fcc4c18dfd2",
+    "role": "handrail_post",
+    "title": "Handrail post",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3f9b67f7-3bce-5003-b658-43b9ff82c3a0",
+    "role": "handrail_post",
+    "title": "Handrail post",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  }
+]

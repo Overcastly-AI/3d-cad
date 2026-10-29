@@ -57,6 +57,8 @@ export function FeatureTreeRail({
     | "selectBody"
     | "updatePlugins"
     | "updatingPlugins"
+    | "skippedUpdates"
+    | "setSkippedUpdates"
   >;
   editorRepick: Pick<
     EditorRepick,
@@ -81,6 +83,8 @@ export function FeatureTreeRail({
     selectBody,
     updatePlugins,
     updatingPlugins,
+    skippedUpdates,
+    setSkippedUpdates,
   } = treeActions;
   const { repickFace, repickEdges, dismissedMovedEdges, dismissMovedEdge } =
     editorRepick;
@@ -117,6 +121,8 @@ export function FeatureTreeRail({
               plugins={plugins}
               onUpdatePlugins={updatePlugins}
               updatingPlugins={updatingPlugins}
+              skippedUpdates={skippedUpdates}
+              onDismissSkippedUpdates={() => setSkippedUpdates([])}
             />
             {bodies.length > 0 ? (
               <BodiesPanel

@@ -281,17 +281,20 @@ def test_a_new_1_12_gable_builds_without_ceiling_joists_and_warns(
     assert "2x6 or shallower" in warning["message"]
 
 
-def test_a_1_12_roof_updates_to_1_6_with_no_ceiling_joists(
+def test_a_1_12_roof_updates_to_1_6_and_warns_of_the_joists_it_cannot_fit(
     client: TestClient,
 ) -> None:
-    """The declared update maps Ceiling joists to None: a 1.4.0 gable at 1/12
-    (whose 2x8 joist would not fit) updates, frames 1.5.0's roof exactly (a
-    gable on an outline is 1.4.0's byte for byte), and carries no warning."""
+    """The declared update takes Ceiling joists' default, Beside each common
+    (PLUGIN-UPDATE-ALL): a 1.4.0 gable at 1/12, whose 2x8 joist would pass
+    its ridge board, still updates, never refused; it frames 1.5.0's roof
+    exactly (a gable on an outline is 1.4.0's byte for byte), so its offer
+    adds nothing and is quiet, and the updated roof warns why it has no
+    joists."""
     part, _ = _house(client, roof="1.4.0", pitch="rise_1")
     before = part.rows()["Roof"]
     offer = before["plugin_update"]
     assert offer is not None and offer["to_version"] == "1.6.0"
-    assert "adds nothing new" in offer["summary"]
+    assert (offer["adds"], offer["quiet"]) == ([], True)
     response = part.client.post(
         f"/api/v1/parts/{part.id}/features/plugin-updates",
         json={"expected_tree_version": part.version, "feature_ids": [before["id"]]},
@@ -301,9 +304,10 @@ def test_a_1_12_roof_updates_to_1_6_with_no_ceiling_joists(
     after = part.rows()["Roof"]
     params = after["feature"]["params"]
     assert params["plugin_version"] == "1.6.0"
-    assert params["inputs"]["ceiling_joists"] == "none"
+    assert params["inputs"]["ceiling_joists"] == "beside_common"
     assert params["expansion"] == before["feature"]["params"]["expansion"]
-    assert "plugin_warnings" not in after
+    (warning,) = after["plugin_warnings"]
+    assert warning["code"] == "ceiling_joists_omitted"
 
 
 def test_the_outline_cannot_be_deleted_under_its_walls(client: TestClient) -> None:

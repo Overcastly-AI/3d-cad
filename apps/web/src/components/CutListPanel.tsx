@@ -113,6 +113,7 @@ export const SYSTEM_LABEL: Record<CutListLine["system"], string> = {
   roof: "Roof",
   sheathing: "Sheathing",
   deck: "Deck",
+  stairs: "Stairs",
   frame: "Frame",
   casework: "Casework",
   other: "Other",

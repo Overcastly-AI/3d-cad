@@ -2051,7 +2051,8 @@ export interface paths {
         put?: never;
         /**
          * Update Plugin Features
-         * @description Update custom features to their newer releases (OPENING-UPDATE).
+         * @description Update custom features to their newest releases (OPENING-UPDATE,
+         *     PLUGIN-UPDATE-ALL), with what Update all left out of date and why.
          *
          *     The named features, or with ``feature_ids`` null every feature whose
          *     response carries ``plugin_update`` ("Update all"), re-pinned with their
@@ -4776,7 +4777,7 @@ export interface components {
              * @description The group the line is listed under (Floor, Walls, Roof, Sheathing, ...): its members' plugin's system; a structural sheet good is 'sheathing', gypsum board 'walls' and a cabinet panel 'casework'; a body that is no plugin member is 'other'.
              * @enum {string}
              */
-            system: "foundation" | "floor" | "walls" | "roof" | "sheathing" | "deck" | "frame" | "casework" | "other";
+            system: "foundation" | "floor" | "walls" | "roof" | "sheathing" | "deck" | "stairs" | "frame" | "casework" | "other";
             /**
              * Total Length Mm
              * @description quantity x length; for a sheet line, the sheets' lengths (stock_quantity x length).
@@ -7577,7 +7578,7 @@ export interface components {
             plugin_update?: components["schemas"]["PluginUpdate"] | null;
             /**
              * Plugin Warnings
-             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`). Omitted when there are none.
+             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, `stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, `stair_deck_guard`). Omitted when there are none.
              */
             plugin_warnings?: components["schemas"]["PluginWarning"][] | null;
             /**
@@ -9516,7 +9517,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
             /**
              * Name
              * @description Nominal size as sold, e.g. '2x10' or '5/4x6'.
@@ -11631,16 +11632,40 @@ export interface components {
         };
         /**
          * PluginUpdate
-         * @description A newer release a stored custom feature may be updated to
-         *     (OPENING-UPDATE), as Onshape marks a custom feature whose Feature Studio
-         *     has a newer version and Fusion badges out-of-date content. Offered only
-         *     where the plugin declares an explicit map of the stored inputs into the
-         *     newer release; the update is an ordinary edit, one undo step.
+         * @description The newest release a stored custom feature may be updated to
+         *     (OPENING-UPDATE, PLUGIN-UPDATE-ALL), as Onshape marks a custom feature
+         *     whose Feature Studio has a newer version and Fusion badges out-of-date
+         *     content. Offered only where the plugin declares an explicit map of the
+         *     stored inputs into the newer release; new inputs take their defaults, so
+         *     the update may add members, and the offer names them. The update is an
+         *     ordinary edit, one undo step.
          */
         PluginUpdate: {
             /**
+             * Adds
+             * @description What the update adds to this feature (and to the feature hosting it), one count and noun each: "11 ceiling joists", "3 post bases". Empty when it adds nothing.
+             */
+            adds?: string[];
+            /**
+             * Quiet
+             * @description True when the update changes no member of this feature or its host: the tree shows no badge, but Update all still takes it.
+             * @default false
+             */
+            quiet: boolean;
+            /**
+             * Relays
+             * @description What the update moves of what this feature (or its host) already built, one count and noun each: "19 joists", "20 subfloor panels". Empty when it keeps every stored member in place.
+             */
+            relays?: string[];
+            /**
+             * Separate
+             * @description True when the update re-lays stored members (``relays``): it is offered on this feature alone, and Update all leaves it, listed in ``skipped_updates``, for its own decision.
+             * @default false
+             */
+            separate: boolean;
+            /**
              * Summary
-             * @description What the update changes, in the action's words
+             * @description What the update changes, in the action's words, starting with what it adds ("Adds 3 pier footings and 3 post bases.")
              */
             summary: string;
             /**
@@ -11655,11 +11680,13 @@ export interface components {
          *
          *     Onshape's "Update" on a custom feature and its "Update all" on the Part
          *     Studio: each named feature (or, with ``feature_ids`` null, every feature
-         *     whose response carries ``plugin_update``) is re-pinned to that release,
-         *     its inputs carried by the plugin's explicit map, and re-expanded with its
-         *     hosts and the features that pick it. All of it is ONE edit: one
-         *     ``tree_version`` bump and one undo step. A feature with no update is
-         *     refused (422 ``plugin_update_unavailable``) and nothing is written.
+         *     whose response carries ``plugin_update``, but a ``separate`` one) is
+         *     re-pinned to that release, its inputs carried by the plugin's explicit
+         *     map, and re-expanded with its hosts and the features that pick it. All
+         *     of it is ONE edit: one ``tree_version`` bump and one undo step. Named
+         *     features are all-or-nothing: one with no update, or a refused one,
+         *     writes nothing (422). Update all instead skips a refused feature and
+         *     lists it, with each ``separate`` one, in ``skipped_updates``.
          */
         PluginUpdateRequest: {
             /** Expected Tree Version */
@@ -11671,16 +11698,51 @@ export interface components {
             feature_ids?: string[] | null;
         };
         /**
+         * PluginUpdateResponse
+         * @description The tree after an update, and what Update all left out of date.
+         */
+        PluginUpdateResponse: {
+            /**
+             * Can Redo
+             * @description True when a later history snapshot exists to restore (the history cursor is below the ring's top)
+             */
+            can_redo: boolean;
+            /**
+             * Can Undo
+             * @description True when an earlier history snapshot exists to restore (docs/design/undo-redo.md) — lets the toolbar disable undo without a second call
+             */
+            can_undo: boolean;
+            /** Features */
+            features: components["schemas"]["FeatureResponse"][];
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Rollback Feature Id
+             * @description Last INCLUDED feature; null = bar at the tip (§3)
+             */
+            rollback_feature_id: string | null;
+            /**
+             * Skipped Updates
+             * @description Set by Update all (`POST .../features/plugin-updates` with no ids): the features it left out of date, and why. Omitted otherwise.
+             */
+            skipped_updates?: components["schemas"]["SkippedPluginUpdate"][] | null;
+            /** Tree Version */
+            tree_version: number;
+        };
+        /**
          * PluginWarning
          * @description One stored custom feature's geometry warning, with its fix if any.
          */
         PluginWarning: {
             /**
              * Code
-             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them
+             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them; 'stair_throat_thin': a stair's cut stringers keep under AWC DCA6's 5 in throat; 'stair_stringer_span': a stair's cut stringers span more than DCA6's 6'-0" horizontally between supports; 'stair_guard_required': a stair's top tread is over 30 in up and its open sides have no guard (IRC R312.1.1); 'stair_deck_guard': the deck's guard runs across the stair's head
              * @enum {string}
              */
-            code: "roof_through_sheathing" | "crawl_height_low" | "ceiling_joists_omitted";
+            code: "roof_through_sheathing" | "crawl_height_low" | "ceiling_joists_omitted" | "stair_throat_thin" | "stair_stringer_span" | "stair_guard_required" | "stair_deck_guard";
             /**
              * Message
              * @description Names the problem and what fixes it
@@ -11901,7 +11963,7 @@ export interface components {
              * Profile
              * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.
              */
-            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
@@ -14095,6 +14157,36 @@ export interface components {
             points: components["schemas"]["Point2D"][];
             /** @description The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities. */
             projection?: components["schemas"]["SketchProjection"] | null;
+        };
+        /**
+         * SkippedPluginUpdate
+         * @description A feature Update all left at its release (PLUGIN-UPDATE-ALL): one that
+         *     re-lays what it built (offered alone), or whose update was refused (the
+         *     rest still update, in one step, as VISION's omit-and-warn rule).
+         */
+        SkippedPluginUpdate: {
+            /**
+             * Code
+             * @description The refusal's error code, when refused
+             */
+            code?: string | null;
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * Message
+             * @description Why, in the words the tree shows
+             */
+            message: string;
+            /** Name */
+            name: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "separate" | "refused";
         };
         /**
          * SolvedAngle
@@ -18213,7 +18305,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                    "application/json": components["schemas"]["PluginUpdateResponse"];
                 };
             };
             /** @description Validation Error */

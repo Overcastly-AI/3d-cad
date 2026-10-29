@@ -26,7 +26,7 @@
 #
 # Jobs (all independent, run in parallel):
 #   python    — ruff (lint + format), pyright strict
-#   pytest    — pytest across the uv workspace as a 7-job matrix, packed by
+#   pytest    — pytest across the uv workspace as an 11-job matrix, packed by
 #               measured duration (scripts/pytest_shards.py); `pytest complete`
 #               then proves from the shards' ledgers that every collected test
 #               ran exactly once
@@ -217,9 +217,28 @@ jobs:
     # now pack elsewhere. That file is the floor for any N; splitting it is
     # the next lever, not an eighth shard.
     #
+    # N=11 since 2026-10-29. Run 40828005231 at 8730843 (10038 tests): shard
+    # 1/7 was cancelled at the 25-min timeout after 24.4 min of tests; the
+    # others ran 17.8-23.2 against 15.5 planned, i.e. the manifest underpriced
+    # the suite by ~1.4x. Its ledgers could not be read from the dev container
+    # (artifact and log downloads redirect to a blob host the sandbox denies),
+    # so the manifest is a full local `durations` run (7 chunks, all green,
+    # reconciled 10038/10038) scaled to CI seconds by that run's OWN shards:
+    # packing the old manifest reproduces CI's bins exactly, and CI/local per
+    # shard was 0.66-0.77 (pooled 0.696 over shards 2-7, shard 1's floor
+    # 0.692), so every file is local x 0.696. Total 143.4 CI min. The old
+    # test_export.py was ~18.4 CI min by itself, more than any shard can hold,
+    # so its per-golden tree sweeps moved to test_export_tree_{a,b}.py (9.1 /
+    # 9.0 min), halved by golden in conftest.py like the restart gates. The
+    # largest file is now test_export_tree_restart_b.py at 10.2. Packing:
+    # 13.0 min per shard at N=11 (15.9 at N=9, 14.3 at N=10, 11.9 at N=12).
+    # N=10 would sit at 15.7 under the worst shard ratio seen (+10%), and the
+    # suite grew 12% in the week before this; N=11 leaves 14.3 worst-case.
+    # Setup is ~1 min per job, so this costs ~4 runner-minutes per push.
+    #
     # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
     # a concurrency eviction — see CLAUDE.md for telling them apart.
-    name: pytest (shard ${{ matrix.shard }}/7)
+    name: pytest (shard ${{ matrix.shard }}/11)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -229,7 +248,7 @@ jobs:
         # Must be 1..N for the `/N` in the Pytest step and `--expect-shards N`
         # in `pytest complete`; `pytest_shards.py --self-test` (in `just lint`)
         # refuses any drift between the three.
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -298,7 +317,7 @@ jobs:
           LOFT_REQUIRE_PG: "1"
         run: >-
           uv run python scripts/pytest_shards.py run
-          --shard "${{ matrix.shard }}/7"
+          --shard "${{ matrix.shard }}/11"
           --ledger "$RUNNER_TEMP/pytest-ledger/shard-${{ matrix.shard }}.json"
       # The ledger is written at session finish whatever the test outcome, so a
       # red shard still hands one in. A shard killed mid-run hands in none, and
@@ -319,7 +338,7 @@ jobs:
 
   pytest-complete:
     # The check the packing cannot make about itself. It refuses unless every
-    # shard 1..7 handed in a ledger, all of them collected the same suite
+    # shard 1..11 handed in a ledger, all of them collected the same suite
     # (otherwise they packed different partitions), no test ran twice, and what
     # ran is exactly what was collected. That is the defect class sharding
     # introduces: a dropped matrix entry, or a shard that died after collection,
@@ -342,7 +361,7 @@ jobs:
         run: >-
           python3 scripts/pytest_shards.py check
           --ledgers "$RUNNER_TEMP/pytest-ledgers"
-          --expect-shards 7
+          --expect-shards 11
           --workflow .github/workflows/ci.yml
       # A red shard fails its own job. This makes the aggregate say so too, so
       # `pytest complete` alone is enough as a required check.

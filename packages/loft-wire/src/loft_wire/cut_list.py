@@ -55,7 +55,7 @@ them out), so a line's offcut area is its sheets' area less its net area.
 Architect's Materials List groups by category: Floor, Walls (with their doors
 and windows, their header spacers, partitions and gypsum board), Roof,
 Sheathing (every structural sheet good but a cabinet's or a header
-spacer's), then Deck, Frame, Casework and Other.
+spacer's), then Deck, Stairs, Frame, Casework and Other.
 A plugin member's system is its plugin's (:func:`system_for_plugin`). Within a
 system, lines run by member (in the order each first appears in the tree),
 then profile and material (likewise), then length, shortest first, so one
@@ -223,6 +223,11 @@ ONE_PIECE_ROLES: Final[frozenset[str]] = frozenset(
         # timber frame
         "tie_beam",
         "girt",
+        # a stair's cut stringers span its run; its handrail is continuous
+        # for the flight (IRC R311.7.8.4) and stands on posts (STAIRS)
+        "stringer",
+        "handrail",
+        "handrail_post",
     }
 )
 
@@ -246,6 +251,7 @@ CutListSystem = Literal[
     "roof",
     "sheathing",
     "deck",
+    "stairs",
     "frame",
     "casework",
     "other",
@@ -259,6 +265,7 @@ SYSTEM_ORDER: Final[tuple[CutListSystem, ...]] = (
     "roof",
     "sheathing",
     "deck",
+    "stairs",
     "frame",
     "casework",
     "other",
@@ -272,6 +279,7 @@ SYSTEM_LABELS: Final[Mapping[CutListSystem, str]] = {
     "roof": "Roof",
     "sheathing": "Sheathing",
     "deck": "Deck",
+    "stairs": "Stairs",
     "frame": "Frame",
     "casework": "Casework",
     "other": "Other",
@@ -290,6 +298,7 @@ PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
     "loft.door": "walls",
     "loft.roof": "roof",
     "loft.deck": "deck",
+    "loft.stair": "stairs",
     "loft.timber_frame": "frame",
     "loft.cabinets": "casework",
 }

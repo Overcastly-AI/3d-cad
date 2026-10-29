@@ -18,14 +18,24 @@ from pathlib import Path
 from typing import Any
 
 import ezdxf.recover
+import httpx2 as httpx  # httpx is deprecated; httpx2 is the repo standard
 import pytest
+
+# Upstream signature carries a PathLike[Unknown] type param (same gap
+# test_export.py documents) — scoped ignore only.
+from build123d import (
+    Compound,
+    import_step,  # pyright: ignore[reportUnknownVariableType]
+)
 from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.features.evaluate import reset_rebuild_cache
-from geometry.harness import evaluate_model, load_model_request
+from geometry.harness import build_model_solid, evaluate_model, load_model_request
+from geometry.kernel import measure_shape
+from geometry.kernel.export import STEP_MAGIC
 from geometry.main import app
-from geometry.schemas import ShapeProperties
+from geometry.schemas import ExportFormat, ShapeProperties
 from loft_wire.drawings import (
     ComposeDrawingRequest,
     ComposedSheet,
@@ -34,7 +44,12 @@ from loft_wire.drawings import (
     SheetViewPlacement,
     ViewScale,
 )
-from loft_wire.features import EvaluateTreeRequest, ExportTreeRequest
+from loft_wire.features import (
+    EvaluateTreeRequest,
+    ExportTreeRequest,
+    export_tree_filename,
+)
+from loft_wire.geometry import EXPORT_MEDIA_TYPES
 
 #: Round-trip tolerance for mass properties: the CLAUDE.md kernel linear
 #: tolerance (1e-7), NOT a fitted epsilon — the measured round-trip deviation
@@ -468,12 +483,13 @@ _ALL_GOLDENS = sorted(
 _HALVED_INVENTORIES = {
     "restart_tree_model": _TREE_GOLDENS,
     "restart_golden_model": _ALL_GOLDENS,
+    "export_tree_model": _TREE_GOLDENS,
 }
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Parametrize ``restart_tree_model`` / ``restart_golden_model`` over the
-    module's half of the goldens.
+    """Parametrize ``restart_tree_model`` / ``restart_golden_model`` /
+    ``export_tree_model`` over the module's half of the goldens.
 
     The module's name ends in ``_a`` or ``_b`` to pick its half; the halves interleave
     by sorted index, so a new golden lands in one of them and both stay even.
@@ -565,6 +581,121 @@ def assert_tree_export_restart_stable() -> Callable[[Path], None]:
             )
 
     return check
+
+
+# --- Tree-export sweeps over the goldens (split across test_export_tree_*) --------
+
+
+class TreeExportSweep:
+    """The per-golden ``POST /api/v1/export/tree`` checks (docs/GEOMETRY-QA.md
+    gap #8), shared by test_export_tree_{a,b}.py.
+
+    They were test_export.py's tree sweeps, five cases per golden and nearly all
+    of that module's time: it alone outgrew a pytest shard (a shard packs whole
+    files), so the sweeps are halved by golden like the restart gates, and the
+    bodies live here because importlib mode keeps the halves from sharing a
+    module.
+    """
+
+    def __init__(
+        self,
+        assert_roundtrip_preserved: Callable[
+            [str, ShapeProperties, ShapeProperties], None
+        ],
+    ) -> None:
+        self._client = TestClient(app)
+        self._assert_roundtrip_preserved = assert_roundtrip_preserved
+
+    @staticmethod
+    def request(model_path: Path, fmt: ExportFormat) -> ExportTreeRequest:
+        """A tree-export request from a golden's ``EvaluateTreeRequest``."""
+        tree = EvaluateTreeRequest.model_validate_json(
+            model_path.read_text(encoding="utf-8")
+        )
+        return ExportTreeRequest.model_validate(
+            {**tree.model_dump(mode="json"), "format": fmt}
+        )
+
+    def post(self, request: ExportTreeRequest) -> httpx.Response:
+        return self._client.post(
+            "/api/v1/export/tree", json=request.model_dump(mode="json")
+        )
+
+    def headers(self, model_path: Path, fmt: ExportFormat) -> None:
+        request = self.request(model_path, fmt)
+        response = self.post(request)
+
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == EXPORT_MEDIA_TYPES[fmt]
+        assert (
+            response.headers["content-disposition"]
+            == f'attachment; filename="{export_tree_filename(request)}"'
+        )
+        assert len(response.content) > 0
+
+    def step_roundtrip(self, model_path: Path, tmp_path: Path) -> None:
+        name = model_path.parent.name
+        response = self.post(self.request(model_path, "step"))
+
+        assert response.status_code == 200, response.text
+        assert response.content.startswith(STEP_MAGIC), (
+            f"{name}: not a STEP part 21 file"
+        )
+
+        step_path = tmp_path / f"{name}.step"
+        step_path.write_bytes(response.content)
+        imported = import_step(step_path)
+        solids = imported.solids()
+        # A multi-body golden (§MB-0) exports as a multi-solid STEP; re-measure
+        # the whole imported body set (one Solid, or a Compound of the solids)
+        # so the round-trip covers multi-body parts too.
+        assert solids, f"{name}: expected at least 1 solid after import, got 0"
+        reimported_shape = solids[0] if len(solids) == 1 else Compound(list(solids))
+        reimported = measure_shape(reimported_shape)
+
+        original = measure_shape(
+            build_model_solid(
+                load_model_request(model_path.read_text(encoding="utf-8"))
+            )
+        )
+        self._assert_roundtrip_preserved(name, reimported, original)
+
+    def deterministic_in_process(self, model_path: Path, fmt: ExportFormat) -> None:
+        request = self.request(model_path, fmt)
+        first = self.post(request)
+        second = self.post(request)
+
+        assert first.content == second.content, (
+            f"{model_path.parent.name}: {fmt} tree-export bytes differ between runs"
+        )
+
+
+@pytest.fixture(scope="session")
+def _tree_export_sweep(
+    assert_roundtrip_preserved: Callable[[str, ShapeProperties, ShapeProperties], None],
+) -> TreeExportSweep:
+    return TreeExportSweep(assert_roundtrip_preserved)
+
+
+@pytest.fixture(scope="session")
+def assert_tree_export_headers(
+    _tree_export_sweep: TreeExportSweep,
+) -> Callable[[Path, ExportFormat], None]:
+    return _tree_export_sweep.headers
+
+
+@pytest.fixture(scope="session")
+def assert_tree_step_export_roundtrip(
+    _tree_export_sweep: TreeExportSweep,
+) -> Callable[[Path, Path], None]:
+    return _tree_export_sweep.step_roundtrip
+
+
+@pytest.fixture(scope="session")
+def assert_tree_export_deterministic_in_process(
+    _tree_export_sweep: TreeExportSweep,
+) -> Callable[[Path, ExportFormat], None]:
+    return _tree_export_sweep.deterministic_in_process
 
 
 # --- Fresh-interpreter golden rebuild (split across test_goldens_restart_*) -------

@@ -32,9 +32,9 @@ the expensive part is the REBUILD and not the export. Fresh-interpreter
 determinism for all four formats lives in ``test_export.py`` (shape goldens) and
 ``test_assembly_export.py`` (both assembly goldens); IN-PROCESS determinism for
 3MF and GLB over the whole 51-model inventory rides along in the extents sweep
-below, where the rebuild is already paid for. ``test_export.py``'s TREE sweeps
-stay on STEP/STL on purpose — 49 goldens x 4 formats x a rebuild each would add
-~200 rebuilds to the slowest module in the suite.
+below, where the rebuild is already paid for. The TREE sweeps
+(``test_export_tree_{a,b}.py``) stay on STEP/STL on purpose — every tree golden
+x 4 formats x a rebuild each would double the slowest modules in the suite.
 
 The mechanism that makes 3MF deterministic at all is asserted here directly:
 lib3mf mints five random production-extension UUIDs per write, and

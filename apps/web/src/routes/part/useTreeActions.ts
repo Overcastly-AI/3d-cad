@@ -27,7 +27,10 @@ import {
   FeatureOrderRefusedError,
   reorderFeatures,
 } from "../../api/parts";
-import { updatePluginFeatures } from "../../api/plugins";
+import {
+  type SkippedPluginUpdate,
+  updatePluginFeatures,
+} from "../../api/plugins";
 import { type FeatureOrderRefusal } from "../../components/FeatureTreePanel";
 import type { PartDocument } from "./usePartDocument";
 import type { FeatureCatalog } from "./useFeatureCatalog";
@@ -317,11 +320,17 @@ export function useTreeActions({
   // soft-resync retry, refresh tree + body). An open editor is closed: it
   // was seeded from the old release, and saving it would re-pin it.
   const [updatingPlugins, setUpdatingPlugins] = useState(false);
+  // What the last Update all left out of date, and why (PLUGIN-UPDATE-ALL):
+  // a feature whose update re-lays what it built, or a refused one.
+  const [skippedUpdates, setSkippedUpdates] = useState<
+    readonly SkippedPluginUpdate[]
+  >([]);
   const updatePlugins = useCallback(
     (featureIds: readonly string[] | null) => {
       if (updatingPlugins) return;
       useMeasureStore.getState().deactivate();
       setTreeActionError(null);
+      setSkippedUpdates([]);
       setUpdatingPlugins(true);
       beginTreeWrite();
       void (async () => {
@@ -341,6 +350,7 @@ export function useTreeActions({
             }
           }
           noteWrittenTreeVersion(restored.tree_version);
+          setSkippedUpdates(restored.skipped_updates ?? []);
           closeEditor();
           await refreshTreeAndBody();
         } catch (error) {
@@ -501,6 +511,8 @@ export function useTreeActions({
     toggleSuppress,
     updatingPlugins,
     updatePlugins,
+    skippedUpdates,
+    setSkippedUpdates,
     selectBody,
     viewportMenu,
     setViewportMenu,

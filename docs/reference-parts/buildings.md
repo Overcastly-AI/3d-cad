@@ -81,12 +81,21 @@ At 20 ft, 4 footings, 9 650.97 in³, **10 bags** (9.77) and 4 post bases.
 
 **Stair** (STAIRS): centred on the rim at X 96, 36 in wide, from the
 decking top (Z 30) to grade. 4 risers of 7.5 (ceil(30 / 7.75) = 4) and 3
-treads of 11 in run (33 in); 3 cut 2x12 stringers, X 78..79.5, 95.25..96.75
-and 112.5..114 (17.25 o.c.), 6 ft stock, throat 11.25 - 7.5 x 11 /
-√(7.5² + 11²) = 5.0533 in (at least 5, DCA6); 6 tread boards 5/4x6 x 36; a
-handrail (4 risers, R311.7.8); the guard opens at the stair. At a 36 in
-decking top: 5 risers of 7.2, 4 treads (44 in), throat 5.2258. Interior
-check, free stair, rise 107.09375: 14 risers of 7.649554, 13 treads.
+treads of 11 in run (33 in, nosing to nosing from the decking's edge at
+Y 146.125); 3 cut 2x12 stringers, X 78..79.5, 95.25..96.75 and 112.5..114
+(17.25 o.c.), hung plumb on the rim's face and cut level under the
+decking, each 602.5 / √177.25 = 45.2547 in long point to long point on 8 ft
+stock (lumber is sold from 8 ft), throat 11.25 - 7.5 x 11 / √(7.5² + 11²)
+= 5.0533 in (at least 5, DCA6); 6 tread boards 5/4x6 x 36; a 2x2 handrail
+36 in above the nosings on two 4x4 posts (4 risers, R311.7.8). The guard
+opening waits on a deck release (the stair never changes the deck; a
+guarded deck's stair warns). Closed risers: 4 boards 1x8 ripped to 6.5 x
+36. At a 36 in decking top: 5 risers of 7.2, 4 treads (44 in), throat
+11.25 - 79.2 / √172.84 = 5.2257. Interior check, free stair, rise
+107.09375 (closed risers: open ones above 30 in fail R311.7.5.1's 4 in
+sphere): 14 risers of 7.649554, 13 treads, throat 4.9697, under DCA6's 5 in,
+so it warns. R311.7.5.1's riser variance is 3/8 in (4-3/8 in is the stair
+guard's sphere, R312.1.3).
 
 ## B2 Shed, 10 x 12 ft (stops STUD-WALL, WINDOW-DOOR, ROOF)
 

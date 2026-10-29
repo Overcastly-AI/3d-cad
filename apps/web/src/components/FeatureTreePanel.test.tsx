@@ -761,7 +761,14 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
   function custom(
     id: string,
     name: string,
-    update: { to_version: string; summary: string } | null,
+    update: {
+      to_version: string;
+      summary: string;
+      adds: string[];
+      quiet: boolean;
+      relays?: string[];
+      separate: boolean;
+    } | null,
   ): FeatureResponse {
     return {
       ...sketch(id, name),
@@ -777,14 +784,37 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
       ...(update === null ? {} : { plugin_update: update }),
     } as FeatureResponse;
   }
-  const SPACERS = { to_version: "1.5.0", summary: "Draws the spacers." };
+  const SPACERS = {
+    to_version: "1.5.0",
+    summary: "Adds 2 header spacers and 1 header ply. Draws the spacers.",
+    adds: ["2 header spacers", "1 header ply"],
+    quiet: false,
+    separate: false,
+  };
+  // An update that changes no member (B7's floor to 1.3.0): no badge.
+  const QUIET = {
+    to_version: "1.3.0",
+    summary: "Joists bear on replaces Joist direction.",
+    adds: [],
+    quiet: true,
+    separate: false,
+  };
+  // A floor whose update re-lays it: badged, left by Update all.
+  const RELAYS = {
+    to_version: "1.3.0",
+    summary: "Re-lays 19 joists from the outline's lowest corner.",
+    adds: [],
+    quiet: false,
+    relays: ["19 joists"],
+    separate: true,
+  };
 
-  it("badges each out-of-date row and offers one Update all", () => {
+  it("badges each out-of-date row with what it adds and offers one Update all", () => {
     const onUpdatePlugins = vi.fn();
     renderPanel(
       [
         sketch("f1", "Outline"),
-        custom("f2", "Floor", null),
+        custom("f2", "Floor", QUIET),
         custom("f3", "Window 1", SPACERS),
         custom("f4", "Window 2", SPACERS),
       ],
@@ -796,7 +826,11 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
     expect(badge).toHaveTextContent("Update");
     expect(badge).toHaveAttribute(
       "title",
-      "Update to 1.5.0: Draws the spacers.",
+      "Update to 1.5.0: adds 2 header spacers and 1 header ply",
+    );
+    expect(badge).toHaveAttribute(
+      "aria-label",
+      "Out of date: 1.5.0 available, adds 2 header spacers and 1 header ply",
     );
     expect(screen.getByTestId("feature-update-badge-3")).toBeInTheDocument();
     expect(screen.getByTestId("feature-update-strip")).toHaveTextContent(
@@ -806,15 +840,56 @@ describe("FeatureTreePanel out-of-date Build features (OPENING-UPDATE)", () => {
     expect(onUpdatePlugins).toHaveBeenCalledWith(null);
   });
 
-  it("shows no Update all when every feature is current", () => {
+  it("shows no Update all when every feature is current or quiet", () => {
     renderPanel(
-      [sketch("f1", "Outline"), custom("f2", "Floor", null)],
+      [
+        sketch("f1", "Outline"),
+        custom("f2", "Floor", QUIET),
+        custom("f3", "Walls", null),
+      ],
       undefined,
       {
         onUpdatePlugins: vi.fn(),
       },
     );
     expect(screen.queryByTestId("feature-update-strip")).toBeNull();
+  });
+
+  it("counts one that re-lays but offers no Update all for it alone", () => {
+    renderPanel([custom("f2", "Floor", RELAYS)], undefined, {
+      onUpdatePlugins: vi.fn(),
+    });
+    expect(screen.getByTestId("feature-update-strip")).toHaveTextContent(
+      "1 Build feature out of date · 1 to update on its own",
+    );
+    expect(screen.queryByTestId("feature-update-all")).toBeNull();
+    expect(screen.getByTestId("feature-update-badge-0")).toHaveAttribute(
+      "title",
+      "Update to 1.3.0 on its own: re-lays 19 joists",
+    );
+  });
+
+  it("lists what the last Update all left out of date, until dismissed", () => {
+    const onDismissSkippedUpdates = vi.fn();
+    renderPanel([custom("f2", "Floor", RELAYS)], undefined, {
+      onUpdatePlugins: vi.fn(),
+      skippedUpdates: [
+        {
+          feature_id: "f2",
+          name: "Floor",
+          reason: "separate",
+          message: "Re-lays 19 joists. Update it on its own.",
+        },
+      ],
+      onDismissSkippedUpdates,
+    });
+    const list = screen.getByTestId("feature-update-skipped");
+    expect(list).toHaveTextContent("Left out of date");
+    expect(list).toHaveTextContent(
+      "Floor: Re-lays 19 joists. Update it on its own.",
+    );
+    fireEvent.click(screen.getByTestId("feature-update-skipped-dismiss"));
+    expect(onDismissSkippedUpdates).toHaveBeenCalledTimes(1);
   });
 
   it("holds Update all while an update is in flight", () => {

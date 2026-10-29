@@ -1,0 +1,52 @@
+{
+  "description": "A FREE INTERIOR STAIR (STAIRS; buildings.md B1 'Stair': 'Interior check, free stair, rise 107.09375: 14 risers of 7.649554, 13 treads'): one loft.stair 1.0.0 with no deck, Total rise 107.09375 in from Z 0, its top nosing centred on the origin, running +Y, Risers Closed (open risers above 30 in are refused, IRC R311.7.5.1), every other input default. model.json and members.json are pinned by packages/loft-plugins/tests/test_stair.py; services/geometry/tests/test_stair_b1.py checks them.",
+  "derivation": [
+    "INDEPENDENT of the plugins: test_stair_b1.script() types the 46 solids; the STEP matches them solid for solid.",
+    "",
+    "risers ceil(107.09375 / 7.75) = 14 of R = 7.649553571 (107.09375 / 14); 13 treads, 143 in of run. Closed, the top riser line is at u = -0.875, where the stringers' head is cut plumb (the header's face; no top riser board, the floor above is not modelled). Profile: (-0.875, 13R - 1), then each tooth to (142.125, R - 1), the foot (142.125, 0), (131.982408, 0), (-0.875, 92.390896): 1 376.795619 in^2. THROAT 11.25 - 11R / sqrt(R^2 + 121) = 4.969740 in: under DCA6's 5 in, so the stored stair warns stair_throat_thin (and stair_guard_required: its top tread is 99.44 in up).",
+    "",
+    "volume: stringers 3 x 1.5 x 1 376.795619 = 6 195.580284; treads 26 x 198 = 5 148; risers 13 x 36 x 0.75 x (R - 1) = 2 333.993304; handrail 1.5 x 143 x 1.5 L / 11 = 391.901614 (L = 13.398346); 3 posts (143 in rail, at most 72 apart: u 0, 69.75, 139.5) 12.25 x (3 x 143.09375 - (69.75 + 139.5) R / 11) = 3 476.132013: 17 545.607215 in^3 = 287 520 988.354 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (southern_pine_pt 582 kg/m^3). Topology from the script's B-rep; MESH counts recorded. Interference none: the treads, risers, stringers, rail and posts meet face to face."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). ~2.9e8 mm^3 over 46 bodies: the kernel differs from the script by +1.2e-7 mm^3 on the volume, 3.0e-8 mm^2 on the area, <= 1.1e-10 mm on the centroid and centre of mass and 5.8e-11 g on the mass. 1e-6 is 8x the volume's.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, the b2-roof goldens' class, measured 2026-10-29: OCCT's STEP writer rounds the irrational slope (R / 11, R = 107.09375 / 14) of the three 14-step stringers and the 175 in handrail. Round-trip drift: volume +5.15e-4 mm^3, area +3.7e-5 mm^2, centroid 5.8e-10 mm (plugin); the build123d twin drifts -1.20e-4 / -1.3e-5 through build123d's export_step, so it is OCCT's STEP, not Loft's export. 1e-3 is 1.9x the worst and the b2-roof goldens' bound; volume and area only.",
+  "properties": {
+    "volume": 287520988.3539196,
+    "surface_area": 22422398.515512202,
+    "centroid": {
+      "x": -109.17338416261076,
+      "y": 1695.3446116621728,
+      "z": 1330.188660192647
+    },
+    "mass_g": 167337.21522198134,
+    "center_of_mass": {
+      "x": -109.17338416261073,
+      "y": 1695.3446116621722,
+      "z": 1330.1886601926474
+    },
+    "bounding_box": {
+      "min": {
+        "x": -546.1,
+        "y": -22.225,
+        "z": 0.0
+      },
+      "max": {
+        "x": 457.2,
+        "y": 3632.2,
+        "z": 3634.58125
+      }
+    }
+  },
+  "topology": {
+    "faces": 351,
+    "edges": 777,
+    "shells": 46
+  },
+  "mesh": {
+    "vertices": 1554,
+    "triangles": 852
+  }
+}

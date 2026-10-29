@@ -1,0 +1,58 @@
+{
+  "description": "B1'S STAIR (STAIRS; docs/reference-parts/buildings.md B1 'Stair', docs/BACKLOG.md STAIRS, IRC R311.7, AWC DCA6): B1 at loft.deck 1.2.0 with every default (pier footings included) and one loft.stair 1.0.0 that picks it, every default kept: on the front edge (the rim) centred at X 96, 36 in wide, from the decking top (Z 30) to grade, open risers, 2x12 cut stringers, 5/4x6 treads at 1/8 in gaps, a 2x2 handrail on the left at 36 in on 4x4 posts. model.json is EXACTLY the two expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_stair.py pins both; services/geometry/tests/test_stair_b1.py checks the STEP against an independent build123d script, the throat measured on each stringer, interference, and the cut list).",
+  "derivation": [
+    "INDEPENDENT of the plugins: test_stair_b1.script() types every solid from buildings.md and the IRC: the deck: plugin-deck-v1.2-b1-footings-16ft's B1 exactly (buildings.md: 64 497.75 in^3 of framing and decking and 3 piers of 768 pi in^3, 71 735.979474 in^3), typed into the script as boxes and cylinders; the stair in its own frame, u along the run from the top nosing (the last board's edge, Y 146.125 = 25 x 5.625 + 5.5, 2.125 past the rim's face) and z up from grade. The STEP matches the 61 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
+    "",
+    "risers: ceil(30 / 7.75) = 4 of R = 7.5; treads 3 of T = 11 (33 in run). Each tread is 2 boards, 2 x 5.5 + 1/8 = 11.125 deep, its back on its riser line, so its nosing is 11.125 past it: the top riser line is at u = 11 - 11.125 = -0.125 and every nosing to nosing, the deck's edge to the top tread's included, is 11 (noses at Y 157.125, 168.125, 179.125).",
+    "",
+    "stringers (3, X 78..79.5, 95.25..96.75, 112.5..114: outer faces flush, (36 - 1.5) / 2 = 17.25 o.c., at most DCA6's 18): the (u, z) profile (-2.125, 29), (-0.125, 29), (-0.125, 21.5), (10.875, 21.5), (10.875, 14), (21.875, 14), (21.875, 6.5), (32.875, 6.5), (32.875, 0), (u0, 0), (-2.125, 29 + 2 x 7.5/11 - 11.25 L/11) with L = sqrt(7.5^2 + 11^2) = 13.313527 and u0 = -0.125 + (29 - 11.25 L / 11) x 11 / 7.5 = 22.438043: the top edge through every tooth point (a_j + 11, 7.5 j - 1), the bottom edge 11.25 square below it, the head level under the decking (Z 29) and plumb on the rim's face, the foot level on grade. Area by shoelace 314.314860 in^2 (= the strip 35 x 11.25 L / 11 less 3 notches of 7.5 x 11 / 2, the head's 2 x 4/3 / 2 triangle above Z 29 and the toe below grade: test_b1_stringer_is_the_strip_less_three_notches). THROAT 11.25 - 7.5 x 11 / L = 11.25 - 82.5 / sqrt(177.25) = 5.053295 in, measured on every exported stringer.",
+    "",
+    "volume (analytic, stair_volume()): 3 stringers 3 x 1.5 x 314.314860 = 1 414.416871; 6 treads 6 x 36 x 5.5 x 1 = 1 188; the handrail 1.5 x 33 x 1.5 L / 11 = 89.866307; 2 posts 3.5 x 3.5 x (66 + 66 - 29.5 x 7.5 / 11) = 1 370.607955: 4 062.891133 in^3 of stair; with the deck 75 798.870607 in^3 = 1 242 120 943.759 mm^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (test_stair_b1.expected_numbers()): southern_pine_pt 582 and concrete 2400 kg/m^3 (loft_wire.materials).",
+    "",
+    "topology from the script's B-rep (faces, edges and one shell a solid); the kernel's build of model.json meets every count exactly. MESH counts are recorded, not derived (the piers' cylinders tessellate by the linear deflection).",
+    "",
+    "Interference none (test_stair_b1.test_nothing_interferes probes every pair whose boxes overlap, exactly): each stringer stands plumb on the rim's face at Y 144 and level under the last board at Z 29 (test_the_stair_meets_the_deck_face_to_face), each tread on its stringer seats, each riser board on its riser cuts, the handrail on its posts' inside faces at X 78."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill). The bounds are ABSOLUTE and the part is ~1.24e9 mm^3 summed over 61 bodies: the kernel differs from the script by -1.19e-6 mm^3 on the volume (the summation's ULPs, as plugin-deck-v1.2-b1-footings-16ft's), 3.0e-8 mm^2 on the area, <= 1.4e-12 mm on the centroid and centre of mass and 2.3e-10 g on the mass. 1e-5 is 8x the volume's and the deck goldens' bound; a tread board missed takes 3.2e6 mm^3 and a notch 0.01 in off ~1e3, so either fails by eight orders.",
+  "roundtrip_tolerance": 0.0001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-29: OCCT's STEP writer rounds the three notched stringers' and the sloped handrail's irrational coordinates (the slope 7.5/11 and L), and the 61 re-imported solids sum in another order. Round-trip drift: volume -7.4e-6 mm^3, area +6.7e-7 mm^2, centroid 8e-12 mm (plugin); the independent build123d twin (test_stair_b1.script(), exported with build123d's export_step) drifts -2.24e-5 / -9.5e-7, so it is OCCT's STEP, not Loft's export. 1e-4 is 4.5x the worst (the twin's) and covers b1-stair-36's 2.7e-5 (6.5e-5 twin); it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 1242120943.7588966,
+    "surface_area": 85554635.83406745,
+    "centroid": {
+      "x": 2428.809614325775,
+      "y": 2204.2188415707483,
+      "z": 562.7973225227418
+    },
+    "mass_g": 938553.4225441222,
+    "center_of_mass": {
+      "x": 2431.013070672388,
+      "y": 2433.098239175626,
+      "z": 398.4758725911529
+    },
+    "bounding_box": {
+      "min": {
+        "x": -133.35,
+        "y": 0.0,
+        "z": -304.8
+      },
+      "max": {
+        "x": 5010.15,
+        "y": 4549.775,
+        "z": 1676.4
+      }
+    }
+  },
+  "topology": {
+    "faces": 378,
+    "edges": 768,
+    "shells": 61
+  },
+  "mesh": {
+    "vertices": 3036,
+    "triangles": 2280
+  }
+}

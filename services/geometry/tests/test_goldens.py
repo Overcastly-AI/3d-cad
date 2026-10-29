@@ -315,6 +315,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B7's gable tied by 11 ceiling joists (CEILING-JOISTS): b7-outline's
         # class, 3.8e-4 at worst (the twin's); the joists' snips add nothing.
         "b7-ceiling-joists",
+        # B7 saved at batch48's releases after one Update all
+        # (PLUGIN-UPDATE-ALL): the two above together, b7-outline's class.
+        "b7-update-all",
         # Casework (CASEWORK): C1 at 27 in and in face frame, C3 in face frame
         # and C2's 91 panels, the summation drift (1.0e-7 to 3.6e-7 mm^3);
         # C1 turned 30 deg, OCCT's STEP drift on turned planes (1.05e-4).
@@ -330,6 +333,14 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "c4-vanity-b10-p1",
         "c4-v3621-b10-p1",
         "b10-inside-gypsum",
+        # B1 with its stair, closed risers and the 36 in deck, and the free
+        # 14-riser stair (STAIRS): OCCT's STEP rounds the notched stringers'
+        # and the handrail's slope, 2.7e-5 mm^3 on B1 (twin 6.5e-5) and
+        # 5.1e-4 free (twin 1.2e-4).
+        "b1-stair-30",
+        "b1-stair-30-closed",
+        "b1-stair-36",
+        "free-stair-107",
     }
 )
 

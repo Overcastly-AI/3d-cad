@@ -118,11 +118,25 @@ export interface PluginFeatureEditorProps {
 
 const NO_LAYERS: readonly SolvedSketchLayer[] = [];
 
+/** Whether two forms hold the same text in every field. */
+function sameValues(
+  a: Readonly<Record<string, string>>,
+  b: Readonly<Record<string, string>>,
+): boolean {
+  const names = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const name of names) if (a[name] !== b[name]) return false;
+  return true;
+}
+
 /** A stored feature's warning, headed by what it is about. */
 const WARNING_LABELS: Record<string, string> = {
   roof_through_sheathing: "Through sheathing",
   crawl_height_low: "Crawl height",
   ceiling_joists_omitted: "Ceiling joists",
+  stair_throat_thin: "Stringer throat",
+  stair_stringer_span: "Stringer span",
+  stair_guard_required: "Stair guard",
+  stair_deck_guard: "Deck guard",
 };
 
 /** A segmented control reads cleanly for a few short options, else a select. */
@@ -274,8 +288,19 @@ function GeneratedForm({
   // A newer release that maps this feature's inputs (OPENING-UPDATE): the
   // server re-pins it, so the action is one edit whatever the form holds.
   const update = row === undefined ? null : featureUpdate(row);
+  // The update re-pins the STORED feature, so an open form's unsaved edits
+  // would be dropped: with any, the action asks first (PLUGIN-UPDATE-ALL),
+  // as a sketch's exit asks before discarding entities.
+  const [seeded] = useState(() => form.values);
+  const unsaved = !sameValues(seeded, form.values);
+  const [confirmingUpdate, setConfirmingUpdate] = useState(false);
   const serverUpdate =
-    update !== null && onUpdate !== undefined && !saving ? onUpdate : null;
+    update !== null && onUpdate !== undefined && !saving
+      ? () => {
+          if (unsaved) setConfirmingUpdate(true);
+          else onUpdate();
+        }
+      : null;
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -347,7 +372,30 @@ function GeneratedForm({
             v{manifest.version}
           </span>
         </div>
-        {update !== null ? (
+        {update !== null &&
+        confirmingUpdate &&
+        unsaved &&
+        onUpdate !== undefined ? (
+          <Notice
+            role="alert"
+            tone="flag"
+            label="Unsaved edits"
+            layout="stacked"
+            data-testid="plugin-update-confirm-notice"
+            action={{
+              label: `Discard edits and update`,
+              testId: "plugin-update-confirm",
+              onClick: () => {
+                setConfirmingUpdate(false);
+                onUpdate();
+              },
+            }}
+            onDismiss={() => setConfirmingUpdate(false)}
+            dismissTestId="plugin-update-cancel"
+          >
+            {`${updateToLabel(update.toVersion)} re-pins this ${manifest.title} as it is saved, so your unsaved edits are dropped. Save them first to keep them, or dismiss to keep editing.`}
+          </Notice>
+        ) : update !== null ? (
           <Notice
             role="status"
             tone="gauge"

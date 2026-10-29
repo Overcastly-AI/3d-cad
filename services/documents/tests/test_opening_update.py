@@ -4,17 +4,24 @@
 B7 as saved before HEADER-PLIES (b7-outline: walls 1.3.0, the door and five
 windows 1.1.0, the roof 1.4.0, the floor 1.2.0). Each feature with a declared
 update carries ``plugin_update`` (Onshape marks a custom feature whose Feature
-Studio is newer; Fusion badges stale content); the floor, whose Joist
-direction 1.3.0 replaced, carries none. ``POST .../features/plugin-updates``
-with no ids updates every one of them: the walls to 1.4.0, the openings to
-1.5.0 (their inputs carried by ``loft_plugins.updates``: Measured from the
-wall start, Custom size, Rough opening only, Header build Fill the wall) and
-the roof to 1.5.0. The walls then frame 18 header plies (was 12) and the
+Studio is newer; Fusion badges stale content), naming what it adds, read by
+a dry run (PLUGIN-UPDATE-ALL): the roof "11 ceiling joists", each opening "2
+header spacers" and "1 header ply" (its wall's); the floor and the walls
+change no member, so their offers are ``quiet``. ``POST
+.../features/plugin-updates`` with no ids updates every one of them: the
+floor to 1.3.0 (Joists bear on Long walls, its members byte for byte), the
+walls to 1.4.0, the openings to 1.5.0 (their inputs carried by
+``loft_plugins.updates``: Measured from the wall start, Custom size, Rough
+opening only, Header build Fill the wall) and the roof to 1.6.0 with its
+ceiling joists. The walls then frame 18 header plies (was 12) and the
 openings draw 12 spacers; one Undo restores every row byte for byte, and Redo
-brings the update back. A feature with no update is refused and nothing is
-written.
+brings the update back. A feature with no update is refused, and a refusal on
+the last feature rolls back the first: nothing is written. B1's deck at
+1.1.0 gains its 3 pier footings and post bases; B9's foundation at 1.0.0
+lists its 5 vents and access door.
 """
 
+import dataclasses
 import uuid
 from collections import Counter
 from collections.abc import Iterator
@@ -23,6 +30,7 @@ from typing import Any
 import pytest
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_plugins.updates import UPDATES as UPDATE_TABLE
 from loft_wire.parts import PRINCIPAL_HEADER
 
 HEADERS = {PRINCIPAL_HEADER: "6f3f6b64-0000-4000-8000-0000000007ba"}
@@ -49,17 +57,26 @@ def _at(entity: str, point: str) -> dict[str, str]:
     return {"entity": entity, "point": point}
 
 
-def _outline() -> dict[str, Any]:
-    """B7's 288 x 192 outline as the Rectangle tool draws it from the origin."""
-    corners = [(0.0, 0.0), (288.0, 0.0), (288.0, 192.0), (0.0, 192.0)]
+#: B7's 288 x 192 outline as the Rectangle tool draws it from the origin.
+B7_CORNERS = [(0.0, 0.0), (288.0, 0.0), (288.0, 192.0), (0.0, 192.0)]
+
+
+def _outline(
+    corners: list[tuple[float, float]] = B7_CORNERS,
+) -> dict[str, Any]:
+    """A rectangle outline drawn through *corners* from the origin (B7's by
+    default), its first two sides dimensioned."""
+    first = abs(corners[1][0] - corners[0][0]) + abs(corners[1][1] - corners[0][1])
+    second = abs(corners[2][0] - corners[1][0]) + abs(corners[2][1] - corners[1][1])
     constraints: list[dict[str, Any]] = [
         {"kind": "fixed", "point": _at("origin", "position")},
         {"kind": "coincident", "a": _at("e1", "start"), "b": _at("origin", "position")},
     ]
     for k in range(4):
         lid = f"e{k + 1}"
+        a, b = corners[k], corners[(k + 1) % 4]
         constraints.append(
-            {"kind": "vertical" if k % 2 else "horizontal", "entity": lid}
+            {"kind": "horizontal" if a[1] == b[1] else "vertical", "entity": lid}
         )
         constraints.append(
             {
@@ -69,8 +86,8 @@ def _outline() -> dict[str, Any]:
             }
         )
     constraints += [
-        {"kind": "distance", "entity": "e1", "value_mm": 288 * IN, "name": "length"},
-        {"kind": "distance", "entity": "e2", "value_mm": 192 * IN, "name": "width"},
+        {"kind": "distance", "entity": "e1", "value_mm": first * IN, "name": "length"},
+        {"kind": "distance", "entity": "e2", "value_mm": second * IN, "name": "width"},
     ]
     return {
         "type": "sketch",
@@ -245,7 +262,7 @@ STORED = {
     "Roof": "1.4.0",
 }
 UPDATED = {
-    "Floor": "1.2.0",
+    "Floor": "1.3.0",
     "Walls": "1.4.0",
     **{name: "1.5.0" for name in OPENING_NAMES},
     "Roof": "1.6.0",
@@ -257,13 +274,22 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
     assert _pins(rows) == STORED
     offers = {name: row.get("plugin_update") for name, row in rows.items()}
     assert offers["Outline"] is None
-    assert offers["Floor"] is None  # Joist direction has no map onto 1.3.0
-    assert offers["Walls"] is not None and offers["Walls"]["to_version"] == "1.4.0"
-    assert offers["Roof"] is not None and offers["Roof"]["to_version"] == "1.6.0"
+    # The floor and the walls change no member: no badge, but Update all.
+    for name, version in (("Floor", "1.3.0"), ("Walls", "1.4.0")):
+        offer = offers[name]
+        assert offer is not None and offer["to_version"] == version
+        assert (offer["adds"], offer["quiet"]) == ([], True)
+        assert (offer["relays"], offer["separate"]) == ([], False)
+    roof = offers["Roof"]
+    assert roof is not None and roof["to_version"] == "1.6.0"
+    assert (roof["adds"], roof["quiet"]) == (["11 ceiling joists"], False)
+    assert roof["summary"].startswith("Adds 11 ceiling joists. ")
     for name in OPENING_NAMES:
         offer = offers[name]
         assert offer is not None and offer["to_version"] == "1.5.0"
-        assert "spacers" in offer["summary"]
+        assert offer["adds"] == ["2 header spacers", "1 header ply"]
+        assert offer["summary"].startswith("Adds 2 header spacers and 1 header ply.")
+        assert not offer["quiet"]
     # Reading never re-pins, and the stored headers are two plies.
     assert _pins(rows) == STORED
     assert _roles(rows)["header"] == 12
@@ -280,8 +306,10 @@ def test_update_all_is_one_edit_and_one_undo_step(client: TestClient) -> None:
     assert _pins(rows) == UPDATED
     assert all(row.get("plugin_update") is None for row in rows.values())
     roles = _roles(rows)
-    # 18 plies (was 12) and 12 spacers: 2 per opening, B7's 2x6 headers.
+    # 18 plies (was 12) and 12 spacers: 2 per opening, B7's 2x6 headers; and
+    # the gable's 11 ceiling joists (the new release's default).
     assert (roles["header"], roles["spacer"], roles["foam"]) == (18, 12, 0)
+    assert roles["ceiling_joist"] == 11
     # The openings' inputs, carried by the map: what 1.1.0 built, filled.
     door = rows["Door"]["feature"]["params"]["inputs"]
     assert {k: door[k] for k in ("measure_from", "size", "draw_unit")} == {
@@ -293,12 +321,14 @@ def test_update_all_is_one_edit_and_one_undo_step(client: TestClient) -> None:
     assert (
         door["offset_mm"] == before["Door"]["feature"]["params"]["inputs"]["offset_mm"]
     )
-    # The floor and the roof expand to exactly what they did.
-    for name in ("Floor", "Roof"):
-        assert (
-            rows[name]["feature"]["params"]["expansion"]
-            == before[name]["feature"]["params"]["expansion"]
-        )
+    # The floor expands to exactly what it did, on Long walls; the roof to
+    # what it did, then its joists.
+    floor = rows["Floor"]["feature"]["params"]
+    assert floor["expansion"] == before["Floor"]["feature"]["params"]["expansion"]
+    assert floor["inputs"]["joists_bear_on"] == "long_walls"
+    roof = rows["Roof"]["feature"]["params"]["expansion"]
+    stored_roof = before["Roof"]["feature"]["params"]["expansion"]
+    assert roof[: len(stored_roof)] == stored_roof
     # One Undo restores every row as it was stored, byte for byte.
     part.step("undo")
     restored = part.rows()
@@ -328,7 +358,7 @@ def test_a_feature_with_no_update_is_refused_and_nothing_is_written(
     part = _b7(client)
     rows = part.rows()
     version = part.version
-    refused = part.update([rows["Door"]["id"], rows["Floor"]["id"]])
+    refused = part.update([rows["Door"]["id"], rows["Outline"]["id"]])
     assert refused.status_code == 422, refused.text
     assert refused.json()["error"]["code"] == "plugin_update_unavailable"
     assert part.tree()["tree_version"] == version
@@ -373,3 +403,225 @@ def test_the_evaluation_sends_the_spacers_with_their_material(
         b["base_feature_id"]: b["material"] for b in request["materials"]["bodies"]
     }
     assert {bodies[i] for i in spacer_ids} == {"plywood"}
+
+
+def _bad_roof_map(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The roof's update refused: its map gives a pitch 1.6.0 has not."""
+
+    def bad_pitch(inputs: Any, _context: Any) -> dict[str, Any]:
+        return {**inputs, "pitch": "rise_99"}
+
+    roof = UPDATE_TABLE[("loft.roof", "1.4.0")]
+    monkeypatch.setitem(
+        UPDATE_TABLE,  # type: ignore[arg-type]
+        ("loft.roof", "1.4.0"),
+        dataclasses.replace(roof, map_inputs=bad_pitch),
+    )
+
+
+def test_update_all_skips_a_refused_feature_and_updates_the_rest(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Update all omits and warns (VISION, 2026-10-29): the roof, the last
+    feature, is refused after the floor, the walls and the six openings
+    were re-pinned; it alone is restored as stored and listed with its
+    reason, the rest update in one step, and one Undo restores them."""
+    part = _b7(client)
+    before = part.rows()
+    version = part.version
+    _bad_roof_map(monkeypatch)
+    response = part.update()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert part.version == version + 1
+    (skipped,) = body["skipped_updates"]
+    assert (skipped["name"], skipped["reason"], skipped["code"]) == (
+        "Roof",
+        "refused",
+        "plugin_input_invalid",
+    )
+    assert skipped["message"]
+    rows = {f["name"]: f for f in body["features"]}
+    assert _pins(rows) == {**UPDATED, "Roof": "1.4.0"}
+    assert rows["Roof"]["feature"] == before["Roof"]["feature"]
+    # The roof's dependency edges are as stored: the walls still cannot go.
+    blocked = client.delete(
+        f"/api/v1/parts/{part.id}/features/{rows['Walls']['id']}",
+        params={"expected_tree_version": part.version},
+        headers=HEADERS,
+    )
+    assert blocked.status_code == 409, blocked.text
+    # One Undo: every row as stored, byte for byte.
+    monkeypatch.undo()
+    part.step("undo")
+    assert {n: r["feature"] for n, r in part.rows().items()} == {
+        n: r["feature"] for n, r in before.items()
+    }
+
+
+def test_named_features_are_all_or_nothing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Updating named features, a refusal on the last (the roof) rolls back
+    the first (the door): nothing is written, the tree version and the
+    history do not move."""
+    part = _b7(client)
+    before = part.rows()
+    version = part.version
+    _bad_roof_map(monkeypatch)
+    refused = part.update([before["Door"]["id"], before["Roof"]["id"]])
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["error"]["code"] == "plugin_input_invalid"
+    tree = part.tree()
+    assert tree["tree_version"] == version
+    after = {f["name"]: f for f in tree["features"]}
+    assert {n: r["feature"] for n, r in after.items()} == {
+        n: r["feature"] for n, r in before.items()
+    }
+    # Undo steps back over the roof's own add, not over a half update.
+    monkeypatch.undo()
+    part.step("undo")
+    assert "Roof" not in part.rows()
+    assert _pins(part.rows()) == {k: v for k, v in STORED.items() if k != "Roof"}
+
+
+#: A 290 x 197 outline drawn clockwise from the origin, up first: 1.2.0 laid
+#: its floor from another corner than 1.3.0's lowest one, and 16 in o.c.
+#: divides neither side, so the update re-lays the floor.
+CLOCKWISE = [(0.0, 0.0), (0.0, 197.0), (290.0, 197.0), (290.0, 0.0)]
+
+
+def test_an_update_that_re_lays_a_floor_is_left_for_its_own_decision(
+    client: TestClient,
+) -> None:
+    part = _Part(client)
+    sketch = part.add("Outline", _outline(CLOCKWISE))
+    part.add(
+        "Floor",
+        _custom("loft.floor", "1.2.0", outline=_ref(sketch), joist_profile="us_2x10"),
+    )
+    part.add("Deck", _custom("loft.deck", "1.1.0", width_mm=192 * IN))
+    rows = part.rows()
+    offer = rows["Floor"]["plugin_update"]
+    assert offer is not None and offer["separate"]
+    assert offer["relays"] and offer["relays"][0].endswith(" joists")
+    assert offer["summary"].startswith("Re-lays ")
+    assert " from the outline's lowest corner." in offer["summary"]
+    # Update all takes the deck and leaves the floor, listed.
+    response = part.update()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    (skipped,) = body["skipped_updates"]
+    assert (skipped["name"], skipped["reason"]) == ("Floor", "separate")
+    assert skipped["message"].endswith("Update it on its own.")
+    assert _pins({f["name"]: f for f in body["features"]}) == {
+        "Floor": "1.2.0",
+        "Deck": "1.2.0",
+    }
+    # On its own it updates, re-laid as it said.
+    alone = part.update([rows["Floor"]["id"]])
+    assert alone.status_code == 200, alone.text
+    assert "skipped_updates" not in alone.json()
+    floor = {f["name"]: f for f in alone.json()["features"]}["Floor"]
+    assert floor["feature"]["params"]["plugin_version"] == "1.3.0"
+    assert floor.get("plugin_update") is None
+    # Only the floor was left: Update all now has nothing to do.
+    assert part.update().status_code == 422
+
+
+def _deck(client: TestClient, version: str) -> _Part:
+    part = _Part(client)
+    part.add("Deck", _custom("loft.deck", version, width_mm=192 * IN))
+    return part
+
+
+def test_b1_at_deck_1_1_0_gains_its_footings_and_post_bases(
+    client: TestClient,
+) -> None:
+    part = _deck(client, "1.1.0")
+    offer = part.rows()["Deck"]["plugin_update"]
+    assert offer is not None and offer["to_version"] == "1.2.0"
+    assert offer["adds"] == ["3 pier footings", "3 post bases"]
+    assert offer["summary"].startswith("Adds 3 pier footings and 3 post bases. ")
+    before = part.rows()["Deck"]["feature"]["params"]["expansion"]
+    response = part.update()
+    assert response.status_code == 200, response.text
+    deck = {f["name"]: f for f in response.json()["features"]}["Deck"]
+    assert deck.get("plugin_update") is None
+    expansion = deck["feature"]["params"]["expansion"]
+    footings = [m for m in expansion if m["role"] == "footing"]
+    assert len(footings) == 3
+    assert {m["metadata"]["concrete"]["post_base"] for m in footings} == {
+        "post_base_6x6"
+    }
+    # Every 1.1.0 member is kept under its id (its running index aside).
+    by_id = {m["id"]: m for m in expansion}
+    assert all({**by_id[m["id"]], "index": m["index"]} == m for m in before)
+    assert part.update().status_code == 422  # nothing left to update
+
+
+def test_b9_at_foundation_1_0_0_lists_its_vents_and_access_door(
+    client: TestClient,
+) -> None:
+    part = _b7(client)
+    rows = part.rows()
+    part.add(
+        "Foundation",
+        _custom(
+            "loft.foundation",
+            "1.0.0",
+            outline=_ref(rows["Outline"]["id"]),
+            floor=_ref(rows["Floor"]["id"]),
+        ),
+    )
+    offer = part.rows()["Foundation"]["plugin_update"]
+    assert offer is not None and offer["to_version"] == "1.1.0"
+    assert offer["adds"] == ["5 foundation vents", "1 access door"]
+    response = part.update([part.rows()["Foundation"]["id"]])
+    assert response.status_code == 200, response.text
+    stem = next(
+        m
+        for f in response.json()["features"]
+        if f["name"] == "Foundation"
+        for m in f["feature"]["params"]["expansion"]
+        if m["role"] == "stem"
+    )
+    assert [
+        (o["item"], o["quantity"]) for o in stem["metadata"]["foundation_openings"]
+    ] == [("foundation_vent", 5), ("crawl_access_door", 1)]
+
+
+def test_an_update_it_cannot_preview_is_left_for_its_own_decision(
+    client: TestClient,
+) -> None:
+    """A suppressed floor drawn clockwise (its update would re-lay it, but a
+    suppressed row's dry run is not run): its offer cannot say what it moves,
+    so it is separate, says so, and Update all leaves and lists it."""
+    part = _Part(client)
+    sketch = part.add("Outline", _outline(CLOCKWISE))
+    floor = part.add(
+        "Floor",
+        _custom("loft.floor", "1.2.0", outline=_ref(sketch), joist_profile="us_2x10"),
+    )
+    part.add("Deck", _custom("loft.deck", "1.1.0", width_mm=192 * IN))
+    suppressed = client.patch(
+        f"/api/v1/parts/{part.id}/features/{floor}/suppress",
+        json={"suppressed": True, "expected_tree_version": part.version},
+        headers=HEADERS,
+    )
+    assert suppressed.status_code == 200, suppressed.text
+    part.version = int(suppressed.json()["tree_version"])
+    offer = part.rows()["Floor"]["plugin_update"]
+    assert offer is not None and offer["separate"]
+    assert offer["summary"].startswith(
+        "Can't preview this update (suppressed or refused); update it on its own."
+    )
+    response = part.update()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    (skipped,) = body["skipped_updates"]
+    assert (skipped["name"], skipped["reason"]) == ("Floor", "separate")
+    assert _pins({f["name"]: f for f in body["features"]}) == {
+        "Floor": "1.2.0",
+        "Deck": "1.2.0",
+    }

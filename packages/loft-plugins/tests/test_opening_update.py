@@ -15,11 +15,12 @@ explicit map (``loft_plugins.updates``). Checked by hand against
   and 12 spacers, 2 x 41, 6 x 39.5 and 4 x 27.5 (429 in, 2 359.5 in²,
   1 179.75 in³), 264 852.3789 + 1 769.625 + 1 179.75 = 267 801.7539 in³,
   with no two members overlapping;
-* the floor (1.2.0, whose Joist direction 1.3.0 replaced) is offered no
-  update.
+* the floor (1.2.0) and the roof (1.4.0) take their own updates
+  (PLUGIN-UPDATE-ALL, ``test_update_all.py``): with the openings and walls
+  alone updated, the floor and the roof expand exactly as they did.
 
-The geometry golden ``b7-opening-update`` is written from here and pinned by
-this module; its kernel acceptance is
+The geometry golden ``b7-opening-update`` (the walls and openings updated) is
+written from here and pinned by this module; its kernel acceptance is
 ``services/geometry/tests/test_opening_update_b7.py``. Regenerate after a
 deliberate change (a NEW plugin version) with
 ``uv run python packages/loft-plugins/tests/test_opening_update.py``.
@@ -92,6 +93,10 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
         ("loft.roof", "1.3.0", "1.6.0"),
         ("loft.roof", "1.4.0", "1.6.0"),
         ("loft.roof", "1.5.0", "1.6.0"),
+        ("loft.floor", "1.2.0", "1.3.0"),
+        ("loft.deck", "1.1.0", "1.2.0"),
+        ("loft.foundation", "1.0.0", "1.1.0"),
+        ("loft.cabinets", "1.0.0", "1.1.0"),
     }
 
 
@@ -100,9 +105,14 @@ def test_the_latest_and_the_unmapped_releases_are_offered_none() -> None:
         ("loft.window", "1.5.0"),
         ("loft.wall", "1.4.0"),
         ("loft.roof", "1.6.0"),
-        ("loft.floor", "1.2.0"),  # Joist direction is not Joists bear on
+        ("loft.floor", "1.3.0"),
+        ("loft.deck", "1.2.0"),
+        ("loft.foundation", "1.1.0"),
+        ("loft.cabinets", "1.1.0"),
         ("loft.wall", "1.0.0"),  # ordinal ids 1.1.0 renamed
-        ("loft.deck", "1.0.0"),
+        ("loft.deck", "1.0.0"),  # ordinal ids 1.1.0 renamed
+        ("loft.floor", "1.1.0"),  # typed, before the outline
+        ("loft.roof", "1.1.0"),  # typed, before the walls
     ):
         assert update_for(plugin, version, REGISTRY) is None, (plugin, version)
 
@@ -238,20 +248,24 @@ def rebuild(rows: list[tuple[uuid.UUID, AuthoredEnvelope]]) -> list[Row]:
     return out
 
 
-def update_all(rows: list[Row]) -> list[Row]:
-    """Every feature with an update moved to its target by its map, its
-    inputs checked and settled against the target, then the tree re-expanded
-    (documents' Update all, without the database)."""
+def update_all(rows: list[Row], only: set[str] | None = None) -> list[Row]:
+    """Every feature with an update (of a plugin in *only*, when given) moved
+    to its target by its map, its inputs checked and settled against the
+    target, then the tree re-expanded (documents' Update all, without the
+    database)."""
     earlier: dict[uuid.UUID, AuthoredEnvelope] = {}
     updated: list[tuple[uuid.UUID, AuthoredEnvelope]] = []
     for fid, env, members in rows:
-        if isinstance(env, CustomFeature):
+        if isinstance(env, CustomFeature) and (
+            only is None or env.params.plugin_id in only
+        ):
             pin = env.params
             update = update_for(pin.plugin_id, pin.plugin_version, REGISTRY)
             if update is not None:
                 target = REGISTRY.get(pin.plugin_id, update.to_version)
+                context = ExpandInputs(fid, dict(pin.inputs), dict(earlier))
                 inputs = canonical_inputs(
-                    target.manifest, updated_inputs(update, pin.inputs)
+                    target.manifest, updated_inputs(update, pin.inputs, context)
                 )
                 inputs = settle_inputs(target, fid, inputs, earlier)
                 params = pin.model_copy(
@@ -324,9 +338,9 @@ def test_a_typed_wall_1_2_0_updates_to_the_same_members() -> None:
     assert len(before) > 0 and after == before
 
 
-def test_update_all_moves_every_offered_pin_and_leaves_the_floor() -> None:
+def test_update_all_moves_every_pin_to_the_newest() -> None:
     assert pins(update_all(b7())) == [
-        ("loft.floor", "1.2.0"),
+        ("loft.floor", "1.3.0"),
         ("loft.wall", "1.4.0"),
         *[("loft.door", "1.5.0")],
         *[("loft.window", "1.5.0")] * 5,
@@ -334,8 +348,8 @@ def test_update_all_moves_every_offered_pin_and_leaves_the_floor() -> None:
     ]
 
 
-def test_the_floor_and_roof_expand_as_they_did() -> None:
-    before, after = by_feature(b7()), by_feature(update_all(b7()))
+def test_with_the_openings_and_walls_updated_floor_and_roof_are_as_they_were() -> None:
+    before, after = by_feature(b7()), by_feature(update_all(b7(), WALLS_OPENINGS))
     fids = [fid for fid, env, _ in b7() if isinstance(env, CustomFeature)]
     floor, roof = fids[0], fids[-1]
     assert after[floor] == before[floor]
@@ -399,7 +413,7 @@ def test_no_two_framing_members_overlap_and_the_volume_adds_up() -> None:
     framing or the spacers overlaps another (the OSB and rafters are checked
     on the kernel, as b7-outline's are). The added volume is the 6 plies
     (8.25 x 214.5 = 1 769.625) and the spacers (1 179.75)."""
-    members = members_of(update_all(b7()))
+    members = members_of(update_all(b7(), WALLS_OPENINGS))
     skip = {"sheathing", "rafter", "common", "ridge", "subfloor"}
     roles = tuple({m.role for m in members} - skip)
     assert overlaps(boxes(members, roles)) == []
@@ -431,10 +445,14 @@ def _titles() -> dict[tuple[str, str], str]:
     return out
 
 
+#: The plugins OPENING-UPDATE's golden updates (b7-update-all updates all).
+WALLS_OPENINGS = {"loft.wall", "loft.window", "loft.door"}
+
+
 def golden() -> tuple[EvaluateTreeRequest, list[CutListMember]]:
-    """B7 from its outline with Update all applied: what the app stores and
-    sends to geometry after the one update step."""
-    rows = update_all(b7())
+    """B7 from its outline with its walls and openings updated: what the app
+    stores and sends to geometry after that one update step."""
+    rows = update_all(b7(), WALLS_OPENINGS)
     titles = _titles()
     metadata: list[CutListMember] = []
     for _, env, members in rows:

@@ -295,7 +295,11 @@ describe("PluginFeatureEditor — an out-of-date release (OPENING-UPDATE)", () =
   };
   const UPDATE = {
     to_version: "1.5.0",
-    summary: "Draws the header's 1/2 in plywood spacers.",
+    summary:
+      "Adds 2 header spacers and 1 header ply. Draws the header's 1/2 in plywood spacers.",
+    adds: ["2 header spacers", "1 header ply"],
+    quiet: false,
+    separate: false,
   };
 
   function renderOutOfDate(withWarning: boolean, onUpdate?: () => void) {
@@ -369,5 +373,49 @@ describe("PluginFeatureEditor — an out-of-date release (OPENING-UPDATE)", () =
     renderOutOfDate(false);
     expect(screen.getByTestId("plugin-update-notice")).toBeInTheDocument();
     expect(screen.queryByTestId("plugin-update")).toBeNull();
+  });
+
+  it("names what the update adds", () => {
+    renderOutOfDate(false, vi.fn());
+    expect(screen.getByTestId("plugin-update-notice")).toHaveTextContent(
+      "1.5.0: Adds 2 header spacers and 1 header ply.",
+    );
+  });
+
+  it("asks before an update drops unsaved edits, and keeps them on dismiss", () => {
+    const onUpdate = vi.fn();
+    renderOutOfDate(false, onUpdate);
+    fireEvent.change(screen.getByTestId("plugin-input-twist_angle_deg"), {
+      target: { value: "45" },
+    });
+    fireEvent.click(screen.getByTestId("plugin-update"));
+    expect(onUpdate).not.toHaveBeenCalled();
+    const ask = screen.getByTestId("plugin-update-confirm-notice");
+    expect(ask).toHaveTextContent("Unsaved edits");
+    expect(ask).toHaveTextContent("your unsaved edits are dropped");
+    // Keep editing: the edit stays and nothing is updated.
+    fireEvent.click(screen.getByTestId("plugin-update-cancel"));
+    expect(screen.queryByTestId("plugin-update-confirm-notice")).toBeNull();
+    expect(screen.getByTestId("plugin-input-twist_angle_deg")).toHaveValue(
+      "45",
+    );
+    expect(onUpdate).not.toHaveBeenCalled();
+    // Asked again, the user discards them and updates.
+    fireEvent.click(screen.getByTestId("plugin-update"));
+    fireEvent.click(screen.getByTestId("plugin-update-confirm"));
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates at once when the form holds no edit", () => {
+    const onUpdate = vi.fn();
+    renderOutOfDate(false, onUpdate);
+    // An edit typed back to the stored value is no edit.
+    const twist = screen.getByTestId("plugin-input-twist_angle_deg");
+    const stored = (twist as HTMLInputElement).value;
+    fireEvent.change(twist, { target: { value: "45" } });
+    fireEvent.change(twist, { target: { value: stored } });
+    fireEvent.click(screen.getByTestId("plugin-update"));
+    expect(screen.queryByTestId("plugin-update-confirm-notice")).toBeNull();
+    expect(onUpdate).toHaveBeenCalledTimes(1);
   });
 });

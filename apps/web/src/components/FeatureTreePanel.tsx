@@ -48,14 +48,17 @@ import {
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
 import { featureTypeLabel } from "../features/featureLabels";
-import type { PluginManifest } from "../api/plugins";
+import type { PluginManifest, SkippedPluginUpdate } from "../api/plugins";
 import { isCustomRow } from "../features/customFeature";
+import { UpdateSkippedNote } from "./UpdateSkippedNote";
 import {
+  addsList,
   featureUpdate,
   outOfDateFeatures,
   outOfDateSentence,
   UPDATE_ALL_LABEL,
-  updateToLabel,
+  updateAllTakesAny,
+  updateBadgeTitle,
 } from "../features/pluginUpdate";
 import {
   customFeatureBadge,
@@ -182,6 +185,13 @@ export interface FeatureTreePanelProps {
   onUpdatePlugins?: (featureIds: readonly string[] | null) => void;
   /** True while an update is in flight: its button is busy. */
   updatingPlugins?: boolean;
+  /**
+   * What the last Update all left out of date, and why (PLUGIN-UPDATE-ALL):
+   * a feature whose update re-lays what it built, or a refused one.
+   */
+  skippedUpdates?: readonly SkippedPluginUpdate[];
+  /** Clears the skipped list; absent, it stays until the next update. */
+  onDismissSkippedUpdates?: () => void;
 }
 
 /** The pair a `reference_not_earlier` refusal named, as ids. */
@@ -203,6 +213,9 @@ interface RefusedSeat {
   /** Nearest seat the tree WOULD take, or null when there is no repair. */
   readonly legalIndex: number | null;
 }
+
+/** No skipped updates: a stable default for the prop. */
+const NO_SKIPPED: readonly SkippedPluginUpdate[] = [];
 
 const STATUS_LABEL: Record<string, string> = {
   ok: "OK",
@@ -265,6 +278,8 @@ export function FeatureTreePanel({
   plugins,
   onUpdatePlugins,
   updatingPlugins = false,
+  skippedUpdates = NO_SKIPPED,
+  onDismissSkippedUpdates,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
@@ -564,26 +579,36 @@ export function FeatureTreePanel({
               {outOfDate.length > 0 && onUpdatePlugins !== undefined ? (
                 // One action for the part, as Onshape's Update all: every
                 // out-of-date feature in one edit, which one Ctrl+Z undoes.
+                // One that re-lays what it built is left for its own Update.
                 <div
                   className="flex items-center gap-2 border-l-2 border-brass py-0.5 pr-2 pl-[10px]"
                   data-testid="feature-update-strip"
                 >
                   <span className="grow font-body text-xs text-brass">
-                    {outOfDateSentence(outOfDate.length)}
+                    {outOfDateSentence(
+                      outOfDate.length,
+                      outOfDate.filter((o) => o.separate).length,
+                    )}
                   </span>
-                  <Button
-                    variant="ghost"
-                    className="py-0.5 text-xs"
-                    disabled={updatingPlugins}
-                    aria-busy={updatingPlugins}
-                    title="Re-pin each to its newer release in one step; Ctrl+Z restores them."
-                    data-testid="feature-update-all"
-                    onClick={() => onUpdatePlugins(null)}
-                  >
-                    {updatingPlugins ? "Updating…" : UPDATE_ALL_LABEL}
-                  </Button>
+                  {updateAllTakesAny(features) ? (
+                    <Button
+                      variant="ghost"
+                      className="py-0.5 text-xs"
+                      disabled={updatingPlugins}
+                      aria-busy={updatingPlugins}
+                      title="Re-pin each to its newer release in one step; Ctrl+Z restores them. One that re-lays what it built updates on its own."
+                      data-testid="feature-update-all"
+                      onClick={() => onUpdatePlugins(null)}
+                    >
+                      {updatingPlugins ? "Updating…" : UPDATE_ALL_LABEL}
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
+              <UpdateSkippedNote
+                skipped={skippedUpdates}
+                onDismiss={onDismissSkippedUpdates}
+              />
               <ol className="pb-1">
                 {features.map((feature, index) => {
                   const result = resultById.get(feature.id);
@@ -809,13 +834,19 @@ export function FeatureTreePanel({
                               command holds this row, what it is ABOUT TO
                               CHANGE outranks what type it is, and a 24px row
                               has no width for both. */}
-                            {update !== null && !scoped ? (
+                            {update !== null && !update.quiet && !scoped ? (
                               // Out of date (Fusion's badge): its newer
-                              // release, and what updating it changes.
+                              // release, and what updating it adds. A quiet
+                              // update (it changes no member) wears none,
+                              // but Update all takes it along.
                               <Stamp
                                 tone="brass"
-                                title={`${updateToLabel(update.toVersion)}: ${update.summary}`}
-                                aria-label={`Out of date: ${update.toVersion} available`}
+                                title={updateBadgeTitle(update)}
+                                aria-label={
+                                  update.adds.length > 0
+                                    ? `Out of date: ${update.toVersion} available, adds ${addsList(update.adds)}`
+                                    : `Out of date: ${update.toVersion} available`
+                                }
                                 data-testid={`feature-update-badge-${index}`}
                               >
                                 Update

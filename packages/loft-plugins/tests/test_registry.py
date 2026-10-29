@@ -120,6 +120,7 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
         ("loft.roof", "1.1.0", False),
         ("loft.roof", "1.0.0", False),
         ("loft.slab", "1.0.0", True),
+        ("loft.stair", "1.0.0", True),
         ("loft.timber_frame", "1.0.0", True),
         ("loft.twisted_prism", "1.0.0", True),
         ("loft.wall", "1.4.0", True),

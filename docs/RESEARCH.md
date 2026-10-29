@@ -2785,6 +2785,59 @@ and reframe it, a material per member, and a cut list that is always current.
     interference, every line priced ($3,040.65 on B7's book with a 4x8 of
     1/2 plywood at $32.98). Golden `b7-opening-update`, matched solid for
     solid by `test_outline_b7.script` plus the 18 boxes typed by hand.
+- **Decided while updating every Build release** (PLUGIN-UPDATE-ALL,
+  2026-10-29; Onshape's custom-feature update, where new parameters take
+  their defaults; VISION's delegated decision of the same date):
+  - *Every stored release maps to its newest.* Besides the openings, walls
+    and roofs above: `loft.floor` 1.2.0 -> 1.3.0 sets Joists bear on to the
+    first of Long walls, Front and back, Left and right whose expansion
+    frames 1.2.0's joists, rims and sills member for member (the map reads
+    the outline through its context). 1.2.0 laid an outline's floor from
+    its first line's corner, 1.3.0 from the lowest corner along +X, so only
+    the drawings from the origin heading +X counter-clockwise or -X
+    clockwise keep the floor byte for byte (4 of a rectangle's 16; B7's is
+    one); on the others no choice does, and the map keeps the span 1.2.0
+    framed. `loft.cabinets` 1.0.0 -> 1.1.0 (CASEWORK-B10's finished face)
+    takes the face's board off the Back gap and the finished end's setback
+    off the Distance, so a run keeps every panel (C2's wall run on B10's
+    gypsum: gap 1/2 -> 0, Distance 21.5 -> 21); a run that stood in the
+    board cannot (1.1.0's minimum is 0). `loft.deck` 1.1.0 -> 1.2.0 and
+    `loft.foundation` 1.0.0 -> 1.1.0 carry every input. Still unmapped, as
+    a guess could move a member: `loft.wall` 1.0.0-1.1.0 and `loft.deck`
+    1.0.0 (ordinal ids), `loft.floor` 1.0.0-1.1.0 and `loft.roof`
+    1.0.0-1.1.0 (typed releases from before the outline). The maps are one
+    row each in `updates._TABLE`.
+  - *An update never moves a member silently.* A stored member the update
+    drops or builds differently, or one built on such a member, is re-laid
+    (`updates.relaid`, compared by id and feature). The offer names the
+    re-laid bodies (`relays`: "Re-lays 19 joists, 2 rims, 4 sills and 20
+    subfloor panels from the outline's lowest corner.") and is `separate`:
+    offered on its feature alone; Update all leaves it and lists it. A
+    floor whose framing lands where it was but is rewritten counts as
+    re-laid too: its member ids and faces are new.
+  - *Update all omits and warns.* It skips a feature whose update is
+    refused, with every row it touched restored, and lists it with the
+    refusal (`skipped_updates`, reason `refused`), with each separate one
+    (reason `separate`); the rest update in one step. Named features stay
+    all or nothing.
+  - *New inputs take their defaults, named.* An update may add members
+    (ceiling joists, pier footings, header spacers), so the offer
+    (`plugin_update`) carries `adds` ("3 pier footings", "3 post bases"),
+    read by a dry run of the update against the tree as stored: the row
+    re-expanded at the new release, a hosted row's host with it, and each
+    body counted by its noun, with what their metadata lists (post bases,
+    vents, access doors). The summary starts with them; the badge's title
+    names them. An update that changes no member byte for byte is `quiet`:
+    no badge, not counted by the strip, but Update all takes it.
+  - *The editor asks.* Its Update re-pins the STORED feature, so with
+    unsaved form edits it first asks to discard them (dismiss keeps them).
+  - *Numbers.* B7 saved at batch48's releases, one Update all: nothing out
+    of date, B7 built fresh today member for member, 264 852.3789 + 1 769.625
+    + 1 179.75 + 22 887.596423 = 290 689.3503 in³ (the kernel's
+    290 689.350289), 246 bodies, no interference. Golden `b7-update-all`.
+    B1 at deck 1.1.0 gains 3 piers of 7 238.23 in³ (8 bags) and 3 post
+    bases, every 1.1.0 member kept under its id; B9 at foundation 1.0.0
+    lists 5 vents and 1 access door and is 1.1.0's B9 exactly.
 - **Decided while naming member bodies** (BODY-NAMES, 2026-10-23; Fusion's
   browser and its STEP export, SolidWorks' multibody import):
   - *The name.* A member's body is `<feature> · <member>`, the member as the
@@ -3110,12 +3163,12 @@ and reframe it, a material per member, and a cut list that is always current.
     deepest joist that fits (a 2x6 there), or a steeper pitch or deeper
     ridge when none does. Documents raises it from the stored roof by
     re-running the pure expansion (`roof_outline.ceiling_joist_note`).
-  - *An update adds nothing.* The declared update of a roof 1.2.0-1.5.0 to
-    1.6.0 (`loft_plugins.updates`) sets Ceiling joists to None, so it builds
-    1.5.0's roof exactly; its summary and the through-sheathing warning's
-    "Update to 1.6.0" say it adds nothing new. Only a new roof takes the
-    default, Beside each common; an updated roof gains joists when the user
-    chooses them.
+  - *An update adds the joists* (PLUGIN-UPDATE-ALL, 2026-10-29, reversing
+    the first call, that it set Ceiling joists to None). The declared update
+    of a roof 1.2.0-1.5.0 to 1.6.0 carries every input as it is, so Ceiling
+    joists takes its default, Beside each common, as a new roof does, and
+    its offer names them ("adds 11 ceiling joists"). A joist that cannot fit
+    is left out with the warning above; the update never refuses.
   - *The snip.* Each top corner is cut to the rafters' top plane, as a
     framer snips the joist so the sheathing lies flat: at the wall's outside
     face that plane is `plate - heel + plumb depth`, so the cut is `delta =
@@ -3181,6 +3234,80 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Pieces.* The cut list's Pieces total is every line's quantity but
     banding's: each body once and each Each item by its count. A banding
     line's quantity is the panels it bands, already counted.
+- **Decided while building the stair** (STAIRS, 2026-10-29; Chief
+  Architect's Stair tool and Build Framing, Revit's Stair by Component, IRC
+  R311.7 and R312, AWC DCA6):
+  - *One feature, hosted by a pick.* `loft.stair` 1.0.0 picks an earlier
+    `loft.deck` (an optional feature input, NOT a host: the deck's stored
+    manifests and expansions stay frozen and byte-identical) and reads the
+    deck's stored inputs for its height, decking and the overhang at the
+    picked edge (front, left or right), recomputed with the deck's own
+    `board_count`. With no deck it is free, at a typed total rise, top
+    nosing point, bottom elevation and direction (an interior stair). A deck
+    edit re-lays the stair in the same write (documents' pickers).
+  - *Counting.* Risers `ceil(rise / max riser)`, every one equal (Chief and
+    Revit); treads one fewer at the tread depth, nosing to nosing. Tread
+    boards are the fewest whole boards covering the depth (2 x 5/4x6 +
+    1/8 = 11.125 for 11), so each nosing sits `c` past its riser line (the
+    pack, plus 3/4 behind a closed riser's board), and the top riser line is
+    put at `T - c` so the deck's edge to the top nosing is T too. Under a
+    deck that line may not pass the rim's face; where it would, it sits on
+    the face and the top step is deeper, refused past R311.7.5.2's 3/8 in.
+  - *The stringer is one cut profile.* A 2x12 (2x10 an option) side
+    profile on a vertical datum at its face, extruded 1.5 in: its top edge
+    through every tooth point, its bottom edge the board's depth square
+    below, the notches cut out, the head level under the decking and plumb
+    on the rim's face (a free stair's head plumb at the top riser line, the
+    header's face), the foot level on the stair's foot. Real B-rep, so the
+    cut list measures the stock it is cut from (along its own frame, long
+    point to long point) and the throat `d - R T / sqrt(R^2 + T^2)` can be
+    measured on the export. Stringers at most 18 in o.c. with both outer
+    ones flush (DCA6).
+  - *Refused or warned, by name.* A layout that breaks R311.7 is refused
+    on write, the message leading with its section: width under 36
+    (R311.7.1), a riser over 7-3/4 (R311.7.5.1), open risers past 30 in
+    whose opening passes a 4 in sphere (R311.7.5.1), a tread under 10 or a
+    top step more than 3/8 off (R311.7.5.2), a nosing outside 3/4..1-1/4
+    under an 11 in tread (R311.7.5.3), no handrail on 4 or more risers
+    (R311.7.8), a handrail outside 34..38 (R311.7.8.1), headroom under 6 ft
+    8 in below a typed stairwell opening (R311.7.2). Advice comes back as
+    the stored stair's warnings: a throat under DCA6's 5 in
+    (`stair_throat_thin`), cut stringers spanning over 6'-0" horizontally
+    between supports (`stair_stringer_span`: the head's plumb cut to the
+    bottom riser line, so B1's 35 in and the 36 in deck's 46 in pass and
+    the free 107 in stair's 143 in, 11'-11", warns; the fix is a landing,
+    an intermediate support or solid stringers). The 6 ft limit is AWC
+    DCA6's stair detail (three cut stringers at most 18 in apart, spanning
+    at most 6'-0" between supports), Fine Homebuilding on the 2013
+    southern-pine design values ("stringers cut from 2x12 southern pine can
+    now only span a maximum of 6 ft, down from 7 ft") and InterNACHI's
+    inspector guidance (cut stringers <= 6'-0", 1 829 mm); the coordinator
+    confirmed it from those, as awc.org is refused from this sandbox. Open
+    sides over 30 in up with no guard, whose
+    openings would stop a 4-3/8 in sphere (R312.1.1, R312.1.3:
+    `stair_guard_required`), and a deck guard across its head
+    (`stair_deck_guard`: the guard opening is a later deck release). The
+    riser variance (3/8 in) is zero by construction; 4-3/8 in is the stair
+    guard's sphere, not a variance (the brief had them crossed).
+  - *Treads, risers, handrail.* Treads are whole boards the stair's width;
+    closed risers 1x8 (added to the library) ripped to `R - t`, from the
+    tread below to the one above, the top one under the decking and none
+    under a free stair's floor (its header, unmodelled). The handrail is a
+    2x2 (Type I: 6 in perimeter, R311.7.8.5) over the outer stringer on its
+    side, its top the height above the nosing line from the top nosing to
+    the lowest tread's (R311.7.8.4), on 4x4 posts outside that stringer at
+    both ends and at most 6 ft apart, each up to the rail.
+  - *Cut list.* A new system, Stairs, after Deck. `stringer`, `handrail`
+    and `handrail_post` are one-piece roles (NO-SPLICE-SPANS).
+  - *Numbers.* B1: 4 risers of 7.5, 3 treads (33 in), stringers at X 78,
+    95.25, 112.5 (17.25 o.c.), throat 5.053295, stringer 602.5 /
+    sqrt(177.25) = 45.2547 in on 8 ft stock (no 6 ft lumber is sold); at
+    36 in, 5 of 7.2, 4 treads, throat 5.225749 (the brief's 5.2258
+    mis-rounds it); free at 107.09375, 14 of 7.649554, 13 treads, throat
+    4.969740 (warned). Goldens `b1-stair-30`, `-30-closed`, `-36` and
+    `free-stair-107`, matched solid for solid to an independent build123d
+    script on STEP, the throat measured on every exported stringer, no pair
+    interfering (the deck's members among them), probed exactly.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
