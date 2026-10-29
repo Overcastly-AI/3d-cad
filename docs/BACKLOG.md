@@ -314,6 +314,10 @@ One line each. The founder triages weekly; most are closed without work.
 - CEILING-JOISTS-SILENT-NONE: a hip or typed-bearing roof set to joists beside each common frames none and says nothing.
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
 - CEILING-JOISTS-HIP: a `loft.roof` 1.6.0 hip (and a gable on its typed bearing) frames no ceiling joists; Chief stops a hip's joists at the hip jacks and frames them from rooms, so a hip house still has no rafter ties.
+- CASEWORK-UPDATE: no `loft.cabinets` 1.0.0 -> 1.1.0 update map; a 1.0.0 run with a 1/2 in Back gap on a wall later given gypsum would sit 1/2 in off the board after a plain re-pin (the map should zero the gap).
+- CASEWORK-FACE-INPUT: 1.1.0's Face input shows for a wall too, where it is ignored (a wall's run is on its inside face).
+- CASEWORK-PARTITION-NAME: the run-past-a-partition refusal names "partition e6" by its line id, as the partition refusals do, while the form lists it as "Partition 2".
+- PIECES-REBAR: the Pieces total still counts a rebar line's runs, bought in sticks rather than Each.
 - CEILING-JOISTS-LAP: a ceiling joist is one piece wall face to wall face (NO-SPLICE-SPANS), so past 24 ft it lists no stock; framers lap joists over a bearing partition instead.
 
 - SKETCH-LINE-ANGLE-WHEN: the L / ∠ cells arm after the end click (type 450 Tab 73 Enter then); keys typed BEFORE the end click stay the X / Y point cells (G2, sketch-line-length-tab), whereas Fusion's box takes length and angle mid-drag. Founder to decide whether the mid-drag keys should become L / ∠.
