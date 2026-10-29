@@ -957,6 +957,12 @@ def _wall_spec(inputs: ExpandInputs, ref: FeatureRef) -> WallSpec:
     return specs[picked[0]]
 
 
+def framing_length(inputs: ExpandInputs, ref: FeatureRef) -> float:
+    """The length (in) of the picked wall's framing, along which a 1.0.0 run
+    measures its Distance (the 1.0.0 -> 1.1.0 update map reads it)."""
+    return _wall_spec(inputs, ref).length
+
+
 def placement(inputs: ExpandInputs, run_length: float) -> Placement:
     """Where the run's frame is: on the picked wall's inside face, from the
     end measured from, or at the typed position and direction."""

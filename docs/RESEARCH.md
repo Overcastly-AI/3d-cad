@@ -2790,18 +2790,36 @@ and reframe it, a material per member, and a cut list that is always current.
   their defaults; VISION's delegated decision of the same date):
   - *Every stored release maps to its newest.* Besides the openings, walls
     and roofs above: `loft.floor` 1.2.0 -> 1.3.0 sets Joists bear on to the
-    first of Long walls, Front and back, Left and right whose joists run the
-    way 1.2.0's did (it reads the outline, through the map's context, since
-    1.2.0 ran its width along the outline's first line); B7's floor is Long
-    walls and byte for byte. A drawing whose first line is a side frames
-    the same joists, rims and sills, but 1.3.0 lays the subfloor from the
-    outline's least corner, so its panels move. `loft.deck` 1.1.0 -> 1.2.0
-    and `loft.foundation` 1.0.0 -> 1.1.0 carry every input. Every older
-    `loft.cabinets` release maps to the newest with every input
-    (`updates.SAME_INPUTS`: only 1.0.0 is released). Still unmapped, as a
-    guess could move a member: `loft.wall` 1.0.0-1.1.0 and `loft.deck`
+    first of Long walls, Front and back, Left and right whose expansion
+    frames 1.2.0's joists, rims and sills member for member (the map reads
+    the outline through its context). 1.2.0 laid an outline's floor from
+    its first line's corner, 1.3.0 from the lowest corner along +X, so only
+    the drawings from the origin heading +X counter-clockwise or -X
+    clockwise keep the floor byte for byte (4 of a rectangle's 16; B7's is
+    one); on the others no choice does, and the map keeps the span 1.2.0
+    framed. `loft.cabinets` 1.0.0 -> 1.1.0 (CASEWORK-B10's finished face)
+    takes the face's board off the Back gap and the finished end's setback
+    off the Distance, so a run keeps every panel (C2's wall run on B10's
+    gypsum: gap 1/2 -> 0, Distance 21.5 -> 21); a run that stood in the
+    board cannot (1.1.0's minimum is 0). `loft.deck` 1.1.0 -> 1.2.0 and
+    `loft.foundation` 1.0.0 -> 1.1.0 carry every input. Still unmapped, as
+    a guess could move a member: `loft.wall` 1.0.0-1.1.0 and `loft.deck`
     1.0.0 (ordinal ids), `loft.floor` 1.0.0-1.1.0 and `loft.roof`
-    1.0.0-1.1.0 (typed releases from before the outline).
+    1.0.0-1.1.0 (typed releases from before the outline). The maps are one
+    row each in `updates._TABLE`.
+  - *An update never moves a member silently.* A stored member the update
+    drops or builds differently, or one built on such a member, is re-laid
+    (`updates.relaid`, compared by id and feature). The offer names the
+    re-laid bodies (`relays`: "Re-lays 19 joists, 2 rims, 4 sills and 20
+    subfloor panels from the outline's lowest corner.") and is `separate`:
+    offered on its feature alone; Update all leaves it and lists it. A
+    floor whose framing lands where it was but is rewritten counts as
+    re-laid too: its member ids and faces are new.
+  - *Update all omits and warns.* It skips a feature whose update is
+    refused, with every row it touched restored, and lists it with the
+    refusal (`skipped_updates`, reason `refused`), with each separate one
+    (reason `separate`); the rest update in one step. Named features stay
+    all or nothing.
   - *New inputs take their defaults, named.* An update may add members
     (ceiling joists, pier footings, header spacers), so the offer
     (`plugin_update`) carries `adds` ("3 pier footings", "3 post bases"),

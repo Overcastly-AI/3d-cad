@@ -6,12 +6,18 @@ updates it on request, every input it can map carried across and every new
 parameter at its default; Fusion badges out-of-date linked content. A stored
 feature here keeps its pin until the user updates it, and an update is an
 ordinary edit of the feature: the pin moves to the newest release and the
-inputs are carried across by an EXPLICIT map, one per release pair. A
-released manifest is frozen, so the map is what says how an old feature's
-meaning reads in the new release; an input the old release did not have
-takes the new release's default (the caller's ``canonical_inputs`` fills
-it), so an update may add members, and it names what it adds
-(:func:`update_effect`):
+inputs are carried across by an EXPLICIT map, one per release pair (the
+table :data:`_TABLE`, one row per map). A released manifest is frozen, so
+the map is what says how an old feature's meaning reads in the new release;
+an input the old release did not have takes the new release's default (the
+caller's ``canonical_inputs`` fills it), so an update may add members, and it
+names what it adds (:func:`update_effect`).
+
+An update never moves what the feature already built without saying so: a
+member stored before the update that it changes or drops (a joist laid from
+another corner) is RE-LAID, and :func:`update_effect` names those too. An
+update that re-lays anything is offered on its own feature only, never
+taken by Update all, which lists it as needing its own decision.
 
 * ``loft.window`` / ``loft.door`` 1.0.0-1.4.0 -> 1.5.0. Each input the old
   release had keeps its value. What a later release added is set to what
@@ -28,23 +34,26 @@ it), so an update may add members, and it names what it adds
   on picked walls gains its ceiling joists (B7's 11), as a new roof frames
   them. A joist that cannot fit (it would pass the ridge board) is left out
   and the roof warns ``ceiling_joists_omitted``; the update never refuses.
-  The update also notches the sheathing of the walls a pre-1.5.0 roof picks
-  (ROOF-THROUGH-SHEATHING-UPDATE). This replaces CEILING-JOISTS' review call
-  (0d22c34) that an update maps the joists to None (VISION, 2026-10-29).
+  This replaces CEILING-JOISTS' review call (0d22c34) that an update maps
+  the joists to None (VISION, 2026-10-29).
 * ``loft.floor`` 1.2.0 -> 1.3.0: Joist direction becomes the Joists bear on
-  that frames the same joists. 1.2.0 ran the width along its typed
-  direction, or along an outline's first line; 1.3.0 reads an outline's
-  rectangle from its corners. The map reads both and picks Long walls when
-  that frames them (B7: 1.2.0's default is 1.3.0's, byte for byte), else
-  Front and back or Left and right.
+  (Long walls first, then Front and back, then Left and right) whose
+  expansion frames 1.2.0's joists, rims and sills member for member. 1.2.0
+  laid an outline's floor from its first line's corner and 1.3.0 lays it from
+  the outline's lowest corner, so on a drawing where those differ and the
+  spacing does not divide the floor, no choice reproduces them: the map
+  keeps the span 1.2.0 framed and the update re-lays the framing (B7's own
+  drawing is byte for byte).
 * ``loft.deck`` 1.1.0 -> 1.2.0, every input as it is: each post gains its
   round pier footing and post base (1.2.0's defaults; B1's 3 piers).
 * ``loft.foundation`` 1.0.0 -> 1.1.0, every input as it is: the stem lists
   the vents and the access door it cuts (B9's 5 and 1), priced Each.
-* ``loft.cabinets``: every older release to the newest with every input as
-  it is (:data:`SAME_INPUTS`). Only 1.0.0 is released, so it is offered
-  nothing yet; CASEWORK-B10's 1.1.0 lands here with no code, its tests
-  checking that the same inputs build the same boxes.
+* ``loft.cabinets`` 1.0.0 -> 1.1.0: 1.1.0 stands a run on the wall's
+  FINISHED face and measures its Distance from that face's end, so the map
+  takes the face's board off the Back gap and the finished end's setback
+  off the Distance, and the run keeps every panel. A stored run that
+  already stood in the board (a Back gap or Distance under it) cannot keep
+  its place at 1.1.0's minimum of 0; it is re-laid.
 
 A release with no map here (``loft.wall`` 1.0.0 and ``loft.deck`` 1.0.0,
 whose ordinal member ids 1.1.0 renamed; ``loft.floor`` 1.0.0 and 1.1.0 and
@@ -61,13 +70,16 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from loft_wire.features import CustomInputValue, ExpandedMember
+from loft_wire.features import CustomInputValue, ExpandedMember, feature_references
+from loft_wire.lumber import MM_PER_INCH
 from loft_wire.plugins import semver_key
 
-from loft_plugins.api import ExpandInputs, Plugin, PluginError
-from loft_plugins.builtin import BUILTIN_PLUGINS
+from loft_plugins.api import ExpandInputs, PluginError
+from loft_plugins.builtin import cabinets as cabinets_v1
+from loft_plugins.builtin.building_outline import FLOOR_V1_2, FLOOR_V1_3
+from loft_plugins.builtin.cabinets_v1_1 import finished_face
 from loft_plugins.builtin.house import floor_values, floor_values_v1_3
-from loft_plugins.registry import PluginRegistry
+from loft_plugins.registry import PluginRegistry, canonical_inputs, expand
 
 #: An update's input map: the stored canonical inputs in, with the stored
 #: feature's context (the features before it, for a floor's outline), and the
@@ -89,9 +101,13 @@ class PluginUpdate:
     from_version: str
     to_version: str
     #: What the release changes, in the words the update action shows (the
-    #: counts of what it adds are the feature's own: :func:`update_effect`).
+    #: counts of what it adds and re-lays are the feature's own:
+    #: :func:`update_effect`).
     summary: str
     map_inputs: InputMap
+    #: Why it re-lays what it re-lays, when it does (" from the outline's
+    #: lowest corner"), ending the effect's sentence.
+    relay_reason: str = ""
 
 
 def _same(
@@ -99,6 +115,8 @@ def _same(
 ) -> dict[str, CustomInputValue]:
     return dict(inputs)
 
+
+# --- Openings -----------------------------------------------------------------------
 
 #: What each opening input added after 1.0.0 reads as for an opening that
 #: predates it: the value that builds what the older release built.
@@ -120,9 +138,13 @@ def _opening_to_1_5(
     return out
 
 
+# --- Floors -------------------------------------------------------------------------
+
 #: Joists bear on, in the order the floor map tries them: the default first,
-#: so a floor whose old direction is the default's keeps the default.
+#: so a floor whose old framing is the default's keeps the default.
 _BEAR_ON = ("long_walls", "front_back", "left_right")
+#: The floor's framing the map must reproduce (its subfloor follows it).
+_FRAMING = frozenset({"joist", "rim", "sill"})
 
 
 def _joist_angle(values: ExpandInputs) -> float:
@@ -137,22 +159,76 @@ def _floor_to_1_3(
     inputs: Mapping[str, CustomInputValue], context: ExpandInputs
 ) -> dict[str, CustomInputValue]:
     """A floor 1.2.0's inputs at 1.3.0: Joist direction replaced by the
-    first Joists bear on (Long walls, then Front and back, then Left and
-    right) whose joists run the way 1.2.0's did, on the same rectangle.
-    Raises :class:`PluginError` when the floor's outline cannot be read."""
-    old = dataclasses.replace(context, values=dict(inputs))
-    want = _joist_angle(floor_values(old))
+    first Joists bear on whose expansion frames 1.2.0's joists, rims and
+    sills member for member; when none does, the first whose joists run the
+    way 1.2.0's did (the update then re-lays them, and says so). Raises
+    :class:`PluginError` when the floor's outline cannot be read."""
+    old_values = dataclasses.replace(context, values=dict(inputs))
+    want = _joist_angle(floor_values(old_values))
     base = {k: v for k, v in inputs.items() if k != "joist_direction"}
+    before = expand(
+        FLOOR_V1_2,
+        context.feature_id,
+        inputs,
+        context.earlier,
+        parameters=context.parameters,
+    )
+    same_way: dict[str, CustomInputValue] | None = None
     for bear_on in _BEAR_ON:
-        candidate = {**base, "joists_bear_on": bear_on}
+        candidate = canonical_inputs(
+            FLOOR_V1_3.manifest, {**base, "joists_bear_on": bear_on}
+        )
         new = floor_values_v1_3(dataclasses.replace(context, values=candidate))
         gap = abs(_joist_angle(new) - want) % 180.0
-        if min(gap, 180.0 - gap) < 1e-6:
-            return candidate
-    raise PluginError(  # unreachable: two of the three run each way
-        PLUGIN_UPDATE_UNAVAILABLE, "No Joists bear on frames this floor's joists."
-    )
+        if min(gap, 180.0 - gap) >= 1e-6:
+            continue
+        after = expand(
+            FLOOR_V1_3,
+            context.feature_id,
+            candidate,
+            context.earlier,
+            parameters=context.parameters,
+        )
+        if not any(m.role in _FRAMING for m in relaid(before, after)):
+            return dict(candidate)
+        if same_way is None:
+            same_way = dict(candidate)
+    if same_way is None:  # unreachable: two of the three run each way
+        raise PluginError(
+            PLUGIN_UPDATE_UNAVAILABLE, "No Joists bear on frames this floor's joists."
+        )
+    return same_way
 
+
+# --- Cabinets -----------------------------------------------------------------------
+
+
+def _cabinets_to_1_1(
+    inputs: Mapping[str, CustomInputValue], context: ExpandInputs
+) -> dict[str, CustomInputValue]:
+    """A run 1.0.0's inputs at 1.1.0, placed where 1.0.0 placed it: the Back
+    gap less the finished face's board, the Distance less the finished end's
+    setback from the framing's end. A typed run is as it is. A value that
+    would fall under 1.1.0's minimum of 0 is held at 0, and the update then
+    re-lays the run (it stood in the board)."""
+    out = dict(inputs)
+    values = dataclasses.replace(context, values=dict(inputs))
+    ref = values.optional_feature("wall")
+    if ref is None:
+        return out
+    face = finished_face(values, ref)
+    framing = cabinets_v1.framing_length(values, ref)
+    setback = (
+        framing - face.last if values.choice("measure_from") == "end" else face.first
+    )
+    gap = values.number("gap_mm") - face.finish * MM_PER_INCH
+    offset = values.number("offset_mm") - setback * MM_PER_INCH
+    out["gap_mm"] = max(0.0, round(gap, 9))
+    out["offset_mm"] = max(0.0, round(offset, 9))
+    return out
+
+
+# --- Summaries ----------------------------------------------------------------------
 
 _OPENING_FILL = (
     "Fills the header to the wall's thickness (three plies with two 1/2 in "
@@ -177,8 +253,8 @@ _ROOF_1_5 = (
     "bearing is unchanged."
 )
 _FLOOR = (
-    "Joists bear on replaces Joist direction and frames the same joists; an "
-    "outline's rectangle is read from its corners."
+    "Joists bear on replaces Joist direction, set to the span this floor "
+    "frames; 1.3.0 lays an outline's floor from its lowest corner."
 )
 _DECK = (
     "Stands each post on a round pier footing with its post base, the "
@@ -187,53 +263,65 @@ _DECK = (
 _FOUNDATION = (
     "Lists the foundation vents and the access door set in the stem wall, priced Each."
 )
-_SAME_SUMMARY = "Carries every input as it is; new inputs take their defaults."
+_CABINETS = (
+    "Stands the run on the wall's finished face, its Back gap and Distance "
+    "taken from the gypsum, so the run keeps its place."
+)
 
-#: Plugins whose every older release updates to the newest with every input
-#: as it is (the hook CASEWORK-B10's ``loft.cabinets`` 1.1.0 lands in).
-SAME_INPUTS: tuple[str, ...] = ("loft.cabinets",)
+# --- The table ----------------------------------------------------------------------
+
+#: (plugin, the stored releases, the target, summary, map, re-lay reason):
+#: one row per map, so a release adds its own row.
+_TABLE: tuple[tuple[str, tuple[str, ...], str, str, InputMap, str], ...] = (
+    (
+        "loft.window",
+        ("1.0.0", "1.1.0", "1.2.0", "1.3.0"),
+        "1.5.0",
+        _OPENING_FILL,
+        _opening_to_1_5,
+        "",
+    ),
+    ("loft.window", ("1.4.0",), "1.5.0", _OPENING_INFILL, _opening_to_1_5, ""),
+    (
+        "loft.door",
+        ("1.0.0", "1.1.0", "1.2.0", "1.3.0"),
+        "1.5.0",
+        _OPENING_FILL,
+        _opening_to_1_5,
+        "",
+    ),
+    ("loft.door", ("1.4.0",), "1.5.0", _OPENING_INFILL, _opening_to_1_5, ""),
+    ("loft.wall", ("1.2.0", "1.3.0"), "1.4.0", _WALL, _same, ""),
+    ("loft.roof", ("1.2.0", "1.3.0", "1.4.0"), "1.6.0", _ROOF, _same, ""),
+    ("loft.roof", ("1.5.0",), "1.6.0", _ROOF_1_5, _same, ""),
+    (
+        "loft.floor",
+        ("1.2.0",),
+        "1.3.0",
+        _FLOOR,
+        _floor_to_1_3,
+        " from the outline's lowest corner",
+    ),
+    ("loft.deck", ("1.1.0",), "1.2.0", _DECK, _same, ""),
+    ("loft.foundation", ("1.0.0",), "1.1.0", _FOUNDATION, _same, ""),
+    (
+        "loft.cabinets",
+        ("1.0.0",),
+        "1.1.0",
+        _CABINETS,
+        _cabinets_to_1_1,
+        " out of the wall's gypsum",
+    ),
+)
 
 
-def _same_inputs_updates(plugins: Iterable[Plugin]) -> list[PluginUpdate]:
-    out: list[PluginUpdate] = []
-    for plugin_id in SAME_INPUTS:
-        versions = sorted(
-            (p.manifest.version for p in plugins if p.manifest.id == plugin_id),
-            key=semver_key,
-        )
-        out += [
-            PluginUpdate(plugin_id, v, versions[-1], _SAME_SUMMARY, _same)
-            for v in versions[:-1]
-        ]
-    return out
-
-
-def declared_updates(
-    plugins: Iterable[Plugin] = BUILTIN_PLUGINS,
-) -> tuple[PluginUpdate, ...]:
-    """Every update of *plugins*' releases (the shipped ones by default)."""
-    plugins = tuple(plugins)
-    out: list[PluginUpdate] = []
-    for plugin_id in ("loft.window", "loft.door"):
-        for version in ("1.0.0", "1.1.0", "1.2.0", "1.3.0"):
-            out.append(
-                PluginUpdate(
-                    plugin_id, version, "1.5.0", _OPENING_FILL, _opening_to_1_5
-                )
-            )
-        out.append(
-            PluginUpdate(plugin_id, "1.4.0", "1.5.0", _OPENING_INFILL, _opening_to_1_5)
-        )
-    for version in ("1.2.0", "1.3.0"):
-        out.append(PluginUpdate("loft.wall", version, "1.4.0", _WALL, _same))
-    for version in ("1.2.0", "1.3.0", "1.4.0"):
-        out.append(PluginUpdate("loft.roof", version, "1.6.0", _ROOF, _same))
-    out.append(PluginUpdate("loft.roof", "1.5.0", "1.6.0", _ROOF_1_5, _same))
-    out.append(PluginUpdate("loft.floor", "1.2.0", "1.3.0", _FLOOR, _floor_to_1_3))
-    out.append(PluginUpdate("loft.deck", "1.1.0", "1.2.0", _DECK, _same))
-    out.append(PluginUpdate("loft.foundation", "1.0.0", "1.1.0", _FOUNDATION, _same))
-    out += _same_inputs_updates(plugins)
-    return tuple(out)
+def declared_updates() -> tuple[PluginUpdate, ...]:
+    """Every update :data:`_TABLE` declares, one per stored release."""
+    return tuple(
+        PluginUpdate(plugin_id, version, target, summary, mapping, reason)
+        for plugin_id, versions, target, summary, mapping, reason in _TABLE
+        for version in versions
+    )
 
 
 #: Every declared update, by (plugin id, the stored release).
@@ -288,7 +376,27 @@ def check_update_table(registry: PluginRegistry) -> None:
             )
 
 
-# --- What an update adds ------------------------------------------------------------
+# --- What an update adds and re-lays ------------------------------------------------
+
+
+def relaid(
+    before: Sequence[ExpandedMember], after: Sequence[ExpandedMember]
+) -> list[ExpandedMember]:
+    """The members of *before* an update moves: gone from *after*, built
+    differently there, or built on a member it moves (a joist on a moved
+    level). A member's running index is not its place, so it is not
+    compared; nor is its metadata, which only lists (vents, post bases)."""
+    now = {m.id: m for m in after}
+    moved: set[uuid.UUID] = set()
+    out: list[ExpandedMember] = []
+    for m in before:
+        new = now.get(m.id)
+        refs = {r.ref.feature_id for r in feature_references(m.feature)}
+        if new is None or new.feature != m.feature or refs & moved:
+            moved.add(m.id)
+            out.append(m)
+    return out
+
 
 #: A role's noun where its manifest title is not what a builder calls it.
 _NOUNS: Mapping[tuple[str, str], str] = {
@@ -298,7 +406,14 @@ _NOUNS: Mapping[tuple[str, str], str] = {
     ("loft.door", "spacer"): "header spacer",
     ("loft.window", "foam"): "header foam insert",
     ("loft.door", "foam"): "header foam insert",
+    ("loft.floor", "subfloor"): "subfloor panel",
+    ("loft.cabinets", "drawer_end"): "drawer end",
 }
+
+#: What a long list of re-laid nouns is summed as, by plugin ("75 panels").
+_COLLECTIVE: Mapping[str, str] = {"loft.cabinets": "panel"}
+#: Most nouns a re-lay names before it is summed.
+_MAX_RELAID_NOUNS = 4
 
 #: What a body's metadata lists that the update may add, by the noun.
 _LISTED: Mapping[str, str] = {
@@ -311,6 +426,8 @@ _LISTED: Mapping[str, str] = {
 def _plural(noun: str, count: int) -> str:
     if count == 1:
         return f"1 {noun}"
+    if noun.endswith("lf"):
+        return f"{count} {noun[:-1]}ves"
     if noun.endswith("y") and noun[-2:-1] not in ("a", "e", "o", "u"):
         return f"{count} {noun[:-1]}ies"
     if noun.endswith(("s", "x", "ch", "sh")):
@@ -318,40 +435,61 @@ def _plural(noun: str, count: int) -> str:
     return f"{count} {noun}s"
 
 
+def _listed(items: Sequence[str]) -> str:
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
 @dataclass(frozen=True)
 class UpdateEffect:
     """What updating one stored feature does to the members it and its host
-    build: what it adds, by count and noun, and whether anything changes."""
+    build: what it adds and what it re-lays, by count and noun, and whether
+    anything changes."""
 
     #: "3 pier footings", "11 ceiling joists", in the order they are built.
     adds: tuple[str, ...]
     #: False when every member (the host's too) is as stored, byte for byte.
     changes: bool
+    #: "12 joists", "21 subfloor panels": stored bodies the update moves.
+    relays: tuple[str, ...] = ()
+    #: Why it re-lays them (the update's ``relay_reason``).
+    relay_reason: str = ""
 
     @property
     def sentence(self) -> str:
-        """``Adds 3 pier footings and 3 post bases.``, or ``""``."""
-        if not self.adds:
-            return ""
-        if len(self.adds) == 1:
-            listed = self.adds[0]
-        else:
-            listed = ", ".join(self.adds[:-1]) + " and " + self.adds[-1]
-        return f"Adds {listed}."
+        """``Adds 3 pier footings and 3 post bases.``, ``Re-lays 12 joists
+        and 21 subfloor panels from the outline's lowest corner.``, both, or
+        ``""``."""
+        out: list[str] = []
+        if self.relays:
+            out.append(f"Re-lays {_listed(self.relays)}{self.relay_reason}.")
+        if self.adds:
+            out.append(f"Adds {_listed(self.adds)}.")
+        return " ".join(out)
+
+
+def _bodies(
+    plugin_id: str, members: Sequence[ExpandedMember], registry: PluginRegistry
+) -> Counter[str]:
+    """Each body of *members* by its noun."""
+    titles = {r.role: r.title for r in registry.latest(plugin_id).manifest.members}
+    return Counter(
+        _NOUNS.get((plugin_id, m.role)) or titles.get(m.role, m.role).lower()
+        for m in members
+        if m.metadata is not None
+    )
 
 
 def _counted(
     plugin_id: str, members: Sequence[ExpandedMember], registry: PluginRegistry
 ) -> Counter[str]:
     """Each body of *members* by its noun, and what their metadata lists."""
-    titles = {r.role: r.title for r in registry.latest(plugin_id).manifest.members}
-    out: Counter[str] = Counter()
+    out = _bodies(plugin_id, members, registry)
     for m in members:
         meta = m.metadata
         if meta is None:
             continue
-        noun = _NOUNS.get((plugin_id, m.role)) or titles.get(m.role, m.role).lower()
-        out[noun] += 1
         if meta.concrete is not None and meta.concrete.post_base is not None:
             out[_LISTED["post_base"]] += 1
         for listed in meta.foundation_openings or []:
@@ -362,13 +500,16 @@ def _counted(
 def update_effect(
     changed: Iterable[tuple[str, Sequence[ExpandedMember], Sequence[ExpandedMember]]],
     registry: PluginRegistry,
+    relay_reason: str = "",
 ) -> UpdateEffect:
-    """What an update adds, from each feature it re-expands (the feature
-    itself, and a hosted feature's host): ``(plugin id, the members stored,
-    the members updated)``. A noun counts bodies of a role, or what their
-    metadata lists (post bases, vents, access doors); it is named when the
-    update builds more of it than were stored."""
+    """What an update adds and re-lays, from each feature it re-expands (the
+    feature itself, and a hosted feature's host): ``(plugin id, the members
+    stored, the members updated)``. A noun counts bodies of a role, or what
+    their metadata lists (post bases, vents, access doors); it is added when
+    the update builds more of it than were stored, and re-laid when a stored
+    body of it moves (:func:`relaid`)."""
     adds: list[str] = []
+    relays: list[str] = []
     changes = False
     for plugin_id, before, after in changed:
         if list(before) != list(after):
@@ -377,18 +518,26 @@ def update_effect(
         for noun, count in _counted(plugin_id, after, registry).items():
             if count > old[noun]:
                 adds.append(_plural(noun, count - old[noun]))
-    return UpdateEffect(tuple(adds), changes)
+        moved = _bodies(plugin_id, relaid(before, after), registry)
+        if len(moved) > _MAX_RELAID_NOUNS:
+            noun = _COLLECTIVE.get(plugin_id, "member")
+            relays.append(_plural(noun, sum(moved.values())))
+        else:
+            relays += [_plural(noun, count) for noun, count in moved.items()]
+    return UpdateEffect(
+        tuple(adds), changes, tuple(relays), relay_reason if relays else ""
+    )
 
 
 __all__ = [
     "PLUGIN_UPDATE_UNAVAILABLE",
-    "SAME_INPUTS",
     "UPDATES",
     "InputMap",
     "PluginUpdate",
     "UpdateEffect",
     "check_update_table",
     "declared_updates",
+    "relaid",
     "update_effect",
     "update_for",
     "updated_inputs",

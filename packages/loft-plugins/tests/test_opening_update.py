@@ -96,6 +96,7 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
         ("loft.floor", "1.2.0", "1.3.0"),
         ("loft.deck", "1.1.0", "1.2.0"),
         ("loft.foundation", "1.0.0", "1.1.0"),
+        ("loft.cabinets", "1.0.0", "1.1.0"),
     }
 
 
@@ -107,7 +108,7 @@ def test_the_latest_and_the_unmapped_releases_are_offered_none() -> None:
         ("loft.floor", "1.3.0"),
         ("loft.deck", "1.2.0"),
         ("loft.foundation", "1.1.0"),
-        ("loft.cabinets", "1.0.0"),  # the newest (CASEWORK-B10's 1.1.0 next)
+        ("loft.cabinets", "1.1.0"),
         ("loft.wall", "1.0.0"),  # ordinal ids 1.1.0 renamed
         ("loft.deck", "1.0.0"),  # ordinal ids 1.1.0 renamed
         ("loft.floor", "1.1.0"),  # typed, before the outline

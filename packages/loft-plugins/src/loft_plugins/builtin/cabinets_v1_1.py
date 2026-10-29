@@ -171,6 +171,12 @@ def _face(inputs: ExpandInputs, ref: FeatureRef) -> FinishedFace:
     return faces[picked[0]]
 
 
+def finished_face(inputs: ExpandInputs, ref: FeatureRef) -> FinishedFace:
+    """The finished face a run on *ref* stands on (the 1.0.0 -> 1.1.0 update
+    map reads it). Raises :class:`PluginError` as the expansion would."""
+    return _face(inputs, ref)
+
+
 def placement_v1_1(inputs: ExpandInputs, run_length: float) -> v1.Placement:
     """The run's frame on the picked face (module docstring), or 1.0.0's
     typed position."""

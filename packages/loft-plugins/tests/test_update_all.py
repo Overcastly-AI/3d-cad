@@ -45,23 +45,24 @@ from loft_plugins import (
     ExpandInputs,
     Plugin,
     canonical_inputs,
+    expand,
     update_for,
     updated_inputs,
 )
-from loft_plugins.builtin import BUILTIN_PLUGINS
-from loft_plugins.builtin.cabinets import CABINETS_V1
-from loft_plugins.updates import declared_updates, update_effect
+from loft_plugins.updates import relaid, update_effect
 from loft_wire.cut_list import CutListMember
 from loft_wire.features import (
     CustomFeature,
-    CustomInputValue,
     EvaluateTreeRequest,
     ExpandedMember,
+    FeatureRef,
 )
 from loft_wire.foundation import concrete_bags
 
 sys.path.insert(0, str(Path(__file__).parent))
 import test_building_outline as outline
+import test_cabinets as cabinets
+import test_casework_b10 as casework
 import test_crawl_space as crawl
 import test_deck_footings as deck
 from test_opening_update import Row, by_feature, pins, rebuild, update_all
@@ -69,6 +70,7 @@ from test_opening_update import (
     _titles as titles_of,  # pyright: ignore[reportPrivateUsage]
 )
 
+Point = tuple[float, float]
 GOLDEN = "b7-update-all"
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000007ba")
 IN = outline.IN
@@ -227,12 +229,32 @@ def test_each_update_names_what_it_adds() -> None:
 
 # --- The floor's map ----------------------------------------------------------------
 
-W, D = 288.0, 192.0
-DRAWINGS = {
-    "the rectangle tool": [(0.0, 0.0), (W, 0.0), (W, D), (0.0, D)],
-    "clockwise, up first": [(0.0, 0.0), (0.0, D), (W, D), (W, 0.0)],
-}
+W, D = 290.0, 197.0  # non-modular: 16 in o.c. divides neither side
 FRAMING = ("joist", "rim", "sill")
+TURNS = {"counter-clockwise": 1, "clockwise": -1}
+HEADINGS = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+
+
+def drawing(heading: tuple[int, int], turn: str, long_first: bool) -> list[Point]:
+    """A W x D rectangle drawn from the origin, its first line along
+    *heading*, turning *turn*, the long or short side first."""
+    sides = (W, D, W) if long_first else (D, W, D)
+    k = HEADINGS.index(heading)
+    out: list[Point] = [(0.0, 0.0)]
+    for i, length in enumerate(sides):
+        dx, dy = HEADINGS[(k + TURNS[turn] * i) % 4]
+        x, y = out[-1]
+        out.append((x + dx * length + 0.0, y + dy * length + 0.0))
+    return out
+
+
+#: The 16 drawings of one outline: 4 headings, 2 turns, long or short side first.
+DRAWINGS = {
+    f"{h}-{t}-{'long' if f else 'short'}": drawing(h, t, f)
+    for h in HEADINGS
+    for t in TURNS
+    for f in (True, False)
+}
 
 
 def _floor_update(
@@ -249,11 +271,20 @@ def _floor_update(
     return before, after, str(moved["joists_bear_on"])
 
 
+def _joist_axis(members: list[ExpandedMember]) -> set[bool]:
+    """Whether each joist runs along X (its plan box longer in X)."""
+    return {b[1] - b[0] > b[3] - b[2] for b in outline.boxes(members, ("joist",))}
+
+
 @pytest.mark.parametrize("drawing", sorted(DRAWINGS))
 @pytest.mark.parametrize("direction", ["depth", "width"])
-def test_joists_bear_on_frames_the_same_joists_on_an_outline(
+def test_a_floor_update_keeps_its_framing_or_says_it_re_lays_it(
     drawing: str, direction: str
 ) -> None:
+    """Every drawing of a 290 x 197 outline, both joist directions: the
+    update keeps the joists' span; where 1.3.0 reproduces 1.2.0's floor it is
+    byte for byte and quiet, else it names every stored body it re-lays and
+    is offered alone (Update all leaves it)."""
     corners = DRAWINGS[drawing]
     sketch = outline.loop_sketch(
         corners,
@@ -268,14 +299,60 @@ def test_joists_bear_on_frames_the_same_joists_on_an_outline(
         **outline.B7_FLOOR,
         "joist_direction": direction,
     }
-    before, after, bear_on = _floor_update(raw, earlier)
-    assert outline.bodies(after, FRAMING) == outline.bodies(before, FRAMING)
-    # 1.2.0 ran the width along the first line: the rectangle tool's is the
-    # front (X), the other drawing's the left side (Y).
-    along_x = (direction == "width") == (drawing == "the rectangle tool")
-    assert bear_on == ("left_right" if along_x else "long_walls")
-    if drawing == "the rectangle tool":
-        assert after == before  # B7's own drawing: byte for byte
+    before, after, _ = _floor_update(raw, earlier)
+    assert _joist_axis(after) == _joist_axis(before)
+    update = update_for("loft.floor", "1.2.0", REGISTRY)
+    assert update is not None
+    effect = update_effect(
+        [("loft.floor", before, after)], REGISTRY, update.relay_reason
+    )
+    moved = relaid(before, after)
+    if after == before:
+        assert (effect.relays, effect.changes) == ((), False)
+        return
+    # Something moved: every moved body is counted.
+    assert moved and effect.relays
+    bodies = sum(1 for m in moved if m.metadata is not None)
+    assert sum(int(r.split(" ", 1)[0]) for r in effect.relays) == bodies
+    assert effect.sentence.startswith("Re-lays ")
+    assert effect.sentence.endswith(" from the outline's lowest corner.")
+
+
+def test_the_drawings_that_keep_their_floor_are_the_lowest_corner_ones() -> None:
+    """1.2.0 laid an outline's floor from the corner its first line names
+    and along that line; 1.3.0 from the outline's lowest corner along +X.
+    They agree on four of the 16 drawings only, the two drawn from the
+    origin heading +X counter-clockwise or -X clockwise, each long or short
+    side first (B7's Rectangle tool is the first); every other drawing's
+    update re-lays its floor and says so."""
+    kept: list[str] = []
+    for name, corners in sorted(DRAWINGS.items()):
+        sketch = outline.loop_sketch(
+            corners,
+            {
+                "e1": math.dist(corners[0], corners[1]),
+                "e2": math.dist(corners[1], corners[2]),
+            },
+        )
+        earlier: dict[uuid.UUID, Any] = {outline.SKETCH_ID: sketch}
+        same: list[bool] = []
+        for direction in ("depth", "width"):
+            raw = {
+                "outline": outline.ref(outline.SKETCH_ID),
+                **outline.B7_FLOOR,
+                "joist_direction": direction,
+            }
+            before, after, _ = _floor_update(raw, earlier)
+            same.append(after == before)
+        assert len(set(same)) == 1, name  # a drawing keeps both or neither
+        if same[0]:
+            kept.append(name)
+    assert kept == [
+        "(-1, 0)-clockwise-long",
+        "(-1, 0)-clockwise-short",
+        "(1, 0)-counter-clockwise-long",
+        "(1, 0)-counter-clockwise-short",
+    ]
 
 
 @pytest.mark.parametrize("degrees", [0.0, 90.0, 180.0, 30.0])
@@ -367,21 +444,79 @@ def test_b9_at_1_0_0_lists_five_vents_and_one_access_door() -> None:
 
 # --- Casework -----------------------------------------------------------------------
 
+C2_LEFT = {
+    "wall": FeatureRef(kind="feature", feature_id=outline.WALLS_ID),
+    **cabinets.B7_LEFT,
+}
 
-def test_casework_1_0_0_is_the_newest_and_a_newer_one_would_take_its_inputs() -> None:
-    assert update_for("loft.cabinets", "1.0.0", REGISTRY) is None
-    later = Plugin(
-        CABINETS_V1.manifest.model_copy(update={"version": "1.1.0"}),
-        CABINETS_V1.expand,
+
+def _cabinets_update(
+    raw: dict[str, Any], fid: uuid.UUID, earlier: dict[uuid.UUID, Any]
+) -> tuple[list[ExpandedMember], list[ExpandedMember], dict[str, Any]]:
+    old, new = casework.V1, casework.V1_1
+    update = update_for("loft.cabinets", "1.0.0", REGISTRY)
+    assert update is not None and update.to_version == "1.1.0"
+    stored = canonical_inputs(old.manifest, raw)
+    context = ExpandInputs(fid, stored, earlier)
+    moved = canonical_inputs(new.manifest, updated_inputs(update, stored, context))
+    before = expand(old, fid, stored, earlier)
+    after = expand(new, fid, moved, earlier)
+    return before, after, dict(moved)
+
+
+def test_c2_on_a_gypsum_wall_keeps_every_panel() -> None:
+    """C2's wall run stored at 1.0.0 on B10's left wall with its 1/2 in
+    gypsum (Back gap 1/2, Distance 21.5 from the framing's end): at 1.1.0 it
+    stands on the board with a Back gap of 0 and its Distance 21 from the
+    board's end (the back wall's board takes 1/2), every panel byte for byte."""
+    earlier = casework.earlier_of(casework.b10_gypsum())
+    raw = {**C2_LEFT, "offset_mm": 21.5 * IN, "boxes": cabinets.C2_WALL}
+    before, after, moved = _cabinets_update(raw, cabinets.WALL_RUN_ID, earlier)
+    assert after == before
+    assert moved["gap_mm"] == 0.0
+    assert moved["offset_mm"] == pytest.approx(21 * IN, abs=1e-9)
+    effect = update_effect([("loft.cabinets", before, after)], REGISTRY)
+    assert (effect.adds, effect.relays, effect.changes) == ((), (), False)
+
+
+def test_c2_on_a_bare_wall_keeps_every_panel() -> None:
+    """On B7 (no gypsum) the finished face is the framing: both C2 runs keep
+    their Back gap of 1/2 and their Distance, panel for panel."""
+    _, earlier = cabinets.b7_house()
+    for fid, raw in (
+        (cabinets.RUN_ID, {**C2_LEFT, "boxes": cabinets.C2_BASE}),
+        (
+            cabinets.WALL_RUN_ID,
+            {**C2_LEFT, "offset_mm": 21.5 * IN, "boxes": cabinets.C2_WALL},
+        ),
+    ):
+        before, after, moved = _cabinets_update(raw, fid, dict(earlier))
+        assert after == before
+        assert moved["gap_mm"] == pytest.approx(0.5 * IN, abs=1e-9)
+
+
+def test_a_run_that_stood_in_the_board_is_re_laid_and_says_so() -> None:
+    """C2's base run stored at 1.0.0 from the back wall's framing (Distance
+    0) on B10's gypsum: its filler stood 1/2 in inside the back wall's
+    board, and 1.1.0's Distance cannot be under 0, so the update moves it
+    out of the board, names the 75 panels it re-lays and is offered alone."""
+    earlier = casework.earlier_of(casework.b10_gypsum())
+    raw = {**C2_LEFT, "boxes": cabinets.C2_BASE}
+    before, after, moved = _cabinets_update(raw, cabinets.RUN_ID, earlier)
+    assert (moved["gap_mm"], moved["offset_mm"]) == (0.0, 0.0)
+    update = update_for("loft.cabinets", "1.0.0", REGISTRY)
+    assert update is not None
+    effect = update_effect(
+        [("loft.cabinets", before, after)], REGISTRY, update.relay_reason
     )
-    table = {
-        (u.plugin_id, u.from_version): u
-        for u in declared_updates((*BUILTIN_PLUGINS, later))
-    }
-    update = table[("loft.cabinets", "1.0.0")]
-    assert update.to_version == "1.1.0"
-    stored: dict[str, CustomInputValue] = {"construction": "frameless", "boxes": []}
-    assert updated_inputs(update, stored) == stored
+    assert effect.relays == (f"{len(cabinets.placed(before))} panels",)
+    assert effect.sentence == (
+        f"Re-lays {len(cabinets.placed(before))} panels out of the wall's gypsum."
+    )
+    # 1/2 in along the wall, away from the back wall's board.
+    y0 = [p[3][2] for p in cabinets.placed(before)]
+    y1 = [p[3][2] for p in cabinets.placed(after)]
+    assert [round(a - b, 9) for a, b in zip(y0, y1, strict=True)] == [0.5] * len(y0)
 
 
 # --- The golden ---------------------------------------------------------------------
