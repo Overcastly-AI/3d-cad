@@ -11065,6 +11065,22 @@
             "title": "Quiet",
             "type": "boolean"
           },
+          "relays": {
+            "description": "What the update moves of what this feature (or its host) already built, one count and noun each: \"19 joists\", \"20 subfloor panels\". Empty when it keeps every stored member in place.",
+            "items": {
+              "maxLength": 80,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Relays",
+            "type": "array"
+          },
+          "separate": {
+            "default": false,
+            "description": "True when the update re-lays stored members (``relays``): it is offered on this feature alone, and Update all leaves it, listed in ``skipped_updates``, for its own decision.",
+            "title": "Separate",
+            "type": "boolean"
+          },
           "summary": {
             "description": "What the update changes, in the action's words, starting with what it adds (\"Adds 3 pier footings and 3 post bases.\")",
             "maxLength": 600,
@@ -11086,7 +11102,7 @@
         "type": "object"
       },
       "PluginUpdateRequest": {
-        "description": "Update custom features to their newer releases (OPENING-UPDATE).\n\nOnshape's \"Update\" on a custom feature and its \"Update all\" on the Part\nStudio: each named feature (or, with ``feature_ids`` null, every feature\nwhose response carries ``plugin_update``) is re-pinned to that release,\nits inputs carried by the plugin's explicit map, and re-expanded with its\nhosts and the features that pick it. All of it is ONE edit: one\n``tree_version`` bump and one undo step. A feature with no update is\nrefused (422 ``plugin_update_unavailable``) and nothing is written.",
+        "description": "Update custom features to their newer releases (OPENING-UPDATE).\n\nOnshape's \"Update\" on a custom feature and its \"Update all\" on the Part\nStudio: each named feature (or, with ``feature_ids`` null, every feature\nwhose response carries ``plugin_update``, but a ``separate`` one) is\nre-pinned to that release, its inputs carried by the plugin's explicit\nmap, and re-expanded with its hosts and the features that pick it. All\nof it is ONE edit: one ``tree_version`` bump and one undo step. Named\nfeatures are all-or-nothing: one with no update, or a refused one,\nwrites nothing (422). Update all instead skips a refused feature and\nlists it, with each ``separate`` one, in ``skipped_updates``.",
         "properties": {
           "expected_tree_version": {
             "minimum": 0.0,
@@ -11116,6 +11132,76 @@
           "expected_tree_version"
         ],
         "title": "PluginUpdateRequest",
+        "type": "object"
+      },
+      "PluginUpdateResponse": {
+        "description": "The tree after an update, and what Update all left out of date.",
+        "properties": {
+          "can_redo": {
+            "description": "True when a later history snapshot exists to restore (the history cursor is below the ring's top)",
+            "title": "Can Redo",
+            "type": "boolean"
+          },
+          "can_undo": {
+            "description": "True when an earlier history snapshot exists to restore (docs/design/undo-redo.md) \u2014 lets the toolbar disable undo without a second call",
+            "title": "Can Undo",
+            "type": "boolean"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureResponse"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "rollback_feature_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last INCLUDED feature; null = bar at the tip (\u00a73)",
+            "title": "Rollback Feature Id"
+          },
+          "skipped_updates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SkippedPluginUpdate"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set by Update all (`POST .../features/plugin-updates` with no ids): the features it left out of date, and why. Omitted otherwise.",
+            "title": "Skipped Updates"
+          },
+          "tree_version": {
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "rollback_feature_id",
+          "features",
+          "can_undo",
+          "can_redo"
+        ],
+        "title": "PluginUpdateResponse",
         "type": "object"
       },
       "PluginWarning": {
@@ -14640,6 +14726,56 @@
           "points"
         ],
         "title": "SketchSpline",
+        "type": "object"
+      },
+      "SkippedPluginUpdate": {
+        "description": "A feature Update all left at its release (PLUGIN-UPDATE-ALL): one that\nre-lays what it built (offered alone), or whose update was refused (the\nrest still update, in one step, as VISION's omit-and-warn rule).",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The refusal's error code, when refused",
+            "title": "Code"
+          },
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Why, in the words the tree shows",
+            "maxLength": 1000,
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "separate",
+              "refused"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_id",
+          "name",
+          "reason",
+          "message"
+        ],
+        "title": "SkippedPluginUpdate",
         "type": "object"
       },
       "StepAssemblyImportResult": {
@@ -19759,7 +19895,7 @@
     },
     "/api/v1/parts/{part_id}/features/plugin-updates": {
       "post": {
-        "description": "Update custom features to their newer releases (OPENING-UPDATE): the\nnamed ones, or every one with ``plugin_update`` when ``feature_ids`` is\nnull (\"Update all\", as Onshape updates a Part Studio's custom features).\nEach is re-pinned with its inputs carried by its plugin's explicit map\nand re-expanded, in tree order, with its hosts and pickers. The whole\nupdate is ONE edit: one ``tree_version`` bump and one history step, so\none Undo restores every feature as it was. A feature without an update,\nor a refusal of any of them, writes nothing.",
+        "description": "Update custom features to their newest releases (OPENING-UPDATE,\nPLUGIN-UPDATE-ALL): the named ones, or with ``feature_ids`` null every\none with ``plugin_update`` (\"Update all\", as Onshape updates a Part\nStudio's custom features). Each is re-pinned with its inputs carried by\nits plugin's explicit map and re-expanded, in tree order, with its hosts\nand pickers. The whole update is ONE edit: one ``tree_version`` bump and\none history step, so one Undo restores every feature as it was.\n\nNamed features are all or nothing: one without an update, or a refusal\nof any, writes nothing. Update all omits and warns, never refuses on one\nfeature (VISION, 2026-10-29): it leaves each ``separate`` update (one\nthat re-lays what the feature built) for its own decision, skips a\nfeature whose update is refused with every row it touched restored, and\nlists both in ``skipped_updates``; the rest update.",
         "operationId": "update_plugin_features_api_v1_parts__part_id__features_plugin_updates_post",
         "parameters": [
           {
@@ -19806,7 +19942,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FeatureTreeResponse"
+                  "$ref": "#/components/schemas/PluginUpdateResponse"
                 }
               }
             },

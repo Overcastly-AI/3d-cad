@@ -8,7 +8,7 @@ document edit under the tree's optimistic-concurrency guard: one
 """
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -56,6 +56,50 @@ class PluginUpdate(BaseModel):
         description="True when the update changes no member of this feature "
         "or its host: the tree shows no badge, but Update all still takes it.",
     )
+    relays: list[Annotated[str, StringConstraints(max_length=80)]] = Field(
+        default_factory=list[str],
+        max_length=MAX_UPDATE_ADDS,
+        description="What the update moves of what this feature (or its host) "
+        'already built, one count and noun each: "19 joists", "20 subfloor '
+        'panels". Empty when it keeps every stored member in place.',
+    )
+    separate: bool = Field(
+        default=False,
+        description="True when the update re-lays stored members (``relays``): "
+        "it is offered on this feature alone, and Update all leaves it, listed "
+        "in ``skipped_updates``, for its own decision.",
+    )
+
+
+#: Why Update all left a feature out of date (``skipped_updates``).
+SkipReason = Literal["separate", "refused"]
+
+
+class SkippedPluginUpdate(BaseModel):
+    """A feature Update all left at its release (PLUGIN-UPDATE-ALL): one that
+    re-lays what it built (offered alone), or whose update was refused (the
+    rest still update, in one step, as VISION's omit-and-warn rule)."""
+
+    feature_id: uuid.UUID
+    name: str = Field(max_length=200)
+    reason: SkipReason
+    code: str | None = Field(
+        default=None,
+        max_length=80,
+        description="The refusal's error code, when refused",
+    )
+    message: str = Field(
+        max_length=1000, description="Why, in the words the tree shows"
+    )
+
+
+SKIPPED_UPDATES_FIELD: Any = Field(
+    default=None,
+    exclude_if=is_none,
+    max_length=MAX_TREE_FEATURES,
+    description="Set by Update all (`POST .../features/plugin-updates` with "
+    "no ids): the features it left out of date, and why. Omitted otherwise.",
+)
 
 
 PLUGIN_UPDATE_FIELD: Any = Field(
@@ -87,11 +131,13 @@ class PluginUpdateRequest(BaseModel):
 
     Onshape's "Update" on a custom feature and its "Update all" on the Part
     Studio: each named feature (or, with ``feature_ids`` null, every feature
-    whose response carries ``plugin_update``) is re-pinned to that release,
-    its inputs carried by the plugin's explicit map, and re-expanded with its
-    hosts and the features that pick it. All of it is ONE edit: one
-    ``tree_version`` bump and one undo step. A feature with no update is
-    refused (422 ``plugin_update_unavailable``) and nothing is written."""
+    whose response carries ``plugin_update``, but a ``separate`` one) is
+    re-pinned to that release, its inputs carried by the plugin's explicit
+    map, and re-expanded with its hosts and the features that pick it. All
+    of it is ONE edit: one ``tree_version`` bump and one undo step. Named
+    features are all-or-nothing: one with no update, or a refused one,
+    writes nothing (422). Update all instead skips a refused feature and
+    lists it, with each ``separate`` one, in ``skipped_updates``."""
 
     expected_tree_version: int = Field(ge=0)
     feature_ids: list[uuid.UUID] | None = Field(
@@ -107,7 +153,10 @@ __all__ = [
     "MAX_TREE_FEATURES",
     "MAX_UPDATE_ADDS",
     "PLUGIN_UPDATE_FIELD",
+    "SKIPPED_UPDATES_FIELD",
     "PluginUpdate",
     "PluginUpdateRequest",
+    "SkipReason",
+    "SkippedPluginUpdate",
     "UndoRedoRequest",
 ]

@@ -2051,7 +2051,8 @@ export interface paths {
         put?: never;
         /**
          * Update Plugin Features
-         * @description Update custom features to their newer releases (OPENING-UPDATE).
+         * @description Update custom features to their newest releases (OPENING-UPDATE,
+         *     PLUGIN-UPDATE-ALL), with what Update all left out of date and why.
          *
          *     The named features, or with ``feature_ids`` null every feature whose
          *     response carries ``plugin_update`` ("Update all"), re-pinned with their
@@ -11652,6 +11653,17 @@ export interface components {
              */
             quiet: boolean;
             /**
+             * Relays
+             * @description What the update moves of what this feature (or its host) already built, one count and noun each: "19 joists", "20 subfloor panels". Empty when it keeps every stored member in place.
+             */
+            relays?: string[];
+            /**
+             * Separate
+             * @description True when the update re-lays stored members (``relays``): it is offered on this feature alone, and Update all leaves it, listed in ``skipped_updates``, for its own decision.
+             * @default false
+             */
+            separate: boolean;
+            /**
              * Summary
              * @description What the update changes, in the action's words, starting with what it adds ("Adds 3 pier footings and 3 post bases.")
              */
@@ -11668,11 +11680,13 @@ export interface components {
          *
          *     Onshape's "Update" on a custom feature and its "Update all" on the Part
          *     Studio: each named feature (or, with ``feature_ids`` null, every feature
-         *     whose response carries ``plugin_update``) is re-pinned to that release,
-         *     its inputs carried by the plugin's explicit map, and re-expanded with its
-         *     hosts and the features that pick it. All of it is ONE edit: one
-         *     ``tree_version`` bump and one undo step. A feature with no update is
-         *     refused (422 ``plugin_update_unavailable``) and nothing is written.
+         *     whose response carries ``plugin_update``, but a ``separate`` one) is
+         *     re-pinned to that release, its inputs carried by the plugin's explicit
+         *     map, and re-expanded with its hosts and the features that pick it. All
+         *     of it is ONE edit: one ``tree_version`` bump and one undo step. Named
+         *     features are all-or-nothing: one with no update, or a refused one,
+         *     writes nothing (422). Update all instead skips a refused feature and
+         *     lists it, with each ``separate`` one, in ``skipped_updates``.
          */
         PluginUpdateRequest: {
             /** Expected Tree Version */
@@ -11682,6 +11696,41 @@ export interface components {
              * @description The features to update, in any order (they are updated in tree order); null updates every feature that has an update.
              */
             feature_ids?: string[] | null;
+        };
+        /**
+         * PluginUpdateResponse
+         * @description The tree after an update, and what Update all left out of date.
+         */
+        PluginUpdateResponse: {
+            /**
+             * Can Redo
+             * @description True when a later history snapshot exists to restore (the history cursor is below the ring's top)
+             */
+            can_redo: boolean;
+            /**
+             * Can Undo
+             * @description True when an earlier history snapshot exists to restore (docs/design/undo-redo.md) — lets the toolbar disable undo without a second call
+             */
+            can_undo: boolean;
+            /** Features */
+            features: components["schemas"]["FeatureResponse"][];
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Rollback Feature Id
+             * @description Last INCLUDED feature; null = bar at the tip (§3)
+             */
+            rollback_feature_id: string | null;
+            /**
+             * Skipped Updates
+             * @description Set by Update all (`POST .../features/plugin-updates` with no ids): the features it left out of date, and why. Omitted otherwise.
+             */
+            skipped_updates?: components["schemas"]["SkippedPluginUpdate"][] | null;
+            /** Tree Version */
+            tree_version: number;
         };
         /**
          * PluginWarning
@@ -14108,6 +14157,36 @@ export interface components {
             points: components["schemas"]["Point2D"][];
             /** @description The body edge this entity is projected from (Project / Convert Entities). Set, the entity is fixed and follows the edge on a rebuild; its coordinates are the last good projection. Line, arc and circle only. Absent on unlinked entities. */
             projection?: components["schemas"]["SketchProjection"] | null;
+        };
+        /**
+         * SkippedPluginUpdate
+         * @description A feature Update all left at its release (PLUGIN-UPDATE-ALL): one that
+         *     re-lays what it built (offered alone), or whose update was refused (the
+         *     rest still update, in one step, as VISION's omit-and-warn rule).
+         */
+        SkippedPluginUpdate: {
+            /**
+             * Code
+             * @description The refusal's error code, when refused
+             */
+            code?: string | null;
+            /**
+             * Feature Id
+             * Format: uuid
+             */
+            feature_id: string;
+            /**
+             * Message
+             * @description Why, in the words the tree shows
+             */
+            message: string;
+            /** Name */
+            name: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "separate" | "refused";
         };
         /**
          * SolvedAngle
@@ -18226,7 +18305,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FeatureTreeResponse"];
+                    "application/json": components["schemas"]["PluginUpdateResponse"];
                 };
             };
             /** @description Validation Error */

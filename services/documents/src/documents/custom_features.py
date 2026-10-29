@@ -1278,7 +1278,9 @@ def _dry_run(
             )
     except (PluginError, FeatureExpressionError, ValidationApiError, ValidationError):
         return None
-    return update_effect(changed, PLUGINS)
+    update = declared_update(row)
+    reason = "" if update is None else update.relay_reason
+    return update_effect(changed, PLUGINS, reason)
 
 
 def plugin_update_of(
@@ -1288,7 +1290,9 @@ def plugin_update_of(
     (OPENING-UPDATE, PLUGIN-UPDATE-ALL), or None (:func:`declared_update`).
     The summary names what the update adds, read by a dry run against the
     tree as stored (``Adds 11 ceiling joists.``); an update that changes no
-    member is ``quiet``: no badge, but Update all still takes it."""
+    member is ``quiet``: no badge, but Update all still takes it. One that
+    moves a stored member (``Re-lays 19 joists ...``) is ``separate``:
+    offered on its feature alone, never taken by Update all."""
     update = declared_update(row)
     if update is None:
         return None
@@ -1300,6 +1304,8 @@ def plugin_update_of(
         summary=f"{effect.sentence} {update.summary}".strip(),
         adds=list(effect.adds[:MAX_UPDATE_ADDS]),
         quiet=not effect.changes,
+        relays=list(effect.relays[:MAX_UPDATE_ADDS]),
+        separate=bool(effect.relays),
     )
 
 

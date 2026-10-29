@@ -62,6 +62,7 @@ from loft_wire.parts import (
     PartEvaluationRecord,
     PartResponse,
 )
+from loft_wire.plugin_update import PluginUpdateResponse
 from py_kit import get_logger
 
 from gateway.affinity import forward_geometry
@@ -646,8 +647,9 @@ async def update_plugin_features(
     request: PluginUpdateRequest,
     user: CurrentUser,
     http_request: Request,
-) -> FeatureTreeResponse:
-    """Update custom features to their newer releases (OPENING-UPDATE).
+) -> PluginUpdateResponse:
+    """Update custom features to their newest releases (OPENING-UPDATE,
+    PLUGIN-UPDATE-ALL), with what Update all left out of date and why.
 
     The named features, or with ``feature_ids`` null every feature whose
     response carries ``plugin_update`` ("Update all"), re-pinned with their
@@ -665,7 +667,7 @@ async def update_plugin_features(
     )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
-    return FeatureTreeResponse.model_validate_json(upstream.content)
+    return PluginUpdateResponse.model_validate_json(upstream.content)
 
 
 @router.post("/{part_id}/redo")

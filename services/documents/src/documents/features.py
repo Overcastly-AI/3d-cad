@@ -19,6 +19,7 @@ with :mod:`documents.parts`; feature routes authorize against the OWNING part
 (§1.2) — features carry no ACLs of their own.
 """
 
+import copy
 import uuid
 from collections.abc import Sequence
 from typing import Annotated
@@ -52,8 +53,16 @@ from loft_wire.legacy_twist import (
 )
 from loft_wire.materials import MaterialAssignment, with_member_materials
 from loft_wire.parts import EVALUATE_BEFORE_DESCRIPTION
+from loft_wire.plugin_update import PluginUpdateResponse
 from loft_wire.ref_names import carry_ref_names
-from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
+from loft_wire.tree_edits import SkippedPluginUpdate
+from py_kit import (
+    ApiError,
+    ConflictError,
+    NotFoundError,
+    ValidationApiError,
+    get_logger,
+)
 from py_kit.db import SessionDep
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,7 +72,6 @@ from documents.custom_features import (
     SentMembers,
     authored_references,
     check_tree_size,
-    declared_update,
     expanded_size,
     host_id,
     is_body_affecting,
@@ -688,26 +696,48 @@ async def update_plugin_features(
     request: PluginUpdateRequest,
     owner_id: Principal,
     session: SessionDep,
-) -> FeatureTreeResponse:
-    """Update custom features to their newer releases (OPENING-UPDATE): the
-    named ones, or every one with ``plugin_update`` when ``feature_ids`` is
-    null ("Update all", as Onshape updates a Part Studio's custom features).
-    Each is re-pinned with its inputs carried by its plugin's explicit map
-    and re-expanded, in tree order, with its hosts and pickers. The whole
-    update is ONE edit: one ``tree_version`` bump and one history step, so
-    one Undo restores every feature as it was. A feature without an update,
-    or a refusal of any of them, writes nothing."""
+) -> PluginUpdateResponse:
+    """Update custom features to their newest releases (OPENING-UPDATE,
+    PLUGIN-UPDATE-ALL): the named ones, or with ``feature_ids`` null every
+    one with ``plugin_update`` ("Update all", as Onshape updates a Part
+    Studio's custom features). Each is re-pinned with its inputs carried by
+    its plugin's explicit map and re-expanded, in tree order, with its hosts
+    and pickers. The whole update is ONE edit: one ``tree_version`` bump and
+    one history step, so one Undo restores every feature as it was.
+
+    Named features are all or nothing: one without an update, or a refusal
+    of any, writes nothing. Update all omits and warns, never refuses on one
+    feature (VISION, 2026-10-29): it leaves each ``separate`` update (one
+    that re-lays what the feature built) for its own decision, skips a
+    feature whose update is refused with every row it touched restored, and
+    lists both in ``skipped_updates``; the rest update."""
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     ensure_fresh(part, request.expected_tree_version)
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
     features = await _ordered_features(session, part.id)
+    skipped: list[SkippedPluginUpdate] | None = None
     if request.feature_ids is None:
-        targets = [row for row in features if declared_update(row) is not None]
-        if not targets:
+        offered = [
+            (row, offer)
+            for row in features
+            if (offer := plugin_update_of(part, row, features)) is not None
+        ]
+        if not offered:
             raise ValidationApiError(
                 "No feature of this part has a newer release to update to.",
                 code=PLUGIN_UPDATE_UNAVAILABLE,
             )
+        skipped = [
+            SkippedPluginUpdate(
+                feature_id=row.id,
+                name=row.name[:200],
+                reason="separate",
+                message=f"{offer.summary[:900]} Update it on its own.",
+            )
+            for row, offer in offered
+            if offer.separate
+        ]
+        targets = [row for row, offer in offered if not offer.separate]
     else:
         by_id = {row.id: row for row in features}
         missing = [str(i) for i in request.feature_ids if i not in by_id]
@@ -722,18 +752,71 @@ async def update_plugin_features(
         )
     updated: list[str] = []
     for row in targets:
-        await _update_plugin_feature(session, part, row)
+        if skipped is None:
+            await _update_plugin_feature(session, part, row)
+        else:
+            refusal = await _try_update_plugin_feature(session, part, row)
+            if refusal is not None:
+                skipped.append(
+                    SkippedPluginUpdate(
+                        feature_id=row.id,
+                        name=row.name[:200],
+                        reason="refused",
+                        code=refusal.code[:80],
+                        message=refusal.message[:1000],
+                    )
+                )
+                continue
         updated.append(str(row.id))
-    part.tree_version += 1
-    await history.PART_HISTORY.record(session, part, pre_op)
-    await session.commit()
+    if updated:
+        part.tree_version += 1
+        await history.PART_HISTORY.record(session, part, pre_op)
+        await session.commit()
     _logger.info(
         "plugin_features_updated",
         part_id=str(part.id),
         feature_ids=updated,
+        skipped=[str(s.feature_id) for s in skipped or []],
         tree_version=part.tree_version,
     )
-    return await tree_response(session, part)
+    tree = await tree_response(session, part)
+    return PluginUpdateResponse(**dict(tree), skipped_updates=skipped or None)
+
+
+async def _try_update_plugin_feature(
+    session: AsyncSession, part: db.Part, row: db.Feature
+) -> ApiError | None:
+    """:func:`_update_plugin_feature`, or its refusal with every row it
+    touched restored: the params of each row (its hosts' and pickers'
+    re-expansions) and its own dependency edges, so Update all can go on
+    past it."""
+    rows = await _ordered_features(session, part.id)
+    saved = {
+        r.id: (copy.deepcopy(r.params), copy.deepcopy(r.expressions), r.param_version)
+        for r in rows
+    }
+    edges = list(
+        (
+            await session.execute(
+                select(db.FeatureDependency.references_feature_id).where(
+                    db.FeatureDependency.feature_id == row.id
+                )
+            )
+        ).scalars()
+    )
+    try:
+        await _update_plugin_feature(session, part, row)
+    except (ValidationApiError, ConflictError) as exc:
+        for r in rows:
+            params, expressions, version = saved[r.id]
+            if r.params != params:
+                r.params = params
+            if r.expressions != expressions:
+                r.expressions = expressions
+            r.param_version = version
+        await _rewrite_edges(session, part.id, row.id, edges)
+        return exc
+    return None
 
 
 @router.patch("/{part_id}/features/{feature_id}/suppress")

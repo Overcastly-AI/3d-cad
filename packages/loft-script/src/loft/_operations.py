@@ -982,7 +982,7 @@ POST_PARTS_PART_ID_FEATURES_PLUGIN_UPDATES: Final = Operation(
     method="POST",
     path="/api/v1/parts/{part_id}/features/plugin-updates",
     request_model="PluginUpdateRequest",
-    response_model="FeatureTreeResponse",
+    response_model="PluginUpdateResponse",
     path_params=("part_id",),
     required_query=(),
 )

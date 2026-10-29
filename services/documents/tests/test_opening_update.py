@@ -57,17 +57,26 @@ def _at(entity: str, point: str) -> dict[str, str]:
     return {"entity": entity, "point": point}
 
 
-def _outline() -> dict[str, Any]:
-    """B7's 288 x 192 outline as the Rectangle tool draws it from the origin."""
-    corners = [(0.0, 0.0), (288.0, 0.0), (288.0, 192.0), (0.0, 192.0)]
+#: B7's 288 x 192 outline as the Rectangle tool draws it from the origin.
+B7_CORNERS = [(0.0, 0.0), (288.0, 0.0), (288.0, 192.0), (0.0, 192.0)]
+
+
+def _outline(
+    corners: list[tuple[float, float]] = B7_CORNERS,
+) -> dict[str, Any]:
+    """A rectangle outline drawn through *corners* from the origin (B7's by
+    default), its first two sides dimensioned."""
+    first = abs(corners[1][0] - corners[0][0]) + abs(corners[1][1] - corners[0][1])
+    second = abs(corners[2][0] - corners[1][0]) + abs(corners[2][1] - corners[1][1])
     constraints: list[dict[str, Any]] = [
         {"kind": "fixed", "point": _at("origin", "position")},
         {"kind": "coincident", "a": _at("e1", "start"), "b": _at("origin", "position")},
     ]
     for k in range(4):
         lid = f"e{k + 1}"
+        a, b = corners[k], corners[(k + 1) % 4]
         constraints.append(
-            {"kind": "vertical" if k % 2 else "horizontal", "entity": lid}
+            {"kind": "horizontal" if a[1] == b[1] else "vertical", "entity": lid}
         )
         constraints.append(
             {
@@ -77,8 +86,8 @@ def _outline() -> dict[str, Any]:
             }
         )
     constraints += [
-        {"kind": "distance", "entity": "e1", "value_mm": 288 * IN, "name": "length"},
-        {"kind": "distance", "entity": "e2", "value_mm": 192 * IN, "name": "width"},
+        {"kind": "distance", "entity": "e1", "value_mm": first * IN, "name": "length"},
+        {"kind": "distance", "entity": "e2", "value_mm": second * IN, "name": "width"},
     ]
     return {
         "type": "sketch",
@@ -270,6 +279,7 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
         offer = offers[name]
         assert offer is not None and offer["to_version"] == version
         assert (offer["adds"], offer["quiet"]) == ([], True)
+        assert (offer["relays"], offer["separate"]) == ([], False)
     roof = offers["Roof"]
     assert roof is not None and roof["to_version"] == "1.6.0"
     assert (roof["adds"], roof["quiet"]) == (["11 ceiling joists"], False)
@@ -395,16 +405,8 @@ def test_the_evaluation_sends_the_spacers_with_their_material(
     assert {bodies[i] for i in spacer_ids} == {"plywood"}
 
 
-def test_a_refusal_on_the_last_feature_rolls_back_the_first(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Update all re-pins the floor, the walls and the six openings, then the
-    roof's update is refused (its map gives a pitch 1.6.0 has not): the
-    whole update is refused, every row is as stored, and the tree version
-    and the history did not move."""
-    part = _b7(client)
-    before = part.rows()
-    version = part.version
+def _bad_roof_map(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The roof's update refused: its map gives a pitch 1.6.0 has not."""
 
     def bad_pitch(inputs: Any, _context: Any) -> dict[str, Any]:
         return {**inputs, "pitch": "rise_99"}
@@ -415,7 +417,59 @@ def test_a_refusal_on_the_last_feature_rolls_back_the_first(
         ("loft.roof", "1.4.0"),
         dataclasses.replace(roof, map_inputs=bad_pitch),
     )
-    refused = part.update()
+
+
+def test_update_all_skips_a_refused_feature_and_updates_the_rest(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Update all omits and warns (VISION, 2026-10-29): the roof, the last
+    feature, is refused after the floor, the walls and the six openings
+    were re-pinned; it alone is restored as stored and listed with its
+    reason, the rest update in one step, and one Undo restores them."""
+    part = _b7(client)
+    before = part.rows()
+    version = part.version
+    _bad_roof_map(monkeypatch)
+    response = part.update()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert part.version == version + 1
+    (skipped,) = body["skipped_updates"]
+    assert (skipped["name"], skipped["reason"], skipped["code"]) == (
+        "Roof",
+        "refused",
+        "plugin_input_invalid",
+    )
+    assert skipped["message"]
+    rows = {f["name"]: f for f in body["features"]}
+    assert _pins(rows) == {**UPDATED, "Roof": "1.4.0"}
+    assert rows["Roof"]["feature"] == before["Roof"]["feature"]
+    # The roof's dependency edges are as stored: the walls still cannot go.
+    blocked = client.delete(
+        f"/api/v1/parts/{part.id}/features/{rows['Walls']['id']}",
+        params={"expected_tree_version": part.version},
+        headers=HEADERS,
+    )
+    assert blocked.status_code == 409, blocked.text
+    # One Undo: every row as stored, byte for byte.
+    monkeypatch.undo()
+    part.step("undo")
+    assert {n: r["feature"] for n, r in part.rows().items()} == {
+        n: r["feature"] for n, r in before.items()
+    }
+
+
+def test_named_features_are_all_or_nothing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Updating named features, a refusal on the last (the roof) rolls back
+    the first (the door): nothing is written, the tree version and the
+    history do not move."""
+    part = _b7(client)
+    before = part.rows()
+    version = part.version
+    _bad_roof_map(monkeypatch)
+    refused = part.update([before["Door"]["id"], before["Roof"]["id"]])
     assert refused.status_code == 422, refused.text
     assert refused.json()["error"]["code"] == "plugin_input_invalid"
     tree = part.tree()
@@ -424,12 +478,55 @@ def test_a_refusal_on_the_last_feature_rolls_back_the_first(
     assert {n: r["feature"] for n, r in after.items()} == {
         n: r["feature"] for n, r in before.items()
     }
-    assert _pins(after) == STORED
     # Undo steps back over the roof's own add, not over a half update.
     monkeypatch.undo()
     part.step("undo")
     assert "Roof" not in part.rows()
     assert _pins(part.rows()) == {k: v for k, v in STORED.items() if k != "Roof"}
+
+
+#: A 290 x 197 outline drawn clockwise from the origin, up first: 1.2.0 laid
+#: its floor from another corner than 1.3.0's lowest one, and 16 in o.c.
+#: divides neither side, so the update re-lays the floor.
+CLOCKWISE = [(0.0, 0.0), (0.0, 197.0), (290.0, 197.0), (290.0, 0.0)]
+
+
+def test_an_update_that_re_lays_a_floor_is_left_for_its_own_decision(
+    client: TestClient,
+) -> None:
+    part = _Part(client)
+    sketch = part.add("Outline", _outline(CLOCKWISE))
+    part.add(
+        "Floor",
+        _custom("loft.floor", "1.2.0", outline=_ref(sketch), joist_profile="us_2x10"),
+    )
+    part.add("Deck", _custom("loft.deck", "1.1.0", width_mm=192 * IN))
+    rows = part.rows()
+    offer = rows["Floor"]["plugin_update"]
+    assert offer is not None and offer["separate"]
+    assert offer["relays"] and offer["relays"][0].endswith(" joists")
+    assert offer["summary"].startswith("Re-lays ")
+    assert " from the outline's lowest corner." in offer["summary"]
+    # Update all takes the deck and leaves the floor, listed.
+    response = part.update()
+    assert response.status_code == 200, response.text
+    body = response.json()
+    (skipped,) = body["skipped_updates"]
+    assert (skipped["name"], skipped["reason"]) == ("Floor", "separate")
+    assert skipped["message"].endswith("Update it on its own.")
+    assert _pins({f["name"]: f for f in body["features"]}) == {
+        "Floor": "1.2.0",
+        "Deck": "1.2.0",
+    }
+    # On its own it updates, re-laid as it said.
+    alone = part.update([rows["Floor"]["id"]])
+    assert alone.status_code == 200, alone.text
+    assert "skipped_updates" not in alone.json()
+    floor = {f["name"]: f for f in alone.json()["features"]}["Floor"]
+    assert floor["feature"]["params"]["plugin_version"] == "1.3.0"
+    assert floor.get("plugin_update") is None
+    # Only the floor was left: Update all now has nothing to do.
+    assert part.update().status_code == 422
 
 
 def _deck(client: TestClient, version: str) -> _Part:
