@@ -1380,8 +1380,8 @@ class PriceBookEntryRow(Base):
     """One price of a book: a material and profile per stock piece (with its
     stock length), per sheet (with its ``sheet``, SHEATHING), per window or
     door unit or anchor bolt (with neither, OPENING-UNITS, SLAB), per linear
-    foot, per board foot, or per cubic yard of ready-mix (SLAB), in integer
-    cents.
+    foot, per board foot, per cubic yard of ready-mix (SLAB), or per square
+    of vinyl siding (SIDING-TRIM), in integer cents.
 
     Rows are the output of :class:`loft_wire.price_book.PriceBookUpdate`'s
     validation (one per key, at most 500); the CHECKs below are the database's
@@ -1435,6 +1435,12 @@ class PriceBookEntryRow(Base):
         sa.CheckConstraint(
             f"NOT {_ITEM_PROFILE} OR (stock_length_ft IS NULL AND sheet IS NULL)",
             name="ck_price_book_entries_item_stock",
+        ),
+        # Vinyl siding per square, with neither (SIDING-TRIM, migration 0031).
+        sa.CheckConstraint(
+            "(unit = 'square') = "
+            "(profile = 'vinyl_d4' AND stock_length_ft IS NULL AND sheet IS NULL)",
+            name="ck_price_book_entries_square",
         ),
     )
 
