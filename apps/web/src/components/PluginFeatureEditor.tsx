@@ -134,6 +134,7 @@ const WARNING_LABELS: Record<string, string> = {
   crawl_height_low: "Crawl height",
   ceiling_joists_omitted: "Ceiling joists",
   stair_throat_thin: "Stringer throat",
+  stair_stringer_span: "Stringer span",
   stair_guard_required: "Stair guard",
   stair_deck_guard: "Deck guard",
 };

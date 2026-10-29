@@ -289,7 +289,6 @@ One line each. The founder triages weekly; most are closed without work.
 - DECK-GUARD-OPENING: deck 1.3.0 opens its guard at a stair (coordinator's call: a new deck version is allowed, only released ones are frozen); until then the stair warns `stair_deck_guard`. Queued for the next pass.
 - STAIRS-HEADROOM-DEFAULT: headroom (IRC R311.7.2) is checked only when a stairwell opening is typed; a free stair's default (0) reads as open above.
 - STAIRS-RISER-VOID: closed risers start on top of the tread below, leaving a 0.75 x 1 in void behind each tread's back edge, over the seat, under the riser board.
-- STAIRS-STRINGER-SPAN: a warning on a cut stringer's horizontal span between supports (DCA6, believed 6 ft, so the free 107 in stair's 142 in run would warn) is NOT built: awc.org is refused by this sandbox's egress proxy, so the limit could not be confirmed from the DCA6 text.
 - STAIRS-LANDING: a deck stair's stringers bear on grade with no landing pad or footing (DCA6 asks for one), and its handrail posts stand on grade unanchored.
 - STAIRS-INTERIOR-RAIL: a free stair's handrail stands on posts (the top one as tall as the rise + 36 in); an interior stair beside a wall would take wall brackets.
 - STAIRS-GUARD: open sides over 30 in up only warn (`stair_guard_required`); the stair frames no guard of its own.

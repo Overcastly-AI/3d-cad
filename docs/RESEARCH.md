@@ -3272,7 +3272,18 @@ and reframe it, a material per member, and a cut list that is always current.
     (R311.7.8), a handrail outside 34..38 (R311.7.8.1), headroom under 6 ft
     8 in below a typed stairwell opening (R311.7.2). Advice comes back as
     the stored stair's warnings: a throat under DCA6's 5 in
-    (`stair_throat_thin`), open sides over 30 in up with no guard, whose
+    (`stair_throat_thin`), cut stringers spanning over 6'-0" horizontally
+    between supports (`stair_stringer_span`: the head's plumb cut to the
+    bottom riser line, so B1's 35 in and the 36 in deck's 46 in pass and
+    the free 107 in stair's 143 in, 11'-11", warns; the fix is a landing,
+    an intermediate support or solid stringers). The 6 ft limit is AWC
+    DCA6's stair detail (three cut stringers at most 18 in apart, spanning
+    at most 6'-0" between supports), Fine Homebuilding on the 2013
+    southern-pine design values ("stringers cut from 2x12 southern pine can
+    now only span a maximum of 6 ft, down from 7 ft") and InterNACHI's
+    inspector guidance (cut stringers <= 6'-0", 1 829 mm); the coordinator
+    confirmed it from those, as awc.org is refused from this sandbox. Open
+    sides over 30 in up with no guard, whose
     openings would stop a 4-3/8 in sphere (R312.1.1, R312.1.3:
     `stair_guard_required`), and a deck guard across its head
     (`stair_deck_guard`: the guard opening is a later deck release). The

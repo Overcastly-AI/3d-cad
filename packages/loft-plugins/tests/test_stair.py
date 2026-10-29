@@ -519,11 +519,34 @@ def test_b1_builds_without_a_warning() -> None:
     assert notes({"deck": DECK_REF}, {"height_mm": 36 * IN}) == []
 
 
-def test_the_free_stair_warns_of_its_throat_and_guard() -> None:
+def test_the_free_stair_warns_of_its_throat_span_and_guard() -> None:
     assert notes(GOLDEN_INPUTS["free-stair-107"][1]) == [
         "stair_throat_thin",
+        "stair_stringer_span",
         "stair_guard_required",
     ]
+
+
+def test_a_cut_stringer_over_6_ft_warns_by_its_span() -> None:
+    """DCA6: cut stringers span at most 6'-0" between supports. The free
+    stair's stringers run from the header's face (u -0.875) to the bottom
+    riser (u 142.125): 143 in, 11'-11". B1's run from the rim's face
+    (u -2.125) to u 32.875, 35 in, and its 36 in edit 46 in, do not warn."""
+    inputs = canonical_inputs(STAIR.manifest, GOLDEN_INPUTS["free-stair-107"][1])
+    found = dict(stair_notes(ExpandInputs(STAIR_ID, {"deck": None, **inputs}, {})))
+    assert found["stair_stringer_span"] == (
+        "Cut stringers span 11'-11\" horizontally; DCA6 limits cut stringers "
+        "to 6'-0\" between supports. Add a landing or an intermediate "
+        "support, or use solid stringers."
+    )
+    # A free stair spans its treads' run: 9 risers of 7.5 (67.5 in) give 8
+    # treads, 88 in (warns); 7 risers (52.5 in) give 6, 66 in (does not).
+    assert "stair_stringer_span" in notes({"rise_mm": 67.5 * IN, "risers": "closed"})
+    assert "stair_stringer_span" not in notes(
+        {"rise_mm": 52.5 * IN, "risers": "closed"}
+    )
+    for deck in ({}, {"height_mm": 36 * IN}):
+        assert "stair_stringer_span" not in notes({"deck": DECK_REF}, deck)
 
 
 def test_a_guarded_deck_warns_that_its_guard_crosses_the_stair() -> None:

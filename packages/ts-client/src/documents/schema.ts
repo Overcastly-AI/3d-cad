@@ -5026,7 +5026,7 @@ export interface components {
             plugin_update?: components["schemas"]["PluginUpdate"] | null;
             /**
              * Plugin Warnings
-             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, `stair_throat_thin`, `stair_guard_required`, `stair_deck_guard`). Omitted when there are none.
+             * @description Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, `stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, `stair_deck_guard`). Omitted when there are none.
              */
             plugin_warnings?: components["schemas"]["PluginWarning"][] | null;
             /**
@@ -8711,10 +8711,10 @@ export interface components {
         PluginWarning: {
             /**
              * Code
-             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them; 'stair_throat_thin': a stair's cut stringers keep under AWC DCA6's 5 in throat; 'stair_guard_required': a stair's top tread is over 30 in up and its open sides have no guard (IRC R312.1.1); 'stair_deck_guard': the deck's guard runs across the stair's head
+             * @description 'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them; 'stair_throat_thin': a stair's cut stringers keep under AWC DCA6's 5 in throat; 'stair_stringer_span': a stair's cut stringers span more than DCA6's 6'-0" horizontally between supports; 'stair_guard_required': a stair's top tread is over 30 in up and its open sides have no guard (IRC R312.1.1); 'stair_deck_guard': the deck's guard runs across the stair's head
              * @enum {string}
              */
-            code: "roof_through_sheathing" | "crawl_height_low" | "ceiling_joists_omitted" | "stair_throat_thin" | "stair_guard_required" | "stair_deck_guard";
+            code: "roof_through_sheathing" | "crawl_height_low" | "ceiling_joists_omitted" | "stair_throat_thin" | "stair_stringer_span" | "stair_guard_required" | "stair_deck_guard";
             /**
              * Message
              * @description Names the problem and what fixes it

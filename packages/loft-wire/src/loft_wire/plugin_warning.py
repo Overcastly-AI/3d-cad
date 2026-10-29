@@ -21,7 +21,9 @@ pass the ridge board's underside): the roof builds without them, as Chief
 warns rather than blocks, and the message says what to pick.
 
 ``loft.stair`` (STAIRS) carries advice on a layout that builds: a cut
-stringer's throat under AWC DCA6's 5 in (``stair_throat_thin``), open sides
+stringer's throat under AWC DCA6's 5 in (``stair_throat_thin``), a cut
+stringer spanning more than DCA6's 6'-0" horizontally between supports
+(``stair_stringer_span``), open sides
 more than 30 in up that IRC R312.1.1 guards (``stair_guard_required``), and
 a deck whose guard crosses the stair's head (``stair_deck_guard``: the
 stair never changes the deck). A layout that breaks IRC R311.7 is refused
@@ -45,6 +47,8 @@ CRAWL_HEIGHT_LOW: Final = "crawl_height_low"
 CEILING_JOISTS_OMITTED: Final = "ceiling_joists_omitted"
 #: STAIRS: a ``loft.stair``'s cut stringers keep under 5 in of throat (DCA6).
 STAIR_THROAT_THIN: Final = "stair_throat_thin"
+#: STAIRS: a stair's cut stringers span over DCA6's 6'-0" between supports.
+STAIR_STRINGER_SPAN: Final = "stair_stringer_span"
 #: STAIRS: a stair's top tread over 30 in up, its open sides unguarded.
 STAIR_GUARD_REQUIRED: Final = "stair_guard_required"
 #: STAIRS: the picked deck's guard runs across the stair's head.
@@ -59,6 +63,7 @@ class PluginWarning(BaseModel):
         "crawl_height_low",
         "ceiling_joists_omitted",
         "stair_throat_thin",
+        "stair_stringer_span",
         "stair_guard_required",
         "stair_deck_guard",
     ] = Field(
@@ -68,7 +73,9 @@ class PluginWarning(BaseModel):
         "'ceiling_joists_omitted': a gable's chosen ceiling joist would pass "
         "its ridge board, so the roof is built without them; "
         "'stair_throat_thin': a stair's cut stringers keep under AWC DCA6's "
-        "5 in throat; 'stair_guard_required': a stair's top tread is over "
+        "5 in throat; 'stair_stringer_span': a stair's cut stringers span "
+        "more than DCA6's 6'-0\" horizontally between supports; "
+        "'stair_guard_required': a stair's top tread is over "
         "30 in up and its open sides have no guard (IRC R312.1.1); "
         "'stair_deck_guard': the deck's guard runs across the stair's head"
     )
@@ -100,7 +107,8 @@ PLUGIN_WARNINGS_FIELD: Any = Field(
     description="Wrong geometry the feature's pinned plugin release builds "
     "(`roof_through_sheathing`), each with the release that fixes it, or a "
     "warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, "
-    "`stair_throat_thin`, `stair_guard_required`, `stair_deck_guard`). "
+    "`stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, "
+    "`stair_deck_guard`). "
     "Omitted when there are none.",
 )
 
@@ -112,6 +120,7 @@ __all__ = [
     "ROOF_THROUGH_SHEATHING",
     "STAIR_DECK_GUARD",
     "STAIR_GUARD_REQUIRED",
+    "STAIR_STRINGER_SPAN",
     "STAIR_THROAT_THIN",
     "PluginWarning",
     "PluginWarnings",

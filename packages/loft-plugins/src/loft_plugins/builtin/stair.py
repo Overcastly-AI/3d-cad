@@ -96,6 +96,7 @@ from loft_wire.materials import MaterialKey
 from loft_wire.plugin_warning import (
     STAIR_DECK_GUARD,
     STAIR_GUARD_REQUIRED,
+    STAIR_STRINGER_SPAN,
     STAIR_THROAT_THIN,
 )
 from loft_wire.plugins import (
@@ -134,6 +135,9 @@ OPEN_RISER_SPHERE: Final = 4.0  # R311.7.5.1: open risers above 30 in
 GUARD_HEIGHT_ABOVE: Final = 30.0  # R312.1.1 and R311.7.5.1's 30 in
 MAX_STRINGER_SPACING: Final = 18.0  # DCA6: cut stringers at most 18 in o.c.
 MIN_THROAT: Final = 5.0  # DCA6: 5 in of stringer under each notch
+#: DCA6's stair detail: cut stringers span at most 6'-0" horizontally
+#: between supports (the 2013 southern-pine values took it from 7 ft).
+MAX_CUT_STRINGER_SPAN: Final = 72.0
 HANDRAIL_POST_SPACING: Final = 72.0  # the deck guard's 6 ft post rule
 
 _INCH_DIGITS = 9
@@ -1137,6 +1141,17 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
             )
 
 
+def _feet_inches(inches: float) -> str:
+    """*inches* as feet and inches to the nearest 1/16 (``11'-11"``)."""
+    sixteenths = round(inches * 16)
+    feet, rest = divmod(sixteenths, 12 * 16)
+    whole, frac = divmod(rest, 16)
+    if frac == 0:
+        return f"{feet}'-{whole}\""
+    g = math.gcd(frac, 16)
+    return f"{feet}'-{whole} {frac // g}/{16 // g}\""
+
+
 def stair_notes(inputs: ExpandInputs) -> list[tuple[str, str]]:
     """The stored stair's warnings, as (code, message): advice on a layout
     that builds (module docstring), none for one that is refused. Pure."""
@@ -1157,6 +1172,16 @@ def stair_notes(inputs: ExpandInputs) -> list[tuple[str, str]]:
                     if lay.stringer.key != "us_2x12"
                     else "lower the maximum riser or the tread depth."
                 ),
+            )
+        )
+    span = lay.foot_u - lay.head_u
+    if span > MAX_CUT_STRINGER_SPAN + _EPS:
+        notes.append(
+            (
+                STAIR_STRINGER_SPAN,
+                f"Cut stringers span {_feet_inches(span)} horizontally; DCA6 "
+                "limits cut stringers to 6'-0\" between supports. Add a "
+                "landing or an intermediate support, or use solid stringers.",
             )
         )
     top_tread = (lay.risers - 1) * lay.riser

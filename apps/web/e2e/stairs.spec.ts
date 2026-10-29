@@ -201,10 +201,12 @@ test.describe("Stairs — B1's stair and a free stair", () => {
     });
     await page.getByTestId("feature-select-0").click();
     const warnings = page.getByTestId("plugin-warning");
-    await expect(warnings).toHaveCount(2);
+    await expect(warnings).toHaveCount(3);
     await expect(warnings.nth(0)).toContainText("Stringer throat");
     await expect(warnings.nth(0)).toContainText("4.9697 in");
-    await expect(warnings.nth(1)).toContainText("R312.1.1");
+    await expect(warnings.nth(1)).toContainText("Stringer span");
+    await expect(warnings.nth(1)).toContainText(`11'-11"`);
+    await expect(warnings.nth(2)).toContainText("R312.1.1");
     await page.mouse.move(800, 990);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/stairs-free-warning.png`,

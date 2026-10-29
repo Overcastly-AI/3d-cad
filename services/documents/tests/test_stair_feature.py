@@ -115,10 +115,12 @@ def test_a_free_stair_warns_of_its_throat_and_open_sides(client: TestClient) -> 
     warnings = _rows(client, part)["Stair"]["plugin_warnings"]
     assert [w["code"] for w in warnings] == [
         "stair_throat_thin",
+        "stair_stringer_span",
         "stair_guard_required",
     ]
     assert "4.9697 in" in warnings[0]["message"]
-    assert "R312.1.1" in warnings[1]["message"]
+    assert "6'-0\"" in warnings[1]["message"]
+    assert "R312.1.1" in warnings[2]["message"]
     assert all(w["update_to"] is None for w in warnings)
     assert _roles(_cut_list_request(client, part))["riser"] == 13
 
