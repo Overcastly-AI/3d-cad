@@ -60,10 +60,10 @@ into an item are named in it and removed from Notes.
    risers an option, and one handrail where there are 4 or more risers
    (R311.7.8). The deck's guard opens at the stair. _Accept:_ B1 with a
    stair centred on the rim at X 96: 4 risers of 7.5 (30 / 4), 3 treads of
-   11 in run (33 in), 3 stringers 2x12 (X 78..114, 17.25 o.c.) from 6 ft
+   11 in run (33 in), 3 stringers 2x12 (X 78..114, 17.25 o.c.) from 8 ft
    stock with a 11.25 - 82.5 / √177.25 = 5.0533 in throat, 6 tread boards
    5/4x6 x 36, a handrail, no interference; decking at 36 in gives 5
-   risers of 7.2, 4 treads (44 in) and a 5.2258 in throat; a free stair
+   risers of 7.2, 4 treads (44 in) and a 5.2257 in throat; a free stair
    with a 107.09375 in rise gives 14 risers of 7.649554, 13 treads; stored
    decks are byte-identical.
 3. [ ] **GABLE-END-STUDS** (kernel-architect for `loft.roof` 1.7.0 and
@@ -286,6 +286,11 @@ One line each. The founder triages weekly; most are closed without work.
 
 - UPDATE-DRYRUN-PICKERS: an update offer's dry run checks the feature and its host only, not its pickers or the tree after earlier updates in the same Update all.
 - UPDATE-CABINETS-REFUSAL: a cabinets 1.0 -> 1.1 update that 1.1 refuses (a run past a partition) only surfaces as an Update all skip, with no preview on the row.
+- STAIRS-GUARD-OPENING: the deck's guard still runs across a stair's head; opening it needs a deck release that reads its stairs (the stair warns `stair_deck_guard`; deck manifests stayed frozen for STAIRS).
+- STAIRS-LANDING: a deck stair's stringers bear on grade with no landing pad or footing (DCA6 asks for one), and its handrail posts stand on grade unanchored.
+- STAIRS-INTERIOR-RAIL: a free stair's handrail stands on posts (the top one as tall as the rise + 36 in); an interior stair beside a wall would take wall brackets.
+- STAIRS-GUARD: open sides over 30 in up only warn (`stair_guard_required`); the stair frames no guard of its own.
+
 - SLAB-PRICE-DOWNGRADE: migration 0027's downgrade deletes the foundation prices without bumping price_books.version, so an open draft's If-Match still matches (0025's downgrade does the same).
 - CASEWORK-HARDWARE-MATERIAL: hinges and slides are keyed to steel_1018 in the price book, so a book cannot price a nickel or zinc hinge apart.
 - CASEWORK-FRONT-GRAIN: a drawer front's plywood grain is fixed vertical, like a door's; many shops run it across.

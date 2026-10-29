@@ -3234,6 +3234,69 @@ and reframe it, a material per member, and a cut list that is always current.
   - *Pieces.* The cut list's Pieces total is every line's quantity but
     banding's: each body once and each Each item by its count. A banding
     line's quantity is the panels it bands, already counted.
+- **Decided while building the stair** (STAIRS, 2026-10-29; Chief
+  Architect's Stair tool and Build Framing, Revit's Stair by Component, IRC
+  R311.7 and R312, AWC DCA6):
+  - *One feature, hosted by a pick.* `loft.stair` 1.0.0 picks an earlier
+    `loft.deck` (an optional feature input, NOT a host: the deck's stored
+    manifests and expansions stay frozen and byte-identical) and reads the
+    deck's stored inputs for its height, decking and the overhang at the
+    picked edge (front, left or right), recomputed with the deck's own
+    `board_count`. With no deck it is free, at a typed total rise, top
+    nosing point, bottom elevation and direction (an interior stair). A deck
+    edit re-lays the stair in the same write (documents' pickers).
+  - *Counting.* Risers `ceil(rise / max riser)`, every one equal (Chief and
+    Revit); treads one fewer at the tread depth, nosing to nosing. Tread
+    boards are the fewest whole boards covering the depth (2 x 5/4x6 +
+    1/8 = 11.125 for 11), so each nosing sits `c` past its riser line (the
+    pack, plus 3/4 behind a closed riser's board), and the top riser line is
+    put at `T - c` so the deck's edge to the top nosing is T too. Under a
+    deck that line may not pass the rim's face; where it would, it sits on
+    the face and the top step is deeper, refused past R311.7.5.2's 3/8 in.
+  - *The stringer is one cut profile.* A 2x12 (2x10 an option) side
+    profile on a vertical datum at its face, extruded 1.5 in: its top edge
+    through every tooth point, its bottom edge the board's depth square
+    below, the notches cut out, the head level under the decking and plumb
+    on the rim's face (a free stair's head plumb at the top riser line, the
+    header's face), the foot level on the stair's foot. Real B-rep, so the
+    cut list measures the stock it is cut from (along its own frame, long
+    point to long point) and the throat `d - R T / sqrt(R^2 + T^2)` can be
+    measured on the export. Stringers at most 18 in o.c. with both outer
+    ones flush (DCA6).
+  - *Refused or warned, by name.* A layout that breaks R311.7 is refused
+    on write, the message leading with its section: width under 36
+    (R311.7.1), a riser over 7-3/4 (R311.7.5.1), open risers past 30 in
+    whose opening passes a 4 in sphere (R311.7.5.1), a tread under 10 or a
+    top step more than 3/8 off (R311.7.5.2), a nosing outside 3/4..1-1/4
+    under an 11 in tread (R311.7.5.3), no handrail on 4 or more risers
+    (R311.7.8), a handrail outside 34..38 (R311.7.8.1), headroom under 6 ft
+    8 in below a typed stairwell opening (R311.7.2). Advice comes back as
+    the stored stair's warnings: a throat under DCA6's 5 in
+    (`stair_throat_thin`), open sides over 30 in up with no guard, whose
+    openings would stop a 4-3/8 in sphere (R312.1.1, R312.1.3:
+    `stair_guard_required`), and a deck guard across its head
+    (`stair_deck_guard`: the guard opening is a later deck release). The
+    riser variance (3/8 in) is zero by construction; 4-3/8 in is the stair
+    guard's sphere, not a variance (the brief had them crossed).
+  - *Treads, risers, handrail.* Treads are whole boards the stair's width;
+    closed risers 1x8 (added to the library) ripped to `R - t`, from the
+    tread below to the one above, the top one under the decking and none
+    under a free stair's floor (its header, unmodelled). The handrail is a
+    2x2 (Type I: 6 in perimeter, R311.7.8.5) over the outer stringer on its
+    side, its top the height above the nosing line from the top nosing to
+    the lowest tread's (R311.7.8.4), on 4x4 posts outside that stringer at
+    both ends and at most 6 ft apart, each up to the rail.
+  - *Cut list.* A new system, Stairs, after Deck. `stringer`, `handrail`
+    and `handrail_post` are one-piece roles (NO-SPLICE-SPANS).
+  - *Numbers.* B1: 4 risers of 7.5, 3 treads (33 in), stringers at X 78,
+    95.25, 112.5 (17.25 o.c.), throat 5.053295, stringer 602.5 /
+    sqrt(177.25) = 45.2547 in on 8 ft stock (no 6 ft lumber is sold); at
+    36 in, 5 of 7.2, 4 treads, throat 5.225749 (the brief's 5.2258
+    mis-rounds it); free at 107.09375, 14 of 7.649554, 13 treads, throat
+    4.969740 (warned). Goldens `b1-stair-30`, `-30-closed`, `-36` and
+    `free-stair-107`, matched solid for solid to an independent build123d
+    script on STEP, the throat measured on every exported stringer, no pair
+    interfering (the deck's members among them), probed exactly.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
