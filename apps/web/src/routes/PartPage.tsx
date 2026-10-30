@@ -47,6 +47,7 @@ import { useSketch3DScene } from "./part/useSketch3DScene";
 import { Sketch3DSceneLayer } from "../viewport/Sketch3DLayer";
 import { FeatureEditorSeat } from "./part/FeatureEditorSeat";
 import { PartCommandBand } from "./part/PartCommandBand";
+import { useOpenDrawing } from "../assembly/useOpenDrawing";
 import {
   sketchMenuSections,
   treeMenuSections,
@@ -338,7 +339,10 @@ export function PartPage() {
     setFlatDxfBusy,
     setOffsetPlaneBusy,
     setOffsetPlaneError,
+    setDrawingError,
   } = actionFlags;
+  // Document > Drawing (QA-PART-DRAWING-CMD): the assembly's hand-off, here.
+  const partDrawing = useOpenDrawing(partId, part.data?.name, setDrawingError);
   const pickOverlays = usePickOverlays({
     partId,
     mode,
@@ -1039,6 +1043,7 @@ export function PartPage() {
             openCreateCombine={openCreateCombine}
             pluginCatalog={pluginCatalog}
             openCreatePlugin={pluginFeature.openCreatePlugin}
+            partDrawing={partDrawing}
           />
         </TopToolbar>
         {/* Full-bleed scene: the canvas owns the frame; the tree + inspector

@@ -64,15 +64,27 @@ parts_router = APIRouter(prefix="/api/v1/parts", tags=["cut-list"])
 assemblies_router = APIRouter(prefix="/api/v1/assemblies", tags=["cut-list"])
 
 
-async def _part_pieces(
-    http_request: Request, user: User, part_id: uuid.UUID, count: int = 1
-) -> tuple[CutListPartRequest, list[CutListPiece]]:
+async def part_cut_list_request(
+    http_request: Request, user: User, part_id: uuid.UUID
+) -> CutListPartRequest:
+    """The part's evaluation request with its plugin members (documents)."""
     upstream = await forward_documents(
         http_request, user, "GET", f"/api/v1/parts/{part_id}/cut-list-request"
     )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
-    request = CutListPartRequest.model_validate_json(upstream.content)
+    return CutListPartRequest.model_validate_json(upstream.content)
+
+
+async def _part_pieces(
+    http_request: Request,
+    user: User,
+    part_id: uuid.UUID,
+    count: int = 1,
+    request: CutListPartRequest | None = None,
+) -> tuple[CutListPartRequest, list[CutListPiece]]:
+    if request is None:
+        request = await part_cut_list_request(http_request, user, part_id)
     measured = await forward_geometry(
         http_request,
         str(user.id),
@@ -91,9 +103,13 @@ async def _part_pieces(
 
 
 async def part_cut_list(
-    http_request: Request, user: User, part_id: uuid.UUID
+    http_request: Request,
+    user: User,
+    part_id: uuid.UUID,
+    request: CutListPartRequest | None = None,
 ) -> CutListResponse:
-    request, pieces = await _part_pieces(http_request, user, part_id)
+    """The part's priced cut list; *request* when the caller has read it."""
+    request, pieces = await _part_pieces(http_request, user, part_id, request=request)
     return cut_list_response(
         document_id=part_id,
         document_kind="part",

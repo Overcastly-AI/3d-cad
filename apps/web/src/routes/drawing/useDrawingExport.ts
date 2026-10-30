@@ -8,6 +8,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   type DrawingExportFormat,
   exportDrawing,
+  exportDrawingMaterialsCsv,
 } from "../../api/exportDrawing";
 import { downloadBlob } from "../../api/exportPart";
 import { exportSheetSvg } from "../../drawing/exportSvg";
@@ -86,11 +87,37 @@ export function useDrawingExport(
     [runServerExport],
   );
 
+  // A materials sheet's yard order as CSV (HOUSE-DRAWINGS): the same lines
+  // as its table and the cut-list panel, for a spreadsheet or a yard's portal.
+  const handleExportCsv = useCallback(() => {
+    if (!hasLayout || exporting) return;
+    setExporting(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        const { blob, filename } = await exportDrawingMaterialsCsv(
+          drawingId,
+          activeSheetId,
+        );
+        downloadBlob(blob, filename);
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The materials list could not be written as CSV.",
+        );
+      } finally {
+        setExporting(false);
+      }
+    })();
+  }, [hasLayout, exporting, drawingId, activeSheetId]);
+
   return {
     sheetSvgRef,
     exporting,
     handleExportSvg,
     handleExportPdf,
     handleExportDxf,
+    handleExportCsv,
   };
 }

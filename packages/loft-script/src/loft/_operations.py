@@ -457,6 +457,16 @@ POST_DRAWINGS_DRAWING_ID_EXPORT: Final = Operation(
     required_query=(),
 )
 
+GET_DRAWINGS_DRAWING_ID_MATERIALS_CSV: Final = Operation(
+    operation_id="get_drawing_materials_csv_api_v1_drawings__drawing_id__materials_csv_get",
+    method="GET",
+    path="/api/v1/drawings/{drawing_id}/materials/csv",
+    request_model=None,
+    response_model=None,
+    path_params=("drawing_id",),
+    required_query=(),
+)
+
 POST_DRAWINGS_DRAWING_ID_MOVE: Final = Operation(
     operation_id="move_drawing_api_v1_drawings__drawing_id__move_post",
     method="POST",
@@ -1226,6 +1236,7 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "delete_dimension_api_v1_drawings__drawing_id__dimensions__dimension_id__delete": DELETE_DRAWINGS_DRAWING_ID_DIMENSIONS_DIMENSION_ID,
         "duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post": POST_DRAWINGS_DRAWING_ID_DUPLICATE,
         "export_drawing_api_v1_drawings__drawing_id__export_post": POST_DRAWINGS_DRAWING_ID_EXPORT,
+        "get_drawing_materials_csv_api_v1_drawings__drawing_id__materials_csv_get": GET_DRAWINGS_DRAWING_ID_MATERIALS_CSV,
         "move_drawing_api_v1_drawings__drawing_id__move_post": POST_DRAWINGS_DRAWING_ID_MOVE,
         "compose_drawing_sheet_api_v1_drawings__drawing_id__sheet_post": POST_DRAWINGS_DRAWING_ID_SHEET,
         "create_sheet_api_v1_drawings__drawing_id__sheets_post": POST_DRAWINGS_DRAWING_ID_SHEETS,

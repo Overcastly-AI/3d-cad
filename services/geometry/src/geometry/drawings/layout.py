@@ -46,6 +46,13 @@ VIEW_LABEL: dict[ViewProjection, str] = {
     "iso": "Isometric",
     "flat_pattern": "Flat Pattern",
     "section": "Section A-A",
+    # The house views (HOUSE-DRAWINGS), placed by geometry.drawings.house_compose.
+    "plan": "Floor Plan",
+    "elevation_front": "Front Elevation",
+    "elevation_back": "Back Elevation",
+    "elevation_left": "Left Elevation",
+    "elevation_right": "Right Elevation",
+    "materials": "Materials List",
 }
 
 #: ISO / ANSI sheet dimensions in mm, given LANDSCAPE (w >= h) — layout.ts.
@@ -709,6 +716,7 @@ def resolve_view_anchors(
     layout: SheetLayout,
     result_by_proj: dict[ViewProjection, DrawingViewResult],
     dims: Vec2,
+    preplaced: dict[ViewProjection, Vec2] | None = None,
 ) -> dict[ViewProjection, Vec2]:
     """Resolve every placed view's y-up CENTRE anchor (FINDINGS #6).
 
@@ -796,8 +804,15 @@ def resolve_view_anchors(
                     pinned_view_offset(result_by_proj.get(vp.projection)),
                 ),
             )
+    # The house views' own arrangement (HOUSE-DRAWINGS), laid out by the caller.
+    for proj, center in (preplaced or {}).items():
+        place(proj, center)
     for vp in layout.views:
-        if vp.auto_place and vp.projection not in STANDARD_VIEWS:
+        if (
+            vp.auto_place
+            and vp.projection not in STANDARD_VIEWS
+            and vp.projection not in (preplaced or {})
+        ):
             place(
                 vp.projection,
                 _free_slot_anchor(

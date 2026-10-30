@@ -950,6 +950,19 @@ export const DrawingSheetIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * The house set (HOUSE-DRAWINGS) = a gable elevation with its door, the one
+ * thing a plan, four elevations and a materials list have in common: a
+ * building. Drawn in the same stroke vocabulary as the sheet glyphs beside it.
+ */
+export const HouseSetIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 11 L12 4 L21 11" />
+    <path d="M5 9.5 V20 H19 V9.5" />
+    <rect x={10} y={14} width={4} height={6} />
+  </Icon>
+);
+
 // --- Feature tree -----------------------------------------------------------
 //
 // The tree-row verbs, in the title-block idiom. Suppress = a feature struck

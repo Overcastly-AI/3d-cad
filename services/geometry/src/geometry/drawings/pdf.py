@@ -22,6 +22,7 @@ from __future__ import annotations
 import io
 from collections.abc import Sequence
 
+from loft_wire.drawing_house import ComposedMaterialsTable
 from loft_wire.drawings import (
     DRAWING_KIND_CAPTION,
     ComposedBendTable,
@@ -89,6 +90,7 @@ from geometry.drawings.sheet_style import (
     _VISIBLE_W,
     _bend_row_cells,
     _fit,
+    _table_cells,
     _tb_fields,
     _thread_row_cells,
 )
@@ -398,6 +400,46 @@ def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
             )
 
 
+def _pdf_table_text(
+    c: Canvas, x: float, y: float, text: str, size_mm: float, fill: str, anchor: str
+) -> None:
+    """One materials-table cell at its baseline, left- or right-aligned."""
+    c.setFont(_PDF_FONT, size_mm * _MM)
+    c.setFillColor(_hex(fill))
+    if anchor == "end":
+        c.drawRightString(x * _MM, y * _MM, text)
+    else:
+        c.drawString(x * _MM, y * _MM, text)
+
+
+def _pdf_materials_table(c: Canvas, table: ComposedMaterialsTable) -> None:
+    """Draw the materials list (HOUSE-DRAWINGS): the SVG's blocks, rules and
+    cells (:func:`_table_cells`), so the PDF reads line for line as the sheet."""
+    for block in table.blocks:
+        x, y, w, h = block.x, block.y, block.width, block.height
+        c.setDash([])
+        c.setFillColor(_hex(_PAPER))
+        c.setStrokeColor(_hex(_INK))
+        c.setLineWidth(_BORDER_W * _MM)
+        c.rect(x * _MM, y * _MM, w * _MM, h * _MM, stroke=1, fill=1)
+        c.setLineWidth(_HIDDEN_W * _MM)
+        hy = (y + table.row_height) * _MM
+        c.line(x * _MM, hy, (x + w) * _MM, hy)
+        for caption, cx, anchor in _table_cells(table, x, table.columns):
+            _pdf_table_text(
+                c, cx, block.header_y, caption.upper(), table.text_mm, _LABEL, anchor
+            )
+        for row in block.rows:
+            if row.kind == "total":
+                ty = (row.y - table.row_height + 1.6) * _MM
+                c.setStrokeColor(_hex(_INK))
+                c.setLineWidth(_HIDDEN_W * _MM)
+                c.line(x * _MM, ty, (x + w) * _MM, ty)
+            fill = _LABEL if row.kind == "group" else _DIM_TEXT
+            for cell, cx, anchor in _table_cells(table, x, row.cells):
+                _pdf_table_text(c, cx, row.y, cell, table.text_mm, fill, anchor)
+
+
 def _pdf_thread_schedule(c: Canvas, ts: ComposedThreadSchedule) -> None:
     """Draw the thread-schedule block onto the PDF canvas (BACKLOG #50).
 
@@ -501,6 +543,8 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
         _pdf_bend_table(c, composed.bend_table)
     if composed.thread_schedule is not None:
         _pdf_thread_schedule(c, composed.thread_schedule)
+    if composed.materials_table is not None:
+        _pdf_materials_table(c, composed.materials_table)
     for note in composed.notes:
         _pdf_note(c, note)
     c.showPage()

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from loft_wire.drawing_house import ComposedMaterialsTable
 from loft_wire.drawings import (
     DRAWING_KIND_CAPTION,
     ComposedBendTable,
@@ -78,6 +79,7 @@ from geometry.drawings.sheet_style import (
     _VISIBLE_W,
     _bend_row_cells,
     _fit,
+    _table_cells,
     _tb_fields,
     _thread_row_cells,
 )
@@ -456,6 +458,55 @@ def _emit_thread_schedule(ts: ComposedThreadSchedule, out: list[str]) -> None:
     out.append("    </g>")
 
 
+def _emit_materials_table(table: ComposedMaterialsTable, out: list[str]) -> None:
+    """Render the materials list (HOUSE-DRAWINGS): each block a box, a header row
+    and its rows (a system heading spans the row; the total is ruled off). The
+    PDF and DXF serializers draw the SAME cells at the SAME offsets."""
+    out.append('    <g data-testid="drawing-materials-table">')
+    size = _fmt(table.text_mm)
+    for block in table.blocks:
+        x, y, w, h = block.x, block.y, block.width, block.height
+        out.append(
+            f'      <rect x="{_fmt(x)}" y="{_fmt(y)}" width="{_fmt(w)}" '
+            f'height="{_fmt(h)}" fill="{_PAPER}" stroke="{_INK}" '
+            f'stroke-width="{_fmt(_BORDER_W)}"/>'
+        )
+        hy = y + table.row_height
+        out.append(
+            f'      <line x1="{_fmt(x)}" y1="{_fmt(hy)}" x2="{_fmt(x + w)}" '
+            f'y2="{_fmt(hy)}" stroke="{_INK}" stroke-width="{_fmt(_HIDDEN_W)}"/>'
+        )
+        for caption, cell_x, anchor in _table_cells(table, x, table.columns):
+            out.append(
+                f'      <text x="{_fmt(cell_x)}" y="{_fmt(block.header_y)}" '
+                f'text-anchor="{anchor}" fill="{_LABEL}" font-family="{_FONT}" '
+                f'font-size="{size}" letter-spacing="0.4">'
+                f"{_esc(caption.upper())}</text>"
+            )
+        for row in block.rows:
+            out.append(
+                f'      <g data-testid="drawing-materials-row" '
+                f'data-row-kind="{row.kind}">'
+            )
+            if row.kind == "total":
+                ty = row.y - table.row_height + 1.6
+                out.append(
+                    f'        <line x1="{_fmt(x)}" y1="{_fmt(ty)}" x2="{_fmt(x + w)}" '
+                    f'y2="{_fmt(ty)}" stroke="{_INK}" '
+                    f'stroke-width="{_fmt(_HIDDEN_W)}"/>'
+                )
+            fill = _LABEL if row.kind == "group" else _DIM_TEXT
+            for cell, cell_x, anchor in _table_cells(table, x, row.cells):
+                out.append(
+                    f'        <text data-testid="drawing-materials-cell" '
+                    f'x="{_fmt(cell_x)}" y="{_fmt(row.y)}" text-anchor="{anchor}" '
+                    f'fill="{fill}" font-family="{_FONT}" '
+                    f'font-size="{size}">{_esc(cell)}</text>'
+                )
+            out.append("      </g>")
+    out.append("    </g>")
+
+
 def _emit_note(note: ComposedNote, out: list[str]) -> None:
     """Render a placed free-text note (design §2.2) — left-anchored graphite ink.
 
@@ -507,6 +558,8 @@ def serialize_svg(composed: ComposedSheet) -> str:
         _emit_bend_table(composed.bend_table, out)
     if composed.thread_schedule is not None:
         _emit_thread_schedule(composed.thread_schedule, out)
+    if composed.materials_table is not None:
+        _emit_materials_table(composed.materials_table, out)
     for note in composed.notes:
         _emit_note(note, out)
     out.append("</svg>")

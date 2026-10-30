@@ -13,7 +13,7 @@
     "apps/web/src/viewport/SketchScene.tsx": 2122,
     "apps/web/src/viewport/Viewport.tsx": 1816,
     "packages/design/src/gauge.ts": 1538,
-    "packages/loft-wire/src/loft_wire/drawings.py": 2002,
+    "packages/loft-wire/src/loft_wire/drawings.py": 2001,
     "packages/loft-wire/src/loft_wire/features.py": 3578,
     "scripts/e2e-shard-plan.py": 1585,
     "services/geometry/src/geometry/sheet_metal/unfold.py": 2489,

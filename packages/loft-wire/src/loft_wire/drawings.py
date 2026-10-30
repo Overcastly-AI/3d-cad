@@ -32,6 +32,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+import loft_wire.drawing_house as house
 from loft_wire.assemblies import (
     AssemblySolveDiagnosis,
     AssemblySolveStatus,
@@ -155,16 +156,16 @@ SheetProjectionConvention = Literal["third_angle", "first_angle"]
 #: (sheet-metal.md §7). ``flat_pattern`` SKIPS HLR: a :class:`FlatPattern` is
 #: already 2D, so geometry feeds its ``edge_role``-tagged outline straight into the
 #: shipped :class:`ProjectedViewEdge` shape (never a projection frame). The
-#: projection ENUM is ALL documents persists — mapping a standard direction to a 3D
-#: frame + running HLR (or, for ``flat_pattern``, running the unfold) is the
-#: geometry service's job (design §1.2 / sheet-metal.md §6/§7), never here.
+#: projection ENUM is ALL documents persists; mapping a direction to a frame and
+#: running HLR (or the unfold) is geometry's job (design §1.2), never here.
 #:
-#: ``section`` is a full PLANAR section of a single-body part (drawings-section.md v1):
-#: like ``flat_pattern`` it is NOT one of the third-angle quartet — it is placed by its
-#: OWN evaluate + compose branch, and the cutting plane rides in a sibling
-#: :class:`SectionViewParams` (the projection enum stays a pure direction; the plane is
-#: geometry-resolved, never here).
-ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern", "section"]
+#: ``section`` is a full PLANAR section of a single-body part (drawings-section.md v1),
+#: placed by its OWN evaluate + compose branch; its plane rides in SectionViewParams.
+#: The house views (HOUSE-DRAWINGS, :mod:`loft_wire.drawing_house`): ``plan``, the four
+#: ``elevation_*`` and ``materials`` (the cut list as a schedule view, as Revit's).
+ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern", "section",
+    "plan", "elevation_front", "elevation_back", "elevation_left", "elevation_right",
+    "materials"]  # fmt: skip
 
 #: An unfolded flat-pattern edge's ROLE (sheet-metal.md §6): a ``body`` edge is a
 #: real cut outline; a ``bend`` edge is a fold line (rendered as its own dashed-blue
@@ -1032,7 +1033,7 @@ class BendTableRow(BaseModel):
     )
 
 
-class DrawingViewResult(BaseModel):
+class DrawingViewResult(house.HouseViewResult):
     """One requested view's projection outcome inside a 200 (design §1.3/§1.5).
 
     On success, ``edges`` carries the view's canonically-ordered visible+hidden 2D
@@ -1134,7 +1135,7 @@ class MeasuredDimensionResult(BaseModel):
     )
 
 
-class EvaluateDrawingViewsRequest(BaseModel):
+class EvaluateDrawingViewsRequest(house.HouseEvaluateInput):
     """Project a part into its requested standard drawing views (design §1.2/§4).
 
     documents sends INTENT — the referenced part's ordered, rollback-applied
@@ -1157,9 +1158,8 @@ class EvaluateDrawingViewsRequest(BaseModel):
     )
     views: list[ViewProjection] = Field(
         max_length=MAX_DRAWING_VIEWS,
-        description="The standard views to project (subset of front/top/right/iso); "
-        "processed and returned in request order. Bounded by MAX_DRAWING_VIEWS "
-        "(work bound, audit G2 — HLR runs per view).",
+        description="The views to project, in request order; bounded by "
+        "MAX_DRAWING_VIEWS (work bound, audit G2 — HLR runs per view).",
     )
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE,
@@ -1287,8 +1287,7 @@ class SheetViewPlacement(BaseModel):
 
     ``position`` (when honored) is the view CENTRE in sheet millimetres, y-UP from the
     bottom-left origin — the SAME frame the auto anchors use, so an authored and an
-    auto-placed view are directly comparable. v1 ships the 4 standard views
-    auto-placed at one shared scale.
+    auto-placed view are directly comparable.
     """
 
     projection: ViewProjection = Field(description="Projection direction of the view")
@@ -1312,7 +1311,7 @@ class SheetViewPlacement(BaseModel):
     )
 
 
-class SheetLayout(BaseModel):
+class SheetLayout(house.HouseLayout):
     """A sheet's layout for composition — size, orientation, title block, views.
 
     The sheet-side half of a :class:`ComposeDrawingRequest` (drawing-export.md
@@ -1344,7 +1343,7 @@ class SheetLayout(BaseModel):
     )
 
 
-class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
+class ComposeDrawingRequest(EvaluateDrawingViewsRequest, house.HouseComposeInput):
     """Compose a drawing into a placed sheet + serialized artifact (design §4.2).
 
     Extends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS — ``part_id``
@@ -1858,7 +1857,7 @@ class ComposedThreadSchedule(BaseModel):
     )
 
 
-class ComposedSheet(BaseModel):
+class ComposedSheet(house.HouseComposedSheet):
     """A fully placed drawing sheet — the model the three serializers render (§4.2).
 
     Every coordinate is sheet-mm in final SVG space (y-down, top-left origin). The

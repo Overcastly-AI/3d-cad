@@ -66,6 +66,7 @@ import {
 import { KIND_CAPTION, titleBlockFields } from "../drawing/titleBlock";
 import { viewRowsByProjection } from "../drawing/views";
 import { CentreMarks, type CentrePickEvent } from "./CentreMarks";
+import { MaterialsTable } from "./MaterialsTable";
 import { PlacementFrame } from "./PlacementFrame";
 
 /** A pick on a dimensionable projected edge — the seed of an authored dimension. */
@@ -781,11 +782,9 @@ function DimensionGrab({
   const [selfHover, setSelfHover] = useState(false);
   const hover = selfHover || hoveredFromPlate;
   const [focus, setFocus] = useState(false);
-  // An errored dimension has no measured annotation to re-place; its recovery
-  // is the panel's Confirm/Delete, not a drag.
+  // An errored dimension recovers in the panel, not by a drag; one with no id
+  // (an automatic house string, HOUSE-DRAWINGS) has no row, so it stays ink.
   const id = dim.dimension_id;
-  // A composed dimension carries no id when the request did not name one; there
-  // is then no row to re-place, so it stays ink.
   if (dim.kind === "error" || id === null || id === undefined) return null;
   const { w, h } = valueStampBox(dim.text.value);
   const pad = drawing.pickHitMm / 2;
@@ -1607,9 +1606,9 @@ function SheetView({
           />
           {composedDims.map((dim, i) =>
             // The one being moved is drawn as the GHOST instead — a sheet that
-            // shows the same dimension in two places while you drag it is
-            // telling you something untrue about the drawing.
-            dim.dimension_id === movingDimensionId ? null : (
+            // shows the same dimension in two places is untrue. An automatic string
+            // (HOUSE-DRAWINGS) has no id, so it is never the one being moved.
+            dim.dimension_id === (movingDimensionId ?? undefined) ? null : (
               <DimensionGlyph key={dim.dimension_id ?? i} dim={dim} />
             ),
           )}
@@ -2162,15 +2161,16 @@ export function DrawingSheet({
           />
         );
       })}
-      {/* Sheet-level ink — the title block, the bend schedule, the notes and the
-          layout banner. All of it is painted AFTER every view, so all of it used
-          to sit on top of the views' pick targets; none of it is interactive, so
-          none of it should ever take a pointer (frontend-QA P2-B/P3-D — drawn
-          ink never takes a pick). The banner is stamped LAST, exactly as the
-          server serializers order it, so it reads over anything it lands on. */}
+      {/* Sheet-level ink — the title block, the bend schedule, a house set's
+          materials list and the notes — painted AFTER every view and never
+          interactive, so none of it takes a pointer (frontend-QA P2-B/P3-D),
+          in the server serializers' order. */}
       <g data-sheet-ink="true" pointerEvents="none">
         <TitleBlock block={composed.title_block} />
         {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
+        {composed.materials_table ? (
+          <MaterialsTable table={composed.materials_table} />
+        ) : null}
         {(composed.notes ?? []).map((note, i) => (
           <SheetNote key={i} note={note} />
         ))}

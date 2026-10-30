@@ -28,6 +28,7 @@ from ezdxf import units as ezdxf_units
 from ezdxf.document import Drawing
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
+from loft_wire.drawing_house import ComposedMaterialsTable
 from loft_wire.drawings import (
     DRAWING_KIND_CAPTION,
     ComposedBendTable,
@@ -73,6 +74,7 @@ from geometry.drawings.sheet_style import (
     _TB_FIELD_VAL_MM,
     _bend_row_cells,
     _fit,
+    _table_cells,
     _tb_fields,
     _thread_row_cells,
 )
@@ -599,6 +601,45 @@ def _dxf_bend_table(msp: Modelspace, bt: ComposedBendTable, frame: _DxfFrame) ->
             )
 
 
+def _dxf_materials_table(
+    msp: Modelspace, table: ComposedMaterialsTable, frame: _DxfFrame
+) -> None:
+    """Emit the materials list (HOUSE-DRAWINGS) on the TITLE layer: each block's
+    box and header rule, and one TEXT per cell at the SVG's offsets
+    (:func:`_table_cells`), left- or right-aligned as the sheet sets it."""
+    for block in table.blocks:
+        x, y, w, h = block.x, block.y, block.width, block.height
+        box = [
+            frame.xy(x, y),
+            frame.xy(x + w, y),
+            frame.xy(x + w, y + h),
+            frame.xy(x, y + h),
+        ]
+        msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
+        _dxf_line(
+            msp, frame, x, y + table.row_height, x + w, y + table.row_height, _LYR_TITLE
+        )
+        rows: list[tuple[float, list[str]]] = [
+            (block.header_y, [c.upper() for c in table.columns])
+        ] + [(row.y, row.cells) for row in block.rows]
+        for ry, cells in rows:
+            for cell, cx, anchor in _table_cells(table, x, cells):
+                entity = msp.add_text(
+                    cell,
+                    dxfattribs={
+                        "layer": _LYR_TITLE,
+                        "style": _DXF_STYLE,
+                        "height": table.text_mm,
+                    },
+                )
+                align = (
+                    TextEntityAlignment.RIGHT
+                    if anchor == "end"
+                    else TextEntityAlignment.LEFT
+                )
+                entity.set_placement(frame.xy(cx, ry), align=align)
+
+
 def _dxf_thread_schedule(
     msp: Modelspace, ts: ComposedThreadSchedule, frame: _DxfFrame
 ) -> None:
@@ -829,6 +870,8 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
             _dxf_bend_table(msp, composed.bend_table, sheet)
         if composed.thread_schedule is not None:
             _dxf_thread_schedule(msp, composed.thread_schedule, sheet)
+        if composed.materials_table is not None:
+            _dxf_materials_table(msp, composed.materials_table, sheet)
         for note in composed.notes:
             _dxf_note(msp, note, sheet)
 

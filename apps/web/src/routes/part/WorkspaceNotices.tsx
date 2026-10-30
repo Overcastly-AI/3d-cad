@@ -35,6 +35,8 @@ export function ActionNotices({
     | "flatPatternBusy"
     | "flatPatternError"
     | "setFlatPatternError"
+    | "drawingError"
+    | "setDrawingError"
   >;
   timelineHistory: Pick<TimelineHistory, "historyError" | "setHistoryError">;
 }) {
@@ -45,6 +47,8 @@ export function ActionNotices({
     flatPatternBusy,
     flatPatternError,
     setFlatPatternError,
+    drawingError,
+    setDrawingError,
   } = actionFlags;
   const { historyError, setHistoryError } = timelineHistory;
   return (
@@ -113,6 +117,27 @@ export function ActionNotices({
             type="button"
             onClick={() => setFlatPatternError(null)}
             data-testid="flat-pattern-dismiss"
+            className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+      {drawingError !== null ? (
+        <div
+          role="alert"
+          data-testid="part-drawing-error"
+          className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+        >
+          <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+            Drawing not created
+          </span>
+          <span className="mt-1 block font-body text-xs text-mist">
+            {drawingError}
+          </span>
+          <button
+            type="button"
+            onClick={() => setDrawingError(null)}
             className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
           >
             Dismiss

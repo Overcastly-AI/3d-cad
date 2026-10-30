@@ -863,6 +863,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings/{drawing_id}/materials/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Drawing Materials Csv
+         * @description The materials list of a drawing's sheet as a CSV download: the drawn part's
+         *     cut list as a yard order, priced from your price book, line for line the
+         *     sheet and the cut-list panel.
+         */
+        get: operations["get_drawing_materials_csv_api_v1_drawings__drawing_id__materials_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawings/{drawing_id}/move": {
         parameters: {
             query?: never;
@@ -3054,6 +3076,16 @@ export interface components {
             user: components["schemas"]["UserResponse"];
         };
         /**
+         * AutoDimensionPoint
+         * @description A witness point of an automatic dimension, in view-plane mm at the scale.
+         */
+        AutoDimensionPoint: {
+            /** X Mm */
+            x_mm: number;
+            /** Y Mm */
+            y_mm: number;
+        };
+        /**
          * AxisParallelEdgesSelector
          * @description Every straight edge parallel to a world axis (e.g. Z = the vertical
          *     edges of an upright prism). Curved edges never match — an arc has no
@@ -4106,7 +4138,7 @@ export interface components {
              * Views
              * @description The two colliding/crowded projections in canonical order, or the one view whose ink leaves the drafting border (off_sheet)
              */
-            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials")[];
         };
         /**
          * ComposedLineEdge
@@ -4138,6 +4170,53 @@ export interface components {
             y1: number;
             /** Y2 */
             y2: number;
+        };
+        /**
+         * ComposedMaterialsTable
+         * @description The placed materials list (Chief's Materials List on a sheet).
+         *
+         *     A bordered table in sheet-mm SVG space: the column x positions and
+         *     alignments, a header row, then the rows. A table taller than the drawing
+         *     area flows into further columns of the same width, each with its header.
+         */
+        ComposedMaterialsTable: {
+            /**
+             * Align
+             * @description Text alignment
+             */
+            align: ("left" | "right")[];
+            /**
+             * Blocks
+             * @description The table's blocks, left to right
+             */
+            blocks: components["schemas"]["ComposedTableBlock"][];
+            /**
+             * Column Dx
+             * @description Each column's left edge from its block's left edge (mm)
+             */
+            column_dx: number[];
+            /**
+             * Column W
+             * @description Each column's width (mm)
+             */
+            column_w: number[];
+            /**
+             * Columns
+             * @description Column headings
+             */
+            columns: string[];
+            /** Height */
+            height: number;
+            /** Row Height */
+            row_height: number;
+            /** Text Mm */
+            text_mm: number;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
         };
         /**
          * ComposedMeasuredDimension
@@ -4282,6 +4361,8 @@ export interface components {
              * @description Border inset from the sheet edge (mm)
              */
             margin_mm: number;
+            /** @description The placed materials list (HOUSE-DRAWINGS); null on a sheet with no `materials` view. */
+            materials_table?: components["schemas"]["ComposedMaterialsTable"] | null;
             /**
              * Notes
              * @description Placed free-text note annotations (design §2.2), each stamped at its sheet anchor; empty for a sheet with no notes — additive, so a note-free sheet composes byte-identically to its pre-notes golden.
@@ -4311,6 +4392,48 @@ export interface components {
              * @description Sheet width (mm) — the SVG viewBox width
              */
             width_mm: number;
+        };
+        /**
+         * ComposedTableBlock
+         * @description One column-flow block of the materials table: its frame and rows.
+         */
+        ComposedTableBlock: {
+            /**
+             * Header Y
+             * @description Header text baseline (mm)
+             */
+            header_y: number;
+            /** Height */
+            height: number;
+            /** Rows */
+            rows: components["schemas"]["ComposedTableRow"][];
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * ComposedTableRow
+         * @description One placed row of the materials table.
+         */
+        ComposedTableRow: {
+            /**
+             * Cells
+             * @description One string per column (a group: one)
+             */
+            cells: string[];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "group" | "line" | "total";
+            /**
+             * Y
+             * @description Text baseline (mm, SVG space)
+             */
+            y: number;
         };
         /**
          * ComposedThreadSchedule
@@ -4477,7 +4600,7 @@ export interface components {
              * @description Projection direction
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
         };
         /**
          * ConcentricConstraint
@@ -5992,7 +6115,7 @@ export interface components {
              * @description Which requested view's frame measures it — supplies the §3.2 foreshortening reference only; the value is model-true regardless (§3.1)
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
         };
         /**
          * DrawingListResponse
@@ -6001,6 +6124,34 @@ export interface components {
         DrawingListResponse: {
             /** Drawings */
             drawings: components["schemas"]["DrawingResponse"][];
+        };
+        /**
+         * DrawingMember
+         * @description One plugin member of the drawn part: which body plays which role.
+         *
+         *     Documents knows each base feature's plugin and role (the cut list's
+         *     ``CutListMember``); geometry only receives base features, so the request
+         *     names them. The plan finds its floor from the subfloor or slab, the
+         *     dimension strings their openings from the headers, and the elevations
+         *     their plate from the top plates.
+         */
+        DrawingMember: {
+            /**
+             * Feature Id
+             * Format: uuid
+             * @description The base feature that builds the body
+             */
+            feature_id: string;
+            /**
+             * Plugin Id
+             * @description The plugin whose member it is
+             */
+            plugin_id?: string | null;
+            /**
+             * Role
+             * @description The member's manifest role ('header')
+             */
+            role: string;
         };
         /**
          * DrawingResponse
@@ -6102,6 +6253,11 @@ export interface components {
          */
         DrawingViewResult: {
             /**
+             * Auto Dimensions
+             * @description Automatic dimensions (HOUSE-DRAWINGS): a plan's exterior strings, an elevation's head and plate heights. Empty for every other view.
+             */
+            auto_dimensions?: components["schemas"]["ViewAutoDimension"][];
+            /**
              * Bend Table
              * @description Per-bend fold rows for a flat_pattern view (sheet-metal.md §6/§7); empty for every standard HLR view and on error
              */
@@ -6125,7 +6281,7 @@ export interface components {
              * @description The projection direction of this view
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
         };
         /**
          * EdgeAxisRef
@@ -6638,6 +6794,11 @@ export interface components {
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
+             * Members
+             * @description The part's plugin members (HOUSE-DRAWINGS): a plan finds its floor, openings and framing by role. Empty: a plan is cut 48 in above the part's lowest point and draws no strings.
+             */
+            members?: components["schemas"]["DrawingMember"][];
+            /**
              * Part Id
              * Format: uuid
              * @description The referenced part's identity (echoed)
@@ -6665,9 +6826,9 @@ export interface components {
             tree_version: number;
             /**
              * Views
-             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order. Bounded by MAX_DRAWING_VIEWS (work bound, audit G2 — HLR runs per view).
+             * @description The views to project, in request order; bounded by MAX_DRAWING_VIEWS (work bound, audit G2 — HLR runs per view).
              */
-            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials")[];
         };
         /**
          * EvaluateDrawingViewsResult
@@ -9974,7 +10135,7 @@ export interface components {
              * @description The view direction this dimension was measured in
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
         };
         /**
          * MemberMetadata
@@ -14856,6 +15017,44 @@ export interface components {
             kind: "vertical";
         };
         /**
+         * ViewAutoDimension
+         * @description A dimension the composer draws on its own (Chief's automatic dimensions).
+         *
+         *     ``start`` and ``end`` are view-plane points (mm at the view scale, the
+         *     frame of the view's edges). The value is ``value_mm`` (model-true) along
+         *     ``axis``; the dimension line sits ``side`` of the view's drawn extent, on
+         *     string ``tier`` (0 nearest the geometry). The segments of one string share
+         *     a side and a tier and chain end to end.
+         */
+        ViewAutoDimension: {
+            /**
+             * Axis
+             * @description The view axis measured along
+             * @enum {string}
+             */
+            axis: "x" | "y";
+            /** @description Second witness point (view mm) */
+            end: components["schemas"]["AutoDimensionPoint"];
+            /**
+             * Side
+             * @description Which side of the view it is placed
+             * @enum {string}
+             */
+            side: "below" | "above" | "left" | "right";
+            /** @description First witness point (view mm) */
+            start: components["schemas"]["AutoDimensionPoint"];
+            /**
+             * Tier
+             * @description String row, 0 nearest the view
+             */
+            tier: number;
+            /**
+             * Value Mm
+             * @description The model-true length (mm)
+             */
+            value_mm: number;
+        };
+        /**
          * ViewCreate
          * @description Add a view referencing a part / assembly at a projection (design §2.2).
          *
@@ -14892,7 +15091,7 @@ export interface components {
              * @description Projection direction (front / top / right / iso / flat_pattern / section)
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
             /**
              * Ref Document Id
              * Format: uuid
@@ -14963,7 +15162,7 @@ export interface components {
              * Projection
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials";
             /**
              * Ref Document Id
              * Format: uuid
@@ -15034,7 +15233,7 @@ export interface components {
             expected_version: number;
             position?: components["schemas"]["SheetPoint"] | null;
             /** Projection */
-            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section") | null;
+            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section" | "plan" | "elevation_front" | "elevation_back" | "elevation_left" | "elevation_right" | "materials") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
         /**
@@ -16521,6 +16720,40 @@ export interface operations {
                     "application/pdf": string;
                     "image/svg+xml": string;
                     "image/vnd.dxf": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_drawing_materials_csv_api_v1_drawings__drawing_id__materials_csv_get: {
+        parameters: {
+            query?: {
+                /** @description The materials sheet (a sheet id from the drawing tree); omit for the drawing's first sheet with a materials list. */
+                sheet?: string | null;
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sheet's materials list as CSV (RFC 4180, CRLF, UTF-8): System, Item, Qty, Size, Length, Material and Price, then the Total row; `Content-Disposition` names the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
             /** @description Validation Error */

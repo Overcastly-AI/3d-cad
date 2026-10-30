@@ -16,6 +16,7 @@
 import {
   BandActionCell,
   BandStateCell,
+  DrawingSheetIcon,
   ToolButton,
   ToolGroup,
   VerbGlyph,
@@ -238,6 +239,14 @@ export interface CreateStripProps {
    * profile, material and measured length. Needs a body, as Measure does.
    */
   onToggleCutList?: () => void;
+  /**
+   * Draft this part on a new drawing (QA-PART-DRAWING-CMD), as the assembly's
+   * Drawing does: the sheet opens with the part already its source. Omit it
+   * and the Document group is not rendered.
+   */
+  onOpenDrawing?: () => void;
+  /** The drawing is being created. */
+  drawingBusy?: boolean;
   /** A solid body exists to inspect — the Measure tool lights up. */
   canMeasure?: boolean;
   /** The Measure tool is armed (picking targets in the viewport). */
@@ -500,6 +509,8 @@ export function CreateStrip({
   onToggleMeasure,
   cutListOpen = false,
   onToggleCutList,
+  onOpenDrawing,
+  drawingBusy = false,
   activeCommand = null,
   onCommandOk,
   onCommandCancel,
@@ -750,6 +761,21 @@ export function CreateStrip({
       disabled: locked || !alongPathReady,
       onSelect: () => onNewPlaneAlongPath?.(),
     },
+    // Create ▾ > Drawing (QA-PART-DRAWING-CMD): Onshape's "create Drawing" —
+    // the way out of the part and onto paper, as the assembly band's Drawing.
+    ...(onOpenDrawing === undefined
+      ? []
+      : [
+          {
+            key: "drawing",
+            icon: <DrawingSheetIcon />,
+            label: drawingBusy ? "Creating the sheet…" : "Drawing",
+            onSelect: onOpenDrawing,
+            disabled: locked || !treeReady || drawingBusy,
+            "data-testid": "part-drawing",
+            "aria-label": "Drawing — draft this part on a sheet",
+          },
+        ]),
   ];
   /**
    * MODIFY ▾ — Draft (in Fusion's Modify menu, not on its toolbar; mold

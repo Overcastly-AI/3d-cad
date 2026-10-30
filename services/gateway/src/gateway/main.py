@@ -38,6 +38,7 @@ from gateway.auth.security import (
 from gateway.client_ip import TrustedProxies
 from gateway.cut_list import assemblies_router as assembly_cut_list_router
 from gateway.cut_list import parts_router as part_cut_list_router
+from gateway.drawing_house import router as drawing_house_router
 from gateway.drawings import router as drawings_router
 from gateway.features import router as features_router
 from gateway.folders import assemblies_router as folder_assemblies_router
@@ -247,6 +248,7 @@ def build_app(
     app.include_router(assembly_patterns_router)
     app.include_router(assembly_mirrors_router)
     app.include_router(drawings_router)
+    app.include_router(drawing_house_router)
     app.include_router(thumbnails_router)
     app.include_router(step_import_router)
     app.include_router(assembly_import_router)

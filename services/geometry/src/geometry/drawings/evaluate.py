@@ -51,6 +51,15 @@ from loft_wire.features import (
 
 from geometry.drawings.anchor import BodyNaming, body_naming
 from geometry.drawings.flat_pattern import FLAT_PATTERN_VIEW, flat_pattern_view_result
+from geometry.drawings.house import (
+    ELEVATION_DIRECTIONS,
+    HouseFacts,
+    elevation_dimensions,
+    house_facts,
+    house_view_kind,
+    plan_view_result,
+    standard_direction,
+)
 from geometry.drawings.measure import measure_dimension_dto
 from geometry.drawings.project import (
     Point2D,
@@ -310,6 +319,44 @@ def section_view_result(
     )
 
 
+def _house_view(
+    view: ViewProjection,
+    house: str,
+    body: BodyShape,
+    evaluation: TreeEvaluation,
+    facts: HouseFacts | None,
+    naming: BodyNaming,
+    request: EvaluateDrawingViewsRequest,
+) -> DrawingViewResult:
+    """A house view (HOUSE-DRAWINGS): the plan's cut, an elevation's visible
+    lines (a builder's elevation draws no hidden lines), each with its automatic
+    dimensions; a ``materials`` schedule view has no geometry at all."""
+    scale_value = request.scale.numerator / request.scale.denominator
+    if house == "materials" or facts is None:
+        return DrawingViewResult(view=view, scale=request.scale)
+    if house == "plan":
+        return plan_view_result(evaluation.bodies, facts, request.scale, scale_value)
+    try:
+        projection = project_view(
+            body,
+            ELEVATION_DIRECTIONS[view],
+            scale=scale_value,
+            edge_signatures=naming.signatures,
+        )
+    except ViewProjectionError as exc:
+        return DrawingViewResult(
+            view=view,
+            scale=request.scale,
+            error=FeatureError(code="view_projection_failed", message=str(exc)),
+        )
+    return DrawingViewResult(
+        view=view,
+        scale=request.scale,
+        edges=[projected_edge_dto(e) for e in projection.visible_edges],
+        auto_dimensions=elevation_dimensions(facts, view, scale_value),
+    )
+
+
 def evaluate_drawing_views(
     request: EvaluateDrawingViewsRequest,
 ) -> EvaluateDrawingViewsResult:
@@ -351,7 +398,18 @@ def evaluate_drawing_views(
     # a resize the way a joint or a fillet does (QA-DRAWING-DIMS-DURABLE).
     naming = body_naming(body, evaluation.face_names())
     views: list[DrawingViewResult] = []
+    # The house views (HOUSE-DRAWINGS) read the bodies by their plugin roles,
+    # once per request, and only when the sheet has one.
+    facts: HouseFacts | None = None
     for index, view in enumerate(request.views):
+        house = house_view_kind(view)
+        if house is not None:
+            if facts is None and house != "materials":
+                facts = house_facts(evaluation.bodies, request.members)
+            views.append(
+                _house_view(view, house, body, evaluation, facts, naming, request)
+            )
+            continue
         if view == FLAT_PATTERN_VIEW:
             # A flat_pattern view SKIPS HLR (sheet-metal.md §7): it unfolds the
             # sheet-metal body and feeds the edge_role-tagged outline + bend table
@@ -379,7 +437,10 @@ def evaluate_drawing_views(
             continue
         try:
             projection = project_view(
-                body, view, scale=scale_value, edge_signatures=naming.signatures
+                body,
+                standard_direction(view),
+                scale=scale_value,
+                edge_signatures=naming.signatures,
             )
         except ViewProjectionError as exc:
             views.append(

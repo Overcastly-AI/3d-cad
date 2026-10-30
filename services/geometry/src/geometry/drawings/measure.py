@@ -85,6 +85,7 @@ from geometry.drawings.anchor import (
     ResolvedAnchor,
     resolve_anchor_edge,
 )
+from geometry.drawings.house import ELEVATION_DIRECTIONS
 from geometry.drawings.project import ViewDirection, view_frame_axes, view_normal
 from geometry.kernel.edges import circle_axis
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
@@ -644,9 +645,11 @@ def _as_direction(view: ViewProjection) -> ViewDirection:
     (dimensions attach to standard views); it falls back to the ``top`` normal purely
     as the §3.2 foreshortening reference, and the measured value stays model-true
     regardless (design §3.1)."""
-    if view in ("flat_pattern", "section"):
-        return "top"
-    return view
+    if view in ("front", "top", "right", "iso"):
+        return view
+    # A house elevation measures in its wall's frame; the plan, a materials
+    # schedule, a flat pattern and a section in the top frame (HOUSE-DRAWINGS).
+    return ELEVATION_DIRECTIONS.get(view, "top")
 
 
 def measure_dimension_dto(
