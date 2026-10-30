@@ -265,7 +265,7 @@ UPDATED = {
     "Floor": "1.4.0",
     "Walls": "1.5.0",
     **{name: "1.5.0" for name in OPENING_NAMES},
-    "Roof": "1.8.0",
+    "Roof": "1.9.0",
 }
 
 
@@ -282,7 +282,7 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
         assert (offer["adds"], offer["quiet"]) == ([], True)
         assert (offer["relays"], offer["separate"]) == ([], False)
     roof = offers["Roof"]
-    assert roof is not None and roof["to_version"] == "1.8.0"
+    assert roof is not None and roof["to_version"] == "1.9.0"
     adds = ["11 ceiling joists", "22 gable studs", "12 gable sheathing panels"]
     assert (roof["adds"], roof["quiet"]) == (adds, False)
     assert roof["summary"].startswith(
@@ -411,7 +411,7 @@ def test_the_evaluation_sends_the_spacers_with_their_material(
 
 
 def _bad_roof_map(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The roof's update refused: its map gives a pitch 1.8.0 has not."""
+    """The roof's update refused: its map gives a pitch 1.9.0 has not."""
 
     def bad_pitch(inputs: Any, _context: Any) -> dict[str, Any]:
         return {**inputs, "pitch": "rise_99"}
