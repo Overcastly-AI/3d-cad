@@ -51,6 +51,7 @@ from loft_wire.siding import TRIM_THICKNESS_IN
 from loft_wire.sketch import SketchLine
 
 from loft_plugins.api import ExpandInputs, Member, Plugin, PluginError
+from loft_plugins.builtin import roof_roofing
 from loft_plugins.builtin.deck import joist_centres
 from loft_plugins.builtin.house import (
     is_outline_wall,
@@ -86,6 +87,11 @@ from loft_plugins.builtin.roof_gable import (
     GableSection,
     clear_of_gables,
     gable_ends,
+)
+from loft_plugins.builtin.roof_roofing import (
+    ROOFING_INPUTS,
+    ROOFING_ROLES,
+    wants_roofing,
 )
 from loft_plugins.builtin.roof_sheathing import notches
 from loft_plugins.builtin.roof_valley import MANIFEST_V1_3, expand_v1_3, hip_roof
@@ -183,6 +189,22 @@ def expand_v1_8(inputs: ExpandInputs) -> Iterable[Member]:
     )
 
 
+def expand_v1_9(inputs: ExpandInputs) -> Iterable[Member]:
+    """1.9.0: 1.8.0's members, then a gable on an outline's roofing when
+    Roofing is not None (ROOFING, :mod:`~loft_plugins.builtin.roof_roofing`):
+    the deck, fascia and rake boards, the rake boards cut into the end walls'
+    trim and siding. Roofing None, a typed bearing, a hip and a gable with no
+    eave overhang are 1.8.0's exactly."""
+    return _expand(
+        inputs,
+        notch_hips=True,
+        ceiling=True,
+        gables=True,
+        gable_siding=True,
+        roofing=True,
+    )
+
+
 def ceiling_joist_note(inputs: ExpandInputs) -> str | None:
     """Why a 1.6.0 roof asked for ceiling joists frames none (its chosen
     joist would pass the ridge board), or ``None``: the stored roof's
@@ -205,6 +227,7 @@ def _expand(
     notes: list[str] | None = None,
     gables: bool = False,
     gable_siding: bool = False,
+    roofing: bool = False,
 ) -> list[Member]:
     picks = inputs.features("walls")
     outlines = [p for p in picks if is_outline_wall(inputs.resolve(p))]
@@ -354,6 +377,25 @@ def _expand(
         finish = None if product is None else (product, waste_percent(wall_inputs))
         members += gable_ends(
             inputs, members, ref.feature_id, ends, good, section, place, finish
+        )
+    if roofing and overhang > 0.0 and wants_roofing(inputs):
+        good = sheet_good(wall_inputs, "sheathing")
+        members += roof_roofing.roofing(
+            inputs,
+            members,
+            roof_roofing.Context(
+                rafter=rafter,
+                span=span,
+                length=length,
+                place=place,
+                wall_id=ref.feature_id,
+                ends=[w for w in walls if w.line_id not in eaves.values()],
+                sheathed=0.0 if good is None else good.thickness_in,
+                finish=finish_product(wall_inputs),
+                spacing=inches("spacing_mm", inputs),
+                rafter_t=inputs.lumber("rafter_profile").thickness_in,
+                waste=inputs.count("roofing_waste_percent"),
+            ),
         )
     return members
 
@@ -568,3 +610,32 @@ MANIFEST_V1_8 = MANIFEST_V1_7.model_copy(
 )
 
 ROOF_V1_8 = Plugin(MANIFEST_V1_8, expand_v1_8)
+
+
+def _inputs_v1_9() -> list[PluginInput]:
+    """1.8.0's inputs, Roofing and its waste after Gable ends."""
+    out: list[PluginInput] = []
+    for item in MANIFEST_V1_8.inputs:
+        out.append(item)
+        if item.name == "gable_ends":
+            out += ROOFING_INPUTS
+    return out
+
+
+MANIFEST_V1_9 = MANIFEST_V1_8.model_copy(
+    update={
+        "version": "1.9.0",
+        "description": "A gable or hip roof on its walls, each wall defining the "
+        "slope or not: rafters with a birdsmouth on each wall, ridges, hips, "
+        "valleys and jacks, the tails notched out of the walls' sheathing and "
+        "siding, with a cut list (Revit Roof by Footprint, Chief Architect). A "
+        "gable on its walls ties each inner common pair with a ceiling joist, "
+        "frames its end walls up to the roof, and can be roofed: a 7/16 OSB "
+        "deck, fascia and rake boards, with shingles, underlayment, drip edge, "
+        "starter and ridge cap listed.",
+        "inputs": _inputs_v1_9(),
+        "members": [*MANIFEST_V1_8.members, *ROOFING_ROLES],
+    }
+)
+
+ROOF_V1_9 = Plugin(MANIFEST_V1_9, expand_v1_9)
