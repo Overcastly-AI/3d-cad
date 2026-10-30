@@ -91,11 +91,9 @@ line's total volume instead of 1/4 yd³ a delivery, priced Each per bag, and a
 footing under a post adds its post base, Each. Every pour and item sits under
 Foundation, the list's first system, whichever plugin poured it.
 
-**Siding** (SIDING-TRIM, :mod:`loft_wire.cut_list_siding`): a siding body is
-a layer, listed by its measured net area under Siding and trim, its product's
-bodies one line that orders whole boards or squares over their total plus
-the wall's waste allowance; a wall's corner boards and casing are 5/4x4
-lumber under the same system.
+**Siding** (SIDING-TRIM, :mod:`loft_wire.cut_list_siding`): a layer, by net
+area, one line a product ordering whole boards or squares plus waste; corner
+boards and casing are 5/4x4 lumber, all under Siding and trim.
 
 **Casework** (CASEWORK): a ``loft.cabinets`` panel is a sheet good under
 Casework, cut to size (no panel gap) with its grain kept along the sheet;
@@ -328,10 +326,8 @@ def system_for_plugin(plugin_id: str | None) -> CutListSystem:
     return "other" if plugin_id is None else PLUGIN_SYSTEMS.get(plugin_id, "other")
 
 
-#: Members listed under a system of their own, not their plugin's: a wall's
-#: siding and trim and a gable's siding are the exterior finish, as Chief
-#: Architect's materials list keeps Siding and Trim apart from Framing
-#: (SIDING-TRIM).
+#: Members listed under their role's system, not their plugin's: the exterior
+#: finish, as Chief Architect keeps Siding and Trim apart (SIDING-TRIM).
 ROLE_SYSTEMS: Final[Mapping[tuple[str, str], CutListSystem]] = {
     ("loft.wall", "siding"): "siding",
     ("loft.wall", "corner_board"): "siding",
@@ -1104,13 +1100,8 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     items: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
         if piece.siding is not None:
-            siding_key: tuple[object, ...] = (
-                "siding",
-                piece.system,
-                piece.siding,
-                piece.material,
-                piece.waste_percent,
-            )
+            siding_key: tuple[object, ...] = ("siding", piece.system)
+            siding_key += (piece.siding, piece.material, piece.waste_percent)
             panels.setdefault(siding_key, []).append(piece)
             first, count = groups.get(siding_key, (piece, 0))
             groups[siding_key] = (first, count + piece.count)
