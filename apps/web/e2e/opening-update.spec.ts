@@ -31,7 +31,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
 const AFTER = 299949.387649;
 
 const UPDATED = {
-  Floor: "1.3.0",
+  Floor: "1.4.0",
   Walls: "1.5.0",
   ...Object.fromEntries(OPENING_NAMES.map((n) => [n, "1.5.0"])),
   Roof: "1.8.0",
