@@ -43,6 +43,8 @@ from unittest import mock
 
 import pytest
 from loft_plugins import REGISTRY, canonical_inputs, update_for
+from loft_plugins.api import ExpandInputs
+from loft_plugins.builtin.roof_outline import roofing_note, roofing_notes
 from loft_plugins.updates import update_effect, updated_inputs
 from loft_wire.cut_list import ROLE_SYSTEMS, CutListMember
 from loft_wire.features import (
@@ -64,10 +66,13 @@ from test_building_outline import (
     B7_STUDS,
     GOLDENS,
     IN,
+    ROOF_ID,
+    WALLS_ID,
     house,
     members_json,
     members_of,
     rectangle,
+    ref,
     request_of,
 )
 from test_ceiling_joists import B7_GABLE, Rows, roof_of, roofed
@@ -203,6 +208,43 @@ def test_a_hip_and_a_flush_eave_take_no_roofing() -> None:
             siding.l_sketch(), [], outline.OSB, None, {"style": "hip", **SHINGLES}
         )
     assert not any(m.role in ROOFING for m in roof_of(rows))
+
+
+def _note(rows: Rows, raw: dict[str, Any]) -> str | None:
+    """The stored roof's ``roof_roofing_no_overhang`` text, as documents
+    reads it: its canonical inputs over the features before it."""
+    earlier: dict[uuid.UUID, Any] = {}
+    for fid, env, members in rows[:-1]:
+        earlier[fid] = env
+        for m in members:
+            earlier[m.id] = m.feature
+    full = canonical_inputs(ROOF_1_9.manifest, {"walls": [ref(WALLS_ID)], **raw})
+    return roofing_note(ExpandInputs(ROOF_ID, full, earlier))
+
+
+@pytest.mark.parametrize(
+    ("raw", "warns"),
+    [
+        ({**ROOFED, "overhang_mm": 0.0}, True),
+        (ROOFED, False),
+        ({**B7_GABLE, "overhang_mm": 0.0}, False),  # Roofing None
+        ({**ROOFED, "overhang_mm": 0.0, "roofing": "none"}, False),
+    ],
+)
+def test_roofing_on_a_flush_eave_is_noted(raw: dict[str, Any], warns: bool) -> None:
+    """``roof_roofing_no_overhang``: Roofing picked on a gable with no eave
+    overhang is named, not dropped silently, as ``wall_finish_no_sheathing``
+    names a finish with no sheathing; the roof still builds, unroofed."""
+    rows = b7_roofed(raw)
+    assert not warns or not any(m.role in ROOFING for m in roof_of(rows))
+    note = _note(rows, raw)
+    assert (note is not None) == warns
+    if note is not None:
+        assert note.startswith("Roofing is Asphalt shingles, but this gable has")
+        assert "give the eaves an overhang, or set Roofing to None" in note
+    full = canonical_inputs(ROOF_1_9.manifest, {"walls": [ref(WALLS_ID)], **raw})
+    # Its walls unresolved it is no gable on its walls: no note.
+    assert roofing_notes(ExpandInputs(ROOF_ID, full, {})) == []
 
 
 # --- 2. B7's deck, fascia and rake boards -------------------------------------------

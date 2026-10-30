@@ -50,7 +50,7 @@ from loft_plugins import expand as _expand
 from loft_plugins.builtin.crawl_space import MIN_UNTREATED_CRAWL_IN
 from loft_plugins.builtin.house import stored_inputs
 from loft_plugins.builtin.roof_ceiling import CEILING_BESIDE
-from loft_plugins.builtin.roof_outline import ceiling_joist_note
+from loft_plugins.builtin.roof_outline import ceiling_joist_note, roofing_notes
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
 from loft_plugins.builtin.stair import STAIR, stair_notes
 from loft_plugins.builtin.wall_finish import finish_notes
@@ -1118,7 +1118,32 @@ def plugin_warnings(
         )
         if w is not None
     ]
+    out += _roofing_warnings(row.id, envelope, earlier, values)
     return out or None
+
+
+def _roofing_warnings(
+    feature_id: uuid.UUID,
+    envelope: CustomFeature,
+    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
+    values: Mapping[str, Quantity],
+) -> list[PluginWarning]:
+    """A 1.9.0 gable's ``roof_roofing_no_overhang`` (ROOFING): Roofing picked
+    on eaves with no overhang, so it builds unroofed. Advice, never a
+    refusal, as a wall's ``wall_finish_no_sheathing``."""
+    if "roofing" not in envelope.params.inputs:
+        return []
+    inputs = stored_inputs(feature_id, envelope, earlier, values)
+    return [
+        PluginWarning(
+            code=code,  # pyright: ignore[reportArgumentType]
+            message=message,
+            overlap_in3=0.0,
+            pairs=0,
+            update_to=None,
+        )
+        for code, message in roofing_notes(inputs)
+    ]
 
 
 def _through_sheathing_warning(

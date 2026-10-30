@@ -43,8 +43,10 @@ shingles**, which builds:
 Trim takes the end walls' Exterior finish's trim material (fibre cement,
 PVC or cedar), else SPF. A roof on its typed bearing, a hip, and a gable
 with no eave overhang take no roofing (hips and valleys are a later rung;
-an eave with no tails has nothing to hang a fascia on): the roof is 1.8.0's
-and the form says so.
+an eave with no tails has nothing to hang a fascia on): the roof is 1.8.0's.
+The Roofing input says so, and a gable on its walls picked with no eave
+overhang warns ``roof_roofing_no_overhang`` (``roof_outline.roofing_note``),
+as a wall's finish with no sheathing does.
 """
 
 import itertools

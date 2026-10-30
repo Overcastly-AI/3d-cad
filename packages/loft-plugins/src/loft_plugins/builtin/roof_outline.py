@@ -41,6 +41,7 @@ from loft_wire.features import (
     SketchFeature,
 )
 from loft_wire.lumber import MM_PER_INCH
+from loft_wire.plugin_warning import ROOF_ROOFING_NO_OVERHANG
 from loft_wire.plugins import (
     FeatureListInput,
     PluginInput,
@@ -203,6 +204,30 @@ def expand_v1_9(inputs: ExpandInputs) -> Iterable[Member]:
         gable_siding=True,
         roofing=True,
     )
+
+
+def roofing_note(inputs: ExpandInputs) -> str | None:
+    """The stored roof's ``roof_roofing_no_overhang`` message, or None: a
+    gable on an outline wall asks for Roofing but has no eave overhang, so
+    :func:`expand_v1_9` lays none (no tails to hang the fascia on). Pure."""
+    if "roofing" not in inputs.values or not wants_roofing(inputs):
+        return None
+    if inputs.choice("style") != STYLE_GABLE or inches("overhang_mm", inputs) > 0.0:
+        return None
+    if not any(is_outline_wall(inputs.resolve(p)) for p in inputs.features("walls")):
+        return None
+    return (
+        "Roofing is Asphalt shingles, but this gable has no eave overhang: no "
+        "roofing without rafter tails to hang the fascia on; give the eaves an "
+        "overhang, or set Roofing to None."
+    )
+
+
+def roofing_notes(inputs: ExpandInputs) -> list[tuple[str, str]]:
+    """The stored roof's input warnings, as (code, message), as
+    ``finish_notes``."""
+    note = roofing_note(inputs)
+    return [] if note is None else [(ROOF_ROOFING_NO_OVERHANG, note)]
 
 
 def ceiling_joist_note(inputs: ExpandInputs) -> str | None:

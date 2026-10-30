@@ -311,7 +311,6 @@ One line each. The founder triages weekly; most are closed without work.
 - CEILING-HIP: `loft.ceiling` refuses a hip, which frames no ceiling joists yet (CEILING-JOISTS-HIP).
 - GYPSUM-WALL-FIRST: a wall's gypsum runs up to its top plate's top and the ceiling stops at the board's face; crews hang the ceiling first and butt the wall board under it, so each ceiling edge is 1/2 in short of the framing it would bear on.
 - ROOFING-HIP: hips and valleys take no roofing yet (a hip's deck is triangles and trapezoids, its ridge cap runs the hips too); `loft.roof` 1.9.0 builds 1.8.0's hip.
-- ROOFING-FLUSH-EAVE: a gable with no eave overhang takes no roofing silently (no tails to hang a fascia on); Chief hangs fascia on the wall. A warning, or a fascia on the wall's face, would say it.
 - ROOFING-RAKE-LIP: the 1x6 rake board (3/4 in) cut into a 5/4 corner board leaves the board's outer 1/4 in standing up to the plate in front of the rake's foot; a 5/4x6 rake with a sided wall would sit flush.
 - ROOFING-BUNDLES: starter and ridge cap are bought by the whole foot; yards sell them by the bundle (about 100 ft of starter, 25-33 ft of ridge cap), as Chief's materials list can.
 - DECK-NESTING-HAND: B7's deck nests on 21 sheets by `sheets_to_cut`'s smallest-offcut rule; by hand its 24 panels fit 20 (the four 24.44 x 48 ends on two sheets, the two 24.44 x 25.59 rip ends in their offcut).
