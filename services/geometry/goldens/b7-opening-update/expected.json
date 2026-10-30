@@ -1,5 +1,5 @@
 {
-  "description": "B7 AFTER UPDATE ALL (OPENING-UPDATE; docs/reference-parts/buildings.md B7 Headers, docs/BACKLOG.md OPENING-UPDATE): b7-outline (one 288 x 192 outline, loft.floor 1.2.0, loft.wall 1.3.0 in 2x6 with 7/16 OSB, the door and five windows at loft.door / loft.window 1.1.0, a loft.roof 1.4.0 6/12 gable) with every offered update applied in one step: the walls to 1.4.0, the door and windows to 1.5.0 (their inputs carried by loft_plugins.updates' explicit map: Measured from the wall start, Custom size, Rough opening only, Header build Fill the wall) and the roof to 1.5.0; the floor is offered none. Each header is three 2x6 plies with two 1/2 in plywood spacers drawn as members. model.json is EXACTLY the expansions; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_opening_update.py pins both; services/geometry/tests/test_opening_update_b7.py checks the STEP, interference, the cut list and price, and these numbers against b7-outline's). SIDING-TRIM (re-derived 2026-10-29): the walls now update to loft.wall 1.5.0, whose Exterior finish takes its default, fibre-cement lap 8-1/4 (5/16) on the OSB from the foundation top to the top plate with 8 5/4x4 corner boards and 23 casing pieces round the units (4 + 8 + 23 = 35 bodies, _siding_builder.wall_finish_members, 34 217.228516 in^3), each rafter tail notched out of the lap or an eave wall's corner board after the OSB.",
+  "description": "B7 AFTER UPDATE ALL (OPENING-UPDATE; docs/reference-parts/buildings.md B7 Headers, docs/BACKLOG.md OPENING-UPDATE): b7-outline (one 288 x 192 outline, loft.floor 1.2.0, loft.wall 1.3.0 in 2x6 with 7/16 OSB, the door and five windows at loft.door / loft.window 1.1.0, a loft.roof 1.4.0 6/12 gable) with every offered update applied in one step: the walls to 1.4.0, the door and windows to 1.5.0 (their inputs carried by loft_plugins.updates' explicit map: Measured from the wall start, Custom size, Rough opening only, Header build Fill the wall) and the roof to 1.5.0; the floor is offered none. Each header is three 2x6 plies with two 1/2 in plywood spacers drawn as members. model.json is EXACTLY the expansions; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_opening_update.py pins both; services/geometry/tests/test_opening_update_b7.py checks the STEP, interference, the cut list and price, and these numbers against b7-outline's).",
   "derivation": [
     "INDEPENDENT of the plugins: services/geometry/tests/test_opening_update_b7.py's script() is test_outline_b7.script() (B7 typed from buildings.md and the QA-B7-HOUSE round) plus, typed from buildings.md B7 Headers, each opening's middle ply (2 to 3.5 in from the wall's outside face) and two spacers (1.5 to 2 and 3.5 to 4), over the jacks' outer faces (the rough opening + 1.5 each side) from the head up 5.5. The STEP matches it solid for solid.",
     "",
@@ -7,48 +7,46 @@
     "",
     "By hand from b7-outline's expected.json (test_the_golden_is_b7_outlines_plus_eighteen_boxes): the 18 bodies are separate boxes, so faces +108, edges +216, shells +18, mesh vertices +432 and triangles +216; area + 2 (8.25 + 7 L) per ply and 2 (2.75 + 6 L) per spacer = 8 316 in^2; mass + 1 769.625 in^3 of SPF (450 kg/m^3) and 1 179.75 of plywood (577); the centroid and centre of mass are b7-outline's moments plus each box's at its centre; the bounding box is unchanged (the headers sit inside the walls).",
     "",
-    "Interference none (test_nothing_interferes probes every pair whose boxes overlap): each spacer meets its two plies face to face, on the plies' own coordinates.",
-    "",
-    "SIDING-TRIM (re-derived 2026-10-29): the walls now update to loft.wall 1.5.0, whose Exterior finish takes its default, fibre-cement lap 8-1/4 (5/16) on the OSB from the foundation top to the top plate with 8 5/4x4 corner boards and 23 casing pieces round the units (4 + 8 + 23 = 35 bodies, _siding_builder.wall_finish_members, 34 217.228516 in^3), each rafter tail notched out of the lap or an eave wall's corner board after the OSB. Volume 267 801.7538656 + 34 217.228516 = 302 018.982382 in^3; the finish's faces, edges, mesh counts, area, mass and moments are its script's solids, measured (test_the_golden_is_b7_outlines_plus_eighteen_boxes)."
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap): each spacer meets its two plies face to face, on the plies' own coordinates."
   ],
   "tolerance": 1e-5,
-  "tolerance_rationale": "Measured first, then set (geometry-gates skill): ~4.4e9 mm^3 and ~3.9e8 mm^2 summed over 235 bodies, so the double-precision sums carry round-off near their ULPs (~9.5e-7 on the volume). The kernel differs from the script by +2.9e-06 mm^3 on the volume, +1.4e-06 mm^2 on the area, <= 6.9e-12 mm on the centroid and centre of mass and 1.4e-9 g on the mass. 1e-5 is 3.5x the worst (~2.3e-15 relative), b7-units' bound; one spacer missed takes 3.6e5 mm^3, so it fails by ten orders. With the finish (270 bodies), measured 2026-10-29: volume -6.7e-06 mm^3, area +1.3e-06 mm^2, <= 6.8e-12 mm on the centroid and centre of mass, 1.4e-9 g on the mass, 0 on the bounds; within the 1e-5 bound.",
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): ~4.4e9 mm^3 and ~3.9e8 mm^2 summed over 235 bodies, so the double-precision sums carry round-off near their ULPs (~9.5e-7 on the volume). The kernel differs from the script by +2.9e-06 mm^3 on the volume, +1.4e-06 mm^2 on the area, <= 6.9e-12 mm on the centroid and centre of mass and 1.4e-9 g on the mass. 1e-5 is 3.5x the worst (~2.3e-15 relative), b7-units' bound; one spacer missed takes 3.6e5 mm^3, so it fails by ten orders.",
   "roundtrip_tolerance": 0.001,
-  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-28, b7-outline's class: OCCT's STEP writer rounds the 26 sloped rafters' and the notched panels' irrational coordinates (the 18 added bodies are boxes on exact binary-fraction inches). Round-trip drift: volume -3.23e-4 mm^3 and area -2.31e-5 mm^2, b7-outline's -3.34e-4 / -2.64e-5 less nothing the boxes add. 1e-3 is 3.1x the worst and b7-outline's bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL. With the finish: volume -4.65e-4 mm^3, area -2.65e-5 mm^2, under the same 1e-3.",
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-28, b7-outline's class: OCCT's STEP writer rounds the 26 sloped rafters' and the notched panels' irrational coordinates (the 18 added bodies are boxes on exact binary-fraction inches). Round-trip drift: volume -3.23e-4 mm^3 and area -2.31e-5 mm^2, b7-outline's -3.34e-4 / -2.64e-5 less nothing the boxes add. 1e-3 is 3.1x the worst and b7-outline's bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
   "properties": {
-    "volume": 4949204393.495522,
-    "surface_area": 514715080.9513619,
+    "volume": 4388484479.90735,
+    "surface_area": 388726321.17177445,
     "centroid": {
-      "x": 3657.5999999999995,
-      "y": 2428.718120724359,
-      "z": 1313.6670091441342
+      "x": 3657.600000000001,
+      "y": 2422.3832667747256,
+      "z": 1305.2496720620325
     },
-    "mass_g": 2879411.9912015884,
+    "mass_g": 2206548.094895784,
     "center_of_mass": {
-      "x": 3657.6000000000113,
-      "y": 2442.2394947525195,
-      "z": 1289.1119820224108
+      "x": 3657.600000000012,
+      "y": 2431.2438379922332,
+      "z": 1261.5352366343893
     },
     "bounding_box": {
       "min": {
-        "x": -36.512499999999996,
+        "x": -11.112499999999999,
         "y": -304.79999999999995,
         "z": 0.0
       },
       "max": {
-        "x": 7351.7125,
+        "x": 7326.3125,
         "y": 5181.599999999999,
         "z": 4112.45887569496
       }
     }
   },
   "topology": {
-    "faces": 1966,
-    "edges": 4278,
-    "shells": 270
+    "faces": 1628,
+    "edges": 3474,
+    "shells": 235
   },
   "mesh": {
-    "vertices": 8556,
-    "triangles": 4648
+    "vertices": 6948,
+    "triangles": 3692
   }
 }

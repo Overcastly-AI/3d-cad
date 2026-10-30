@@ -10,18 +10,16 @@ mapping every input it can and taking the defaults of new parameters
   1.3.0, the door and five windows 1.1.0, the roof 1.4.0): one Update all
   leaves no release out of date and is B7 built fresh today, member for
   member: the floor 1.3.0 on Long walls (byte for byte 1.2.0's), the walls
-  1.5.0 in fibre-cement lap with their corner boards and casing
-  (SIDING-TRIM), the openings 1.5.0 (18 plies, 12 spacers) and the roof
-  1.8.0 with its 11 ceiling joists, its gable ends (22 gable studs, 2 134
-  in³ a gable, and 12 gable OSB panels, 2 496.018680 in³ a gable:
-  GABLE-END-STUDS) and the gables' lap: 264 852.3789 + 1 769.625 +
-  1 179.75 + 22 887.596423 + 4 268 + 4 992.037360 + 34 217.228516 +
-  3 565.740971 = 337 732.357 in³ (the kernel checks it on
+  1.5.0 (Exterior finish None), the openings 1.5.0 (18 plies, 12 spacers)
+  and the roof 1.8.0 (no siding on unsided walls) with
+  its 11 ceiling joists and its gable ends (22 gable studs, 2 134 in³ a
+  gable, and 12 gable OSB panels, 2 496.018680 in³ a gable:
+  GABLE-END-STUDS): 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423 +
+  4 268 + 4 992.037360 = 299 949.387683 in³ (the kernel checks it on
   ``goldens/b7-update-all``, ``services/geometry/tests/test_update_all_b7.py``);
 * the roof's update adds 11 ceiling joists, 22 gable studs and 12 gable
-  sheathing panels, an opening's 2 header spacers and a header ply (its
-  wall's), the walls 4 siding layers, 8 corner boards and 23 casing pieces,
-  the floor nothing at all;
+  sheathing panels, an opening's 2 header spacers
+  and a header ply (its wall's), the floor and the walls nothing at all;
 * a floor 1.2.0 on any outline 1.2.0 reads, or typed, Joists bear on frames
   the same joists, rims and sills;
 * B1 at deck 1.1.0 gains 3 pier footings (3 pi 8² 12 = 7 238.23 in³, 8 bags
@@ -61,7 +59,6 @@ from loft_wire.features import (
     CustomFeature,
     EvaluateTreeRequest,
     ExpandedMember,
-    ExtrudeFeature,
     FeatureRef,
 )
 from loft_wire.foundation import concrete_bags
@@ -168,30 +165,16 @@ def test_the_floor_is_byte_for_byte_and_the_roof_adds_its_joists() -> None:
     before, after = by_feature(outline.b7()), by_feature(update_all(outline.b7()))
     assert after[outline.FLOOR_ID] == before[outline.FLOOR_ID]
     old, new = before[outline.ROOF_ID], after[outline.ROOF_ID]
-    # Every stored member as it was, but each tail's notch, which also cuts
-    # the siding or corner board under it (SIDING-TRIM) after the sheathing.
-    assert len(new) > len(old)
-    for was, now in zip(old, new, strict=False):
-        assert now.id == was.id
-        if was.role != "cutter":
-            assert now == was
-            continue
-        assert isinstance(was.feature, ExtrudeFeature)
-        assert isinstance(now.feature, ExtrudeFeature)
-        cut, cuts = was.feature.params.cut_bodies, now.feature.params.cut_bodies
-        assert isinstance(cut, list) and isinstance(cuts, list)
-        assert cuts[: len(cut)] == cut and len(cuts) == len(cut) + 1
+    assert new[: len(old)] == old
     # The joists' planes and sections, then the right gable's face plane
-    # (the left's is the origin YZ) and its studs' and panels' sections, and
-    # each gable's siding plane, section and layer (SIDING-TRIM).
+    # (the left's is the origin YZ) and its studs' and panels' sections.
     assert Counter(m.role for m in new[len(old) :]) == Counter(
         {
-            "plane": 11 + 1 + 2,
-            "section": 11 + 22 + 12 + 2,
+            "plane": 11 + 1,
+            "section": 11 + 22 + 12,
             "ceiling_joist": 11,
             "gable_stud": 22,
             "gable_sheathing": 12,
-            "gable_siding": 2,
         }
     )
     bodies = Counter(m.role for m in outline.members_of(update_all(outline.b7())))
@@ -254,13 +237,9 @@ def test_each_update_names_what_it_adds() -> None:
         True,
     )
     assert effect_of(rows, door) == (("2 header spacers", "1 header ply"), True)
-    # The floor changes nothing: no badge, but Update all. The walls take
-    # the Exterior finish's default (SIDING-TRIM) and re-lay nothing.
+    # The floor and the walls change nothing: no badge, but Update all.
     assert effect_of(rows, outline.FLOOR_ID) == ((), False)
-    assert effect_of(rows, outline.WALLS_ID) == (
-        ("4 siding layers", "8 corner boards", "23 casing pieces"),
-        True,
-    )
+    assert effect_of(rows, outline.WALLS_ID) == ((), False)
 
 
 # --- The floor's map ----------------------------------------------------------------
@@ -592,10 +571,8 @@ def test_the_golden_is_the_updated_expansion() -> None:
 
 
 def test_the_golden_has_b7s_bodies_the_plies_spacers_and_joists() -> None:
-    """And the gable ends, the walls' exterior finish (4 siding layers, 8
-    corner boards, 23 casing pieces) and the gables' siding (SIDING-TRIM)."""
     _, metadata = golden()
-    assert len(metadata) == 217 + 6 + 12 + 11 + 22 + 12 + 4 + 8 + 23 + 2
+    assert len(metadata) == 217 + 6 + 12 + 11 + 22 + 12
 
 
 if __name__ == "__main__":

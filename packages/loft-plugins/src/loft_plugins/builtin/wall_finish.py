@@ -5,7 +5,8 @@ Chief Architect's wall types carry a siding layer outside the sheathing, and
 its Materials List counts the siding by area net of the openings, with the
 corner boards and the exterior casing as lines of their own. ``loft.wall``
 1.5.0 is 1.4.0 member for member, then, when **Exterior finish** is not
-None (Lap, fibre cement 8-1/4 in at 7 in exposure, the default; Vinyl,
+None (the default, as Chief's wall type is picked: siding is a material
+the user chooses; Lap, fibre cement 8-1/4 in at 7 in exposure; Vinyl,
 double 4 in, by the square; Cedar bevel 1/2 x 8), each wall's:
 
 * **Siding**: one body per connected region of the wall's face, drawn at
@@ -111,16 +112,17 @@ FINISH_INPUTS: list[PluginInput] = [
         kind="choice",
         name="exterior_finish",
         label="Exterior finish",
-        description="Siding over the exterior sheathing (none without it) from "
+        description="Siding over the exterior sheathing (a warning without it) "
+        "from "
         "the foundation top to the top plate, with 5/4x4 corner boards on the "
         "outside corners and "
         "picture-frame casing round each window and door, bought by the "
         "area net of the cased openings (Chief Architect's siding layer).",
         options=[
-            *(ChoiceOption(value=p.key, label=p.label) for p in SIDING_PRODUCTS),
             ChoiceOption(value=FINISH_NONE, label="None"),
+            *(ChoiceOption(value=p.key, label=p.label) for p in SIDING_PRODUCTS),
         ],
-        default=SIDING_PRODUCTS[0].key,
+        default=FINISH_NONE,
     ),
     CountInput(
         kind="count",

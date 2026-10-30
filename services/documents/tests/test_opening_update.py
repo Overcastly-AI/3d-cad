@@ -245,28 +245,6 @@ def _pins(rows: dict[str, dict[str, Any]]) -> dict[str, str]:
     }
 
 
-def _as_stored(now: list[dict[str, Any]], stored: list[dict[str, Any]]) -> bool:
-    """Whether a roof's expansion *now* begins with the *stored* one, member
-    for member, but that each tail's notch may also cut the siding or corner
-    board the walls' 1.5.0 Exterior finish puts under it (SIDING-TRIM),
-    listed after what it cut before."""
-    if len(now) < len(stored):
-        return False
-    for new, old in zip(now, stored, strict=False):
-        if old["role"] != "cutter":
-            if new != old:
-                return False
-            continue
-        cut, cuts = old["feature"]["params"], new["feature"]["params"]
-        if {k: v for k, v in cuts.items() if k != "cut_bodies"} != {
-            k: v for k, v in cut.items() if k != "cut_bodies"
-        }:
-            return False
-        if cuts["cut_bodies"][: len(cut["cut_bodies"])] != cut["cut_bodies"]:
-            return False
-    return True
-
-
 def _roles(rows: dict[str, dict[str, Any]]) -> Counter[str]:
     return Counter(
         m["role"]
@@ -296,20 +274,13 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
     assert _pins(rows) == STORED
     offers = {name: row.get("plugin_update") for name, row in rows.items()}
     assert offers["Outline"] is None
-    # The floor changes no member: no badge, but Update all.
-    floor = offers["Floor"]
-    assert floor is not None and floor["to_version"] == "1.3.0"
-    assert (floor["adds"], floor["quiet"]) == ([], True)
-    assert (floor["relays"], floor["separate"]) == ([], False)
-    # The walls take the Exterior finish's default (SIDING-TRIM): badged,
-    # re-laying nothing, so they ride in Update all.
-    walls = offers["Walls"]
-    assert walls is not None and walls["to_version"] == "1.5.0"
-    assert (walls["adds"], walls["quiet"]) == (
-        ["4 siding layers", "8 corner boards", "23 casing pieces"],
-        False,
-    )
-    assert (walls["relays"], walls["separate"]) == ([], False)
+    # The floor and the walls change no member: no badge, but Update all.
+    # The walls' update leaves Exterior finish at None (SIDING-TRIM).
+    for name, version in (("Floor", "1.3.0"), ("Walls", "1.5.0")):
+        offer = offers[name]
+        assert offer is not None and offer["to_version"] == version
+        assert (offer["adds"], offer["quiet"]) == ([], True)
+        assert (offer["relays"], offer["separate"]) == ([], False)
     roof = offers["Roof"]
     assert roof is not None and roof["to_version"] == "1.8.0"
     adds = ["11 ceiling joists", "22 gable studs", "12 gable sheathing panels"]
@@ -356,14 +327,13 @@ def test_update_all_is_one_edit_and_one_undo_step(client: TestClient) -> None:
         door["offset_mm"] == before["Door"]["feature"]["params"]["inputs"]["offset_mm"]
     )
     # The floor expands to exactly what it did, on Long walls; the roof to
-    # what it did, then its joists (its notches cutting the walls' new
-    # siding too).
+    # what it did, then its joists.
     floor = rows["Floor"]["feature"]["params"]
     assert floor["expansion"] == before["Floor"]["feature"]["params"]["expansion"]
     assert floor["inputs"]["joists_bear_on"] == "long_walls"
     roof = rows["Roof"]["feature"]["params"]["expansion"]
     stored_roof = before["Roof"]["feature"]["params"]["expansion"]
-    assert _as_stored(roof, stored_roof)
+    assert roof[: len(stored_roof)] == stored_roof
     # One Undo restores every row as it was stored, byte for byte.
     part.step("undo")
     restored = part.rows()
@@ -478,13 +448,7 @@ def test_update_all_skips_a_refused_feature_and_updates_the_rest(
     assert skipped["message"]
     rows = {f["name"]: f for f in body["features"]}
     assert _pins(rows) == {**UPDATED, "Roof": "1.4.0"}
-    # As stored, but its notches also cut the walls' new siding.
-    roof_now = rows["Roof"]["feature"]["params"]
-    roof_then = before["Roof"]["feature"]["params"]
-    assert roof_now["plugin_version"] == roof_then["plugin_version"]
-    assert roof_now["inputs"] == roof_then["inputs"]
-    assert _as_stored(roof_now["expansion"], roof_then["expansion"])
-    assert len(roof_now["expansion"]) == len(roof_then["expansion"])
+    assert rows["Roof"]["feature"] == before["Roof"]["feature"]
     # The roof's dependency edges are as stored: the walls still cannot go.
     blocked = client.delete(
         f"/api/v1/parts/{part.id}/features/{rows['Walls']['id']}",

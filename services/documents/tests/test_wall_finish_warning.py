@@ -1,10 +1,10 @@
 """A wall 1.5.0 with an Exterior finish but no sheathing warns (SIDING-TRIM).
 
 The finish goes over the exterior sheathing, so a bare-stud wall takes none.
-That is not silent: the stored wall carries ``wall_finish_no_sheathing``,
-which says to turn sheathing on, and still builds (advice, never a refusal).
-A sheathed wall, a wall set to None, and a 1.4.0 wall (no finish input)
-carry no warning.
+A finish picked on such a wall is not dropped silently: the stored wall
+carries ``wall_finish_no_sheathing``, which says to turn sheathing on, and
+still builds (advice, never a refusal). A sheathed wall, a wall at the
+default None, and a 1.4.0 wall (no finish input) carry no warning.
 """
 
 import uuid
@@ -70,7 +70,7 @@ def _row(client: TestClient, feature: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_a_finish_with_no_sheathing_warns_and_builds(client: TestClient) -> None:
-    row = _row(client, _wall("1.5.0"))  # default: Lap, no sheathing
+    row = _row(client, _wall("1.5.0", exterior_finish="fibre_cement_lap_8_25"))
     (warning,) = row["plugin_warnings"]
     assert warning["code"] == "wall_finish_no_sheathing"
     assert "no siding without sheathing; turn sheathing on" in warning["message"]
@@ -84,7 +84,8 @@ def test_a_finish_with_no_sheathing_warns_and_builds(client: TestClient) -> None
 @pytest.mark.parametrize(
     ("version", "inputs"),
     [
-        ("1.5.0", {"sheathing": "osb_7_16"}),
+        ("1.5.0", {"sheathing": "osb_7_16", "exterior_finish": "vinyl_d4"}),
+        ("1.5.0", {}),  # the default: None
         ("1.5.0", {"exterior_finish": "none"}),
         ("1.4.0", {}),
     ],

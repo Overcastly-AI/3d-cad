@@ -29,15 +29,12 @@ taken by Update all, which lists it as needing its own decision.
 * ``loft.wall`` 1.2.0 and 1.3.0 -> 1.5.0, every input as it is: 1.4.0 is
   1.3.0 member for member (and a typed wall 1.2.0's), plus the backing of
   partitions that meet it and an inside gypsum left at None; 1.5.0 adds the
-  Exterior finish below.
+  Exterior finish below, at None.
 * ``loft.wall`` 1.4.0 -> 1.5.0 (SIDING-TRIM), every input as it is, so
-  Exterior finish takes 1.5.0's default, fibre-cement Lap with 10 % waste:
-  each wall gains its siding over the sheathing, its corner boards and the
-  casing round its doors and windows (B7's 4 siding layers, 8 corner boards
-  and 23 casing pieces). Its framing, sheathing and gypsum are 1.4.0's
-  member for member, so nothing is re-laid and it rides in Update all. The
-  roof on it then notches the siding and the corner boards round its tails
-  as it does the sheathing.
+  Exterior finish takes 1.5.0's default, None: the update adds no member
+  (1.4.0's member for member), so it wears no badge and rides in Update
+  all. Siding is a material the user picks, as Chief's wall type is, so an
+  update never adds siding nobody asked for (VISION, 2026-10-30).
 * ``loft.roof`` 1.2.0-1.5.0 -> 1.6.0, every input as it is, so Ceiling
   joists takes 1.6.0's default, Beside each common: a gable on an outline or
   on picked walls gains its ceiling joists (B7's 11), as a new roof frames
@@ -55,8 +52,8 @@ taken by Update all, which lists it as needing its own decision.
   (SIDING-TRIM) every roof 1.2.0-1.6.0 goes straight to 1.8.0.
 * ``loft.roof`` 1.7.0 -> 1.8.0, every input as it is: a gable on outline
   walls with an Exterior finish (``loft.wall`` 1.5.0) carries the finish up
-  each gable over the sheathing (B7's 2 gable siding layers); on walls
-  with none it is 1.7.0 member for member.
+  each gable over the sheathing (2 gable siding layers on B7 sided); on
+  walls with none, as every updated wall is, it is 1.7.0 member for member.
 * ``loft.floor`` 1.2.0 -> 1.3.0: Joist direction becomes the Joists bear on
   (Long walls first, then Front and back, then Left and right) whose
   expansion frames 1.2.0's joists, rims and sills member for member. 1.2.0
@@ -268,18 +265,16 @@ _OPENING_INFILL = (
 )
 _WALL = (
     "Frames the backing of partitions that meet it, can take an inside "
-    "gypsum finish, and sides the walls over the sheathing (fibre-cement lap "
-    "by default, 10% waste) with corner boards and casing; its framing is "
-    "unchanged."
+    "gypsum finish, and offers an Exterior finish (None until you pick "
+    "siding); its framing is unchanged."
 )
 _WALL_1_4 = (
-    "Sides the walls over the sheathing (fibre-cement lap by default, 10% "
-    "waste) with corner boards and casing round each door and window; the "
-    "framing is unchanged."
+    "Offers an Exterior finish, None until you pick Lap, Vinyl or Cedar to "
+    "side the walls with corner boards and casing; nothing is rebuilt."
 )
 _GABLE_ENDS = (
     "frames its end walls up to the roof with gable studs on their layout and "
-    "carries their sheathing and siding up the gables"
+    "carries their sheathing (and any siding) up the gables"
 )
 _ROOF_1_7 = "A gable on its walls carries their exterior finish up the gables."
 _ROOF = (

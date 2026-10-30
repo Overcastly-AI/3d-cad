@@ -32,6 +32,7 @@ cut list's 109 boards). Regenerate after a deliberate change (a NEW plugin
 version) with ``uv run python packages/loft-plugins/tests/test_siding_trim.py``.
 """
 
+import dataclasses
 import gzip
 import itertools
 import json
@@ -105,6 +106,23 @@ VINYL = {"exterior_finish": "vinyl_d4"}
 CEDAR = {"exterior_finish": "cedar_bevel_1_2x8"}
 NONE = {"exterior_finish": "none"}
 
+
+def _lapped() -> Any:
+    """Wall 1.5.0 with Lap as its finish's default: the other houses (B8,
+    B9, B10 and the L, built by their own modules) sided in Lap, as a user
+    who picks it gets (the shipped default is None)."""
+    inputs = [
+        i.model_copy(update={"default": LAP["exterior_finish"]})
+        if i.name == "exterior_finish"
+        else i
+        for i in WALL_1_5.manifest.inputs
+    ]
+    manifest = WALL_1_5.manifest.model_copy(update={"inputs": inputs})
+    return dataclasses.replace(WALL_1_5, manifest=manifest)
+
+
+LAPPED = _lapped()
+
 # --- B7, typed from buildings.md (inches) ---------------------------------------------
 
 PLATE = 1.5 + 9.25 + 23 / 32 + 97.125  # 108.59375
@@ -143,7 +161,8 @@ def b7_today(
 ) -> Rows:
     """B7 drawn today: every opening picked by its call size, its unit drawn,
     measured from its wall's start as buildings.md places it (its walls at
-    *wall*'s release when given)."""
+    *wall*'s release when given). Walls 1.5.0 are sided in Lap unless
+    *walls* says otherwise: the finish defaults to None, a user's pick."""
     door, window = REGISTRY.latest("loft.door"), REGISTRY.latest("loft.window")
     openings = [
         (
@@ -158,7 +177,7 @@ def b7_today(
         return house(
             rectangle(length, 192),
             openings,
-            {**B7_STUDS, **(walls or {})},
+            {**B7_STUDS, **(LAP if wall is None else {}), **(walls or {})},
             B7_FLOOR,
             B7_GABLE if roof is None else roof,
         )
@@ -485,7 +504,7 @@ def test_on_a_slab_the_siding_starts_at_the_slab_top() -> None:
     too, so the door's casing legs stand on its bottom edge and the door's
     cut-out is a notch in it, not a hole."""
     with (
-        mock.patch.object(slab, "WALL_1_4", WALL_1_5),
+        mock.patch.object(slab, "WALL_1_4", LAPPED),
         mock.patch.object(slab, "ROOF", ROOF_1_8),
     ):
         rows = slab.b8()
@@ -503,7 +522,7 @@ def test_on_a_slab_the_siding_starts_at_the_slab_top() -> None:
 def test_on_a_crawl_space_the_siding_starts_at_the_stem_top() -> None:
     """B9: the floor stands on the stem wall's top; the siding starts at the
     floor's underside, the foundation top."""
-    with mock.patch.object(outline, "WALL", WALL_1_5):
+    with mock.patch.object(outline, "WALL", LAPPED):
         rows = crawl.b9()
     found = boxes(members_of(rows), ("siding",))
     assert {(b[4], b[5]) for b in found} == {(0.0, PLATE)}
@@ -516,7 +535,7 @@ def test_an_l_sides_its_inside_corner_with_no_board() -> None:
     to the fitted wall's OSB face and the fitted wall's starts at the
     through wall's siding face, so they close the corner with no overlap."""
     with (
-        mock.patch.object(outline, "WALL", WALL_1_5),
+        mock.patch.object(outline, "WALL", LAPPED),
         mock.patch.object(outline, "ROOF", ROOF_1_8),
     ):
         rows = house(l_sketch(), [], OSB, None, {"style": "hip"})
@@ -547,6 +566,7 @@ def test_a_line_wall_is_sided_end_to_end() -> None:
         "direction_deg": 180.0,
         "length_mm": 144 * IN,
         **OSB,
+        **LAP,
     }
     wall_id = uuid.UUID("00000000-0000-0000-0000-0000000002f0")
     door = outline.opening(
@@ -573,7 +593,7 @@ def test_an_unsheathed_wall_takes_no_finish() -> None:
 
 
 def test_b10s_partitions_change_nothing_outside() -> None:
-    rows = b10(wall_plugin=WALL_1_5)
+    rows = b10(wall_plugin=LAPPED)
     found = sorted(box_of(b) for b in boxes(members_of(rows), ("siding",)))
     assert found == SIDING_BOXES
 
@@ -583,7 +603,7 @@ def test_b10s_partitions_change_nothing_outside() -> None:
 
 def _window_at(offset: float, segment: str = "e1", width: float = 36.0) -> Rows:
     window = REGISTRY.latest("loft.window")
-    with today():
+    with today(), mock.patch.object(outline, "WALL", LAPPED):
         return house(
             rectangle(288, 192),
             [
@@ -619,7 +639,11 @@ def test_casings_that_overlap_are_refused() -> None:
     units 6.5 in apart, under the 7 in two casings take."""
     window = REGISTRY.latest("loft.window")
     raw = {"measure_from": "start", "size": "window_3040"}
-    with today(), pytest.raises(PluginError, match="casing overlaps"):
+    with (
+        today(),
+        mock.patch.object(outline, "WALL", LAPPED),
+        pytest.raises(PluginError, match="casing overlaps"),
+    ):
         house(
             rectangle(288, 192),
             [
@@ -635,21 +659,28 @@ def test_casings_that_overlap_are_refused() -> None:
 # --- The update, the manifest ---------------------------------------------------------
 
 
-def test_an_update_from_1_4_0_takes_the_lap_default_and_adds_its_members() -> None:
+def test_an_update_from_1_4_0_maps_the_finish_to_none() -> None:
+    """Siding is a material the user picks (VISION, 2026-10-30): an update
+    never adds siding nobody asked for."""
     update = update_for("loft.wall", "1.4.0", REGISTRY)
     assert update is not None and update.to_version == "1.5.0"
-    assert "fibre-cement lap" in update.summary
+    assert "nothing is rebuilt" in update.summary
     stored = canonical_inputs(WALL_1_4.manifest, {"outline": ref(WALLS_ID)})
     moved = canonical_inputs(WALL_1_5.manifest, updated_inputs(update, stored))
-    assert moved["exterior_finish"] == "fibre_cement_lap_8_25"
+    assert moved["exterior_finish"] == "none"
     assert moved["siding_waste_percent"] == 10
     for version in ("1.2.0", "1.3.0"):
         found = update_for("loft.wall", version, REGISTRY)
         assert found is not None and found.to_version == "1.5.0"
 
 
-def test_the_update_names_what_it_adds_and_re_lays_nothing() -> None:
-    before, after = walls_of(b7_today(walls=NONE)), walls_of(b7_today())
+def test_the_update_adds_nothing_and_picking_lap_names_the_finish() -> None:
+    old, new = walls_of(b7_today(wall=WALL_1_4)), walls_of(b7_today(walls=NONE))
+    assert old == new
+    effect = update_effect([("loft.wall", old, new)], REGISTRY)
+    assert (effect.adds, effect.relays) == ((), ())
+    # Picking Lap is the user's edit; its nouns are the badge's vocabulary.
+    before, after = new, walls_of(b7_today())
     effect = update_effect([("loft.wall", before, after)], REGISTRY)
     assert effect.adds == ("4 siding layers", "8 corner boards", "23 casing pieces")
     assert effect.relays == ()
@@ -662,6 +693,11 @@ def test_the_update_names_what_it_adds_and_re_lays_nothing() -> None:
     stored = roof_of(roofed(rows[:-1], B7_GABLE, ROOF_1_7))
     effect = update_effect([("loft.roof", stored, roof_of(rows))], REGISTRY)
     assert (effect.adds, effect.relays) == (("2 gable siding layers",), ())
+    # On walls with no finish (every updated wall) the roof adds nothing.
+    rows = b7_today(walls=NONE)
+    stored = roof_of(roofed(rows[:-1], B7_GABLE, ROOF_1_7))
+    assert roof_of(rows) == stored
+    assert not any(m.role == "gable_siding" for m in roof_of(rows))
 
 
 def test_new_walls_are_1_5_0_and_offer_the_finish() -> None:
@@ -675,12 +711,12 @@ def test_new_walls_are_1_5_0_and_offer_the_finish() -> None:
     ]
     finish = inputs["exterior_finish"]
     assert isinstance(finish, ChoiceInput)
-    assert finish.default == "fibre_cement_lap_8_25"
+    assert finish.default == "none"
     assert [o.label for o in finish.options] == [
+        "None",
         "Lap, fibre cement 8-1/4 in at 7 in",
         "Vinyl, double 4 in",
         "Cedar bevel 1/2 x 8 at 6-1/4 in",
-        "None",
     ]
     waste = inputs["siding_waste_percent"]
     assert isinstance(waste, CountInput)
@@ -761,7 +797,7 @@ def built_cases() -> Iterator[tuple[str, Rows]]:
     yield "b7-8-12", b7_today(roof={**B7_GABLE, "pitch": "rise_8"})
     yield "b7-unsheathed", b7_today(walls={"sheathing": "none"})
     with (
-        mock.patch.object(outline, "WALL", WALL_1_5),
+        mock.patch.object(outline, "WALL", LAPPED),
         mock.patch.object(outline, "ROOF", ROOF_1_8),
     ):
         yield "l-hip", house(l_sketch(), [], OSB, None, {"style": "hip"})
@@ -777,11 +813,11 @@ def built_cases() -> Iterator[tuple[str, Rows]]:
         )
         yield "b9", crawl.b9()
     with (
-        mock.patch.object(slab, "WALL_1_4", WALL_1_5),
+        mock.patch.object(slab, "WALL_1_4", LAPPED),
         mock.patch.object(slab, "ROOF", ROOF_1_8),
     ):
         yield "b8", slab.b8()
-    yield "b10", b10(wall_plugin=WALL_1_5)
+    yield "b10", b10(wall_plugin=LAPPED)
 
 
 def cases() -> str:
@@ -811,10 +847,12 @@ def test_the_golden_is_the_plugins_expansion() -> None:
 
 
 def test_the_golden_is_b7_today_with_its_finish() -> None:
-    """b7-update-all's 317 bodies (the finish and the gables' siding
-    included) with the 12 unit bodies: 329."""
+    """B7 drawn today and sided in Lap: b7-update-all's 280 bodies (the
+    update leaves the finish at None), the walls' 4 siding layers, 8 corner
+    boards and 23 casing pieces, the gables' 2 siding layers and the 12 unit
+    bodies: 329."""
     _, metadata = golden()
-    assert len(metadata) == 317 + 12 == 329
+    assert len(metadata) == 280 + 4 + 8 + 23 + 2 + 12 == 329
     count = Counter(m.title for m in metadata)
     assert (count["Siding"], count["Corner board"], count["Casing"]) == (6, 8, 23)
 
@@ -826,10 +864,11 @@ def test_the_kernel_cases_are_the_plugins_expansion() -> None:
 @pytest.mark.parametrize(
     ("raw", "warns"),
     [
-        ({}, True),  # the default: Lap, no sheathing
-        ({"exterior_finish": "vinyl_d4"}, True),
-        ({"sheathing": "osb_7_16"}, False),
-        ({"exterior_finish": "none"}, False),
+        ({}, False),  # the default: None
+        (LAP, True),
+        (VINYL, True),
+        ({"sheathing": "osb_7_16", **LAP}, False),
+        (NONE, False),
     ],
 )
 def test_a_finish_with_no_sheathing_is_noted(raw: dict[str, Any], warns: bool) -> None:
@@ -845,7 +884,7 @@ def test_a_finish_with_no_sheathing_is_noted(raw: dict[str, Any], warns: bool) -
         return
     assert note is not None
     assert "no siding without sheathing; turn sheathing on" in note
-    assert ("Vinyl" in note) == ("exterior_finish" in raw)
+    assert ("Vinyl" in note) == (raw == VINYL) and ("Lap" in note) == (raw == LAP)
 
 
 if __name__ == "__main__":
