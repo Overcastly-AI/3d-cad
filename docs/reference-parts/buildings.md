@@ -464,6 +464,32 @@ farthest a 4x12 from X 5.5 reaches): **8 sheets**. Golden `b7-ceiling`: 270
 bodies, 322 068.5126 in³. On B10 the partitions and their boards are cut
 out: 13 panels from 9 4x12s.
 
+**Roofing** (ROOFING, `loft.roof` 1.9.0, Roofing picked as Asphalt
+shingles, the default being None; 10 % waste): the rafters' top plane is
+106.1770833 + y / 2 + 7.25√1.25 over Y y (the front plane), and the
+fascia's outer face Y -12.75 (12 in of overhang, a 3/4 in board). The
+fascia is a 1x10 (the 2x8 tails' plumb cut is 8.106, past a 1x8's 7.25),
+its top on the top plane at its face (107.9079), two pieces an eave
+jointed on the rafter centre at X 144 (4 x 144.4375, 14 ft each). Each
+plane's deck, 7/16 OSB square to the plane on the top plane from the
+fascia's face to the ridge line, runs 108.75 in plan, 121.5862 on the
+slope, by 288.875 (X -7/16 .. 288 7/16, flush with the gable OSB):
+70 246.42 in² = 4.8782 squares; courses 48, 48 and a 25.5862 rip up from
+the eave, each in 4 sheets jointed on rafter centres (X 72, 168, 264; the
+middle course 4 ft over, 24, 120, 216): 24 panels on **21** 4x8 sheets.
+Shingles 4.8782 x 1.10 x 3 = 16.10, **17 bundles**; **1 roll** of
+underlayment; drip edge 2 x 288.875 + 4 x 121.5862 = 1 064.09 in in **14**
+10 ft sticks lapped 2 in (3 an eave, 2 a rake); starter 48.15 ft (49),
+ridge cap 24.07 ft (25). Four 1x6 rake boards on the gable OSB's face (X
+-1 3/16 .. -7/16 and 288 7/16 .. 289 3/16), the top in the deck's top
+plane, plumb-cut at Y -12.75 and the ridge line, long point 124.34 (12
+ft); each cuts the end wall's corner board under it (a triangle to Y
+-0.0582, where its underside crosses the plate) and the gable's lap. With
+trim nested on stock B7's casing is **14** 8 ft 5/4x4, not 23, and the
+gable OSB's 12 panels 4 4x8 sheets, not 6. At 8/12: 130.7012 a plane,
+75 512.64 in², **18 bundles**. Golden `b7-roofing` (B7 in lap, roofed):
+361 bodies, 385 860.298 in³.
+
 **Drawings** (HOUSE-DRAWINGS): plan cut 48 in above the subfloor, 24'-0" x
 16'-0" overall; front string 5'-0", 7'-0", 7'-0", 5'-0", back 12'-0" +
 12'-0", sides 8'-0" + 8'-0"; elevations: plate 8'-1 1/8", window heads
