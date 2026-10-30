@@ -455,6 +455,15 @@ nosing on the header's face); 80 in needs 117.61 from the nosing, a well
 of 119.49 between the header faces. Golden `b7-second-floor`: 470 bodies
 (no openings upstairs).
 
+**Ceiling** (GYPSUM-SHEETS, `loft.ceiling` 1.0.0 on the roof): 1/2 in
+sag-resistant ceiling board under the ceiling joists, X 5.5..282.5 by Y
+5.5..186.5 (277 x 181, 348.17 ft²), Z 108.09375..108.59375, hung across
+the joists from 4x12s in courses from the front wall: three 48 in and a 37
+in rip, each 140 + 137 with the joint on the joist at X 145.5 (the
+farthest a 4x12 from X 5.5 reaches): **8 sheets**. Golden `b7-ceiling`: 270
+bodies, 322 068.5126 in³. On B10 the partitions and their boards are cut
+out: 13 panels from 9 4x12s.
+
 **Drawings** (HOUSE-DRAWINGS): plan cut 48 in above the subfloor, 24'-0" x
 16'-0" overall; front string 5'-0", 7'-0", 7'-0", 5'-0", back 12'-0" +
 12'-0", sides 8'-0" + 8'-0"; elevations: plate 8'-1 1/8", window heads
@@ -574,7 +583,12 @@ subfloor, with 1/2 in gypsum both faces and no sheathing.
 - **Gypsum:** 1/2 in, 4x8 hung horizontally in two 48 in courses down from
   the top plate (the gap at the floor is left for the base), each face's
   panels from its partition's start, stopped at a partition it meets, the
-  door's RO cut out; sheets counted by `sheets_to_cut`.
+  door's RO cut out; sheets counted by `sheets_to_cut`: the 20 panels
+  (48 130.5 in², 10.44 sheets by area) are cut from **12** 4x8s
+  (GYPSUM-SHEETS): 4 whole, 4 x 85 each leaving a 10.875 end for the 4 x
+  4.25, 2 x 52.75 each leaving 43.125 for a 39.75, 2 x 33.5 each leaving
+  62.375 for a 28.5; past the whole and 85 in pieces the rest run 309 in,
+  more than three 96s, so no layout takes 11.
 
 Numbers (studs, blocks, gypsum panels and sheets, volume) come from the
 round's independent script, as B7's did. **Edit:** 24 -> 28 ft leaves P1

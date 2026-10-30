@@ -80,7 +80,12 @@ from loft_wire.plugins import (
     PluginMemberRole,
     semver_key,
 )
-from loft_wire.sheet_goods import SHEET_GOODS_BY_KEY, SheetGood, SheetGoodKey
+from loft_wire.sheet_goods import (
+    SHEET_GOODS_BY_KEY,
+    SheetGood,
+    SheetGoodKey,
+    SheetSizeKey,
+)
 from loft_wire.sketch import Point2D, SketchLine
 
 from loft_plugins.api import ExpandInputs, Member, Plugin, PluginError
@@ -291,11 +296,14 @@ def _panel_members(
     good: SheetGood,
     reverse: bool,
     name: str,
+    sheet: SheetSizeKey | None = None,
 ) -> Iterator[Member]:
     """One panel: its outline sketch and the extrude of it by the product's
-    thickness, a new body carrying the product and its material. Both are
-    named by the panel's place (*name*), so an opening moving or a wall
-    growing never hands one panel's id to another (WALL-MEMBER-RENUMBER)."""
+    thickness, a new body carrying the product and its material, and the
+    *sheet* it is hung from when that is not the shortest that covers it
+    (GYPSUM-SHEETS). Both are named by the panel's place (*name*), so an
+    opening moving or a wall growing never hands one panel's id to another
+    (WALL-MEMBER-RENUMBER)."""
     section, role = roles
     yield Member(
         section,
@@ -323,7 +331,7 @@ def _panel_members(
                 merge=False,
             ),
         ),
-        MemberMetadata(profile=good.name, material=good.material),
+        MemberMetadata(profile=good.name, material=good.material, sheet=sheet),
         name=name,
     )
 

@@ -96,6 +96,7 @@ def test_the_catalog_lists_every_version_newest_first() -> None:
     assert [(m.id, m.version, m.latest) for m in served.plugins] == [
         ("loft.cabinets", "1.1.0", True),
         ("loft.cabinets", "1.0.0", False),
+        ("loft.ceiling", "1.0.0", True),
         ("loft.deck", "1.3.0", True),
         ("loft.deck", "1.2.0", False),
         ("loft.deck", "1.1.0", False),

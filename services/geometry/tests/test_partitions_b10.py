@@ -15,8 +15,8 @@ buildings.md`` B10 (:func:`b10_members`), added to B7's independent script
    and the volume is B7's 264 852.3788656 in^3 plus B10's 45 623.25 in^3;
 2. interference none, every pair probed exactly;
 3. the cut list: 2 partitions' studs, plates, door framing and 12 blocks
-   under Walls, the 20 gypsum panels as 48 130.5 in^2 bought as 11 sheets
-   of 4x8, the door one Each line.
+   under Walls, the 20 gypsum panels as 48 130.5 in^2 cut from 12 sheets
+   of 4x8 (GYPSUM-SHEETS; 11 by area before), the door one Each line.
 
 Regenerate expected.json's numbers with
 ``uv run python services/geometry/tests/test_partitions_b10.py``.
@@ -393,7 +393,7 @@ def _cut_list() -> Any:
     )
 
 
-def test_the_partitions_list_under_walls_and_the_gypsum_buys_eleven_sheets() -> None:
+def test_the_partitions_list_under_walls_and_the_gypsum_buys_twelve_sheets() -> None:
     cut_list = _cut_list()
     walls = [line for line in cut_list.lines if line.system == "walls"]
     gypsum = [line for line in walls if line.profile == "1/2 gypsum"]
@@ -401,8 +401,9 @@ def test_the_partitions_list_under_walls_and_the_gypsum_buys_eleven_sheets() -> 
     assert gypsum[0].member == "Gypsum"
     assert gypsum[0].quantity == 20
     assert round(gypsum[0].area_mm2 / IN**2, 6) == 48130.5
-    assert (gypsum[0].sheet, gypsum[0].stock_quantity) == ("4x8", 11)
-    assert gypsum[0].extended_price_cents == 11 * 1498
+    # GYPSUM-SHEETS: cut from 12 (the measured panels nested), not 11 by area.
+    assert (gypsum[0].sheet, gypsum[0].stock_quantity) == ("4x8", 12)
+    assert gypsum[0].extended_price_cents == 12 * 1498
     blocks = [line for line in walls if line.member == "Block"]
     assert [(b.profile, b.quantity, round(b.length_mm / IN, 6)) for b in blocks] == [
         ("2x4", 12, 14.5)

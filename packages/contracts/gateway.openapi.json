@@ -12575,6 +12575,24 @@
             "description": "The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.",
             "title": "Rebar"
           },
+          "sheet": {
+            "anyOf": [
+              {
+                "enum": [
+                  "4x8",
+                  "4x9",
+                  "4x10",
+                  "4x12"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sheet a sheet-good panel is cut from, as its plugin was told to hang it (GYPSUM-SHEETS: gypsum hung from 4x12s): the cut list nests every such panel on that sheet when it covers the panel. Absent: the shortest sheet its product is sold in that covers it.",
+            "title": "Sheet"
+          },
           "siding": {
             "anyOf": [
               {
@@ -15556,7 +15574,8 @@
                   "plywood_3_4",
                   "melamine_3_4",
                   "plywood_1_2",
-                  "plywood_1_4"
+                  "plywood_1_4",
+                  "gypsum_ceiling_1_2"
                 ],
                 "type": "string"
               },
@@ -16708,7 +16727,8 @@
               "plywood_3_4",
               "melamine_3_4",
               "plywood_1_2",
-              "plywood_1_4"
+              "plywood_1_4",
+              "gypsum_ceiling_1_2"
             ],
             "title": "Key",
             "type": "string"

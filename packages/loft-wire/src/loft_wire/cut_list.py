@@ -40,16 +40,19 @@ covers, or one that is not lumber, has no stock suggestion.
 (:mod:`loft_wire.sheet_goods`, "7/16 OSB") is a PANEL. Its thickness is its
 smallest measured extent and its net area its volume over that thickness
 (openings cut out), and it is cut from the shortest sheet covering its other
-two extents. Panels group by product, material and sheet (not by member or
-size), and a line buys the sheets its panels are CUT from, as a yard sells
-whole sheets (:func:`sheets_to_cut`, SHEET-COUNT-PIECES): each panel takes a
-sheet unless an earlier offcut of the line covers it whole, largest panels
-first (:mod:`loft_wire.sheet_nesting`), a saw kerf lost at every cut
-(SHEET-KERF) and a piece up to 1/8 in short filling its panel in APA's panel
-gap (SHEET-KERF-GAP). A floor panel keeps the sheet's strength axis across the
-joists, so it is never turned to fit an offcut (SUBFLOOR-GRAIN); a wall
-panel may be. Openings are not credited (framers sheathe over them and cut
-them out), so a line's offcut area is its sheets' area less its net area.
+two extents, or from the sheet its plugin hung it from when that covers it
+(``MemberMetadata.sheet``, GYPSUM-SHEETS: one 4x12 line, ends nested). Panels
+group by product, material and sheet (not by member or size), and a line buys
+the sheets its panels are CUT from, as a yard sells whole sheets
+(:func:`sheets_to_cut`, SHEET-COUNT-PIECES): each panel takes a sheet unless
+an earlier offcut of the line covers it whole, largest panels first
+(:mod:`loft_wire.sheet_nesting`), a saw kerf lost at every cut (SHEET-KERF)
+and a piece up to 1/8 in short filling its panel in APA's panel gap
+(SHEET-KERF-GAP). A floor panel keeps the sheet's strength axis across the
+joists, so it is never turned to fit an offcut (SUBFLOOR-GRAIN); a wall panel
+may be. Openings are not credited (framers sheathe over them and cut them
+out), so a line's offcut area is its sheets' area less its net area. Gypsum
+too (GYPSUM-SHEETS: B10's partitions are 12 sheets, 11 by area).
 
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
@@ -304,6 +307,7 @@ PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
     "loft.floor": "floor",
     "loft.wall": "walls",
     "loft.interior_wall": "walls",
+    "loft.ceiling": "walls",
     "loft.window": "walls",
     "loft.door": "walls",
     "loft.roof": "roof",
@@ -868,7 +872,9 @@ def classify_body(
                 length_mm=extents[0],
                 section_mm=(thickness, extents[1]),
                 count=count,
-                sheet=covering_sheet(extents[0], extents[1], good),
+                sheet=covering_sheet(
+                    extents[0], extents[1], good, member.metadata.sheet
+                ),
                 area_mm2=body.volume_mm3 / thickness if thickness > 0 else 0.0,
                 system=(
                     system_for_plugin(member.plugin_id)
@@ -983,11 +989,6 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
         width = round(max(p.section_mm[1] for p in pieces), 6)
         sheets = None
         offcut = None
-    elif good is not None and good.material == "gypsum":
-        # By area, less an ulp (BACKLOG INTERIOR-WALLS-GYPSUM-COUNT).
-        length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
-        sheets = math.ceil(area / sheet.area_mm2 - 1e-9)
-        offcut = round(max(sheets * sheet.area_mm2 - area, 0.0), 6)
     else:
         length, width = round(sheet.length_mm, 6), round(sheet.width_mm, 6)
         sheets = sheets_to_cut(

@@ -302,6 +302,12 @@ delegated log; reverse any there. Open for the founder:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- CEILING-REORDER-NONSTRICT: a reorder that puts a `loft.ceiling` above an Interior wall keeps the wall's stale members until rebuild, which then flags them with CEILING-ORDER's refusal; the reorder itself is not refused (reorders re-expand non-strictly).
+- CEILING-STAGGER: B7's ceiling has every course's end joint on the one joist at X 145.5 (the only joint two 4x12s across 277 in can share); GA-216 staggers end joints a joist apart where the room allows.
+- CEILING-SYSTEM: ceiling board lists under Walls with the wall gypsum (one Drywall group would read better, as a quote groups it); its product is its own line.
+- CEILING-HIP: `loft.ceiling` refuses a hip, which frames no ceiling joists yet (CEILING-JOISTS-HIP).
+- GYPSUM-WALL-FIRST: a wall's gypsum runs up to its top plate's top and the ceiling stops at the board's face; crews hang the ceiling first and butt the wall board under it, so each ceiling edge is 1/2 in short of the framing it would bear on.
+
 - SIDING-TYPED-CORNERS: a typed (line) wall 1.5.0 is sided end to end with no corner boards; only outline walls trim their outside corners.
 - SIDING-INSIDE-CORNER-TRIM: an outline's inside corner gets no trim; its two sidings close it with a 5/16 x 7/16 in slot.
 - FACE-IS-INSIDE-FAR: geometry's faces.py and assembly patterns still call build123d's Face.is_inside, the 3D classifier that fails about 300 in from the origin; extrude's profile test moved to BRepClass_FaceClassifier (SIDING-TRIM).

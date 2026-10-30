@@ -11,7 +11,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * frames both partitions and the walls' backing; Build ▾ > Door in
  * "Partition 2", a 2868 measured 50.25 from P1's face, frames its opening.
  * The cut list lists the 12 ladder blocks and the 20 gypsum panels (48 130.5
- * in², 11 sheets of 4x8) under Walls, and the door once.
+ * in², cut from 12 sheets of 4x8, GYPSUM-SHEETS) under Walls, and the door once.
  */
 
 const IN = 25.4;
@@ -205,7 +205,7 @@ test.describe("Interior walls — B10's partitions", () => {
     await expect(
       row(page, "Block", "8 ft").getByTestId("cut-list-qty"),
     ).toHaveText("12");
-    const gypsum = row(page, "Gypsum", "11 × 4x8");
+    const gypsum = row(page, "Gypsum", "12 × 4x8");
     await expect(gypsum).toHaveCount(1);
     await expect(gypsum.getByTestId("cut-list-qty")).toHaveText("20");
     await expect(gypsum.getByTestId("cut-list-length")).toHaveText(

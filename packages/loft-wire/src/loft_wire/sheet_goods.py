@@ -10,9 +10,13 @@ unless an earlier offcut covers it whole (SHEET-COUNT-PIECES,
 
 Gypsum board (INTERIOR-WALLS) is the finish a partition and an exterior
 wall's inside face are hung with: 1/2 in (the US wall default) or 5/8 in
-(Type X), sold in 4x8 and 4x12 sheets and hung horizontally. Each product
-is cut from the sheets it is sold in (:data:`SHEET_SIZES_FOR`): structural
-panels from 4x8, 4x9 and 4x10, gypsum from 4x8 and 4x12.
+(Type X), sold in 4x8 and 4x12 sheets and hung horizontally. A ceiling
+(GYPSUM-SHEETS) is hung in 1/2 in sag-resistant ceiling board, a product of
+its own. Each product is cut from the sheets it is sold in
+(:data:`SHEET_SIZES_FOR`): structural panels from 4x8, 4x9 and 4x10, gypsum
+from 4x8 and 4x12. A panel whose plugin names the sheet it is hung from
+(:attr:`loft_wire.plugins.MemberMetadata.sheet`, gypsum hung from 4x12s) is
+cut from that sheet, so one choice is one cut-list line.
 
 A product is a material at a thickness, named as the trade sells it:
 "7/16 OSB", "23/32 plywood", "1/2 gypsum". APA performance-category panels
@@ -47,6 +51,7 @@ SheetGoodKey = Literal[
     "melamine_3_4",
     "plywood_1_2",
     "plywood_1_4",
+    "gypsum_ceiling_1_2",
 ]
 
 #: The sheet sizes sold, by name (width x length, ft).
@@ -112,6 +117,9 @@ SHEET_GOODS: tuple[SheetGood, ...] = (
     _good("melamine_3_4", "3/4 melamine", "melamine", 3 / 4),
     _good("plywood_1_2", "1/2 plywood", "plywood", 1 / 2),
     _good("plywood_1_4", "1/4 plywood", "plywood", 1 / 4),
+    # A ceiling (GYPSUM-SHEETS): 1/2 in sag-resistant board (ASTM C1396
+    # ceiling board), sold apart from wall board, as a yard stocks it.
+    _good("gypsum_ceiling_1_2", "1/2 ceiling gypsum", "gypsum", 1 / 2),
 )
 
 #: Key -> product.
@@ -155,13 +163,23 @@ def sheet_good_for(profile: str | None) -> SheetGood | None:
 
 
 def covering_sheet(
-    length_mm: float, width_mm: float, good: SheetGood | None = None
+    length_mm: float,
+    width_mm: float,
+    good: SheetGood | None = None,
+    hung: SheetSizeKey | None = None,
 ) -> SheetSize | None:
     """The shortest sheet *good* is sold in (a structural panel's 4x8, 4x9 or
     4x10 when ``None``) that a ``length x width`` panel (its in-plane
-    extents, mm, either order) is cut from, or ``None`` when none covers it."""
+    extents, mm, either order) is cut from, or ``None`` when none covers it.
+    A panel *hung* from a named sheet its product is sold in is cut from
+    that sheet when it covers the panel (GYPSUM-SHEETS: a 37 in end piece of
+    a wall hung from 4x12s is cut from a 4x12, not bought as a 4x8)."""
     long, short = max(length_mm, width_mm), min(length_mm, width_mm)
-    keys = SHEET_SIZES_FOR["osb" if good is None else good.material]
+    keys: tuple[SheetSizeKey, ...] = SHEET_SIZES_FOR[
+        "osb" if good is None else good.material
+    ]
+    if hung is not None and hung in keys:
+        keys = (hung, *(key for key in keys if key != hung))
     for size in (SHEET_SIZES_BY_KEY[key] for key in keys):
         if (
             short <= size.width_mm + SHEET_FIT_TOLERANCE_MM

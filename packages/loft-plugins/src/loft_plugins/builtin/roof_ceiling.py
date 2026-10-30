@@ -176,6 +176,38 @@ def joist_misfit(inputs: ExpandInputs, rafter: Rafter) -> str | None:
     )
 
 
+def joist_positions(
+    inputs: ExpandInputs,
+    length: float,
+    place: GablePlace,
+    clear: Sequence[tuple[float, float]] = (),
+) -> list[tuple[str, float]]:
+    """Each ceiling joist :func:`ceiling_joists` frames, as its layout slot
+    and its low face along the ridge (world, in), whatever the input says:
+    beside each inner common pair, off the *clear* extents. A ceiling hung
+    from them (``loft.ceiling``, GYPSUM-SHEETS) lands its end joints on them."""
+    t = inputs.lumber("rafter_profile").thickness_in
+    tj = inputs.lumber("ceiling_joist_profile").thickness_in
+    spacing = inches("spacing_mm", inputs)
+    centres = joist_centres(length, spacing, t)
+    slots = layout_slots(len(centres))
+    start = place.x0 if place.along_x else place.y0
+    end_face = length - t  # the far end rafter's near face, from the start
+    out: list[tuple[str, float]] = []
+    for centre, slot in list(zip(centres, slots, strict=True))[1:-1]:
+        x0 = centre - t / 2
+        # The rafter's far face, as gable_on places the rafter: the joist's
+        # face is on it, or (no room before the end rafter) a joist's
+        # thickness before its near face.
+        far = x0 + t
+        x = far if far + tj <= end_face + 1e-9 else x0 - tj
+        at = x if start == 0.0 else start + x
+        if any(min(b, at + tj) - max(a, at) > 1e-9 for a, b in clear):
+            continue
+        out.append((slot, at))
+    return out
+
+
 def ceiling_joists(
     inputs: ExpandInputs,
     members: Sequence[Member],
@@ -201,12 +233,8 @@ def ceiling_joists(
         if notes is not None:
             notes.append(misfit)
         return []
-    t = inputs.lumber("rafter_profile").thickness_in
     tj = joist.thickness_in
-    spacing = inches("spacing_mm", inputs)
-    centres = joist_centres(length, spacing, t)
-    slots = layout_slots(len(centres))
-    start, across = (place.x0, place.y0) if place.along_x else (place.y0, place.x0)
+    across = place.y0 if place.along_x else place.x0
     base: Literal["YZ", "XZ"] = "YZ" if place.along_x else "XZ"
     axis = base.lower()
     direction: Literal["normal", "reverse"] = "normal" if place.along_x else "reverse"
@@ -214,7 +242,6 @@ def ceiling_joists(
     meta = MemberMetadata(
         profile=joist.name, material=inputs.material("ceiling_joist_material")
     )
-    end_face = length - t  # the far end rafter's near face, from the start
     used = {
         role: sum(1 for m in members if m.role == role)
         for role in ("plane", "section", "ceiling_joist")
@@ -224,16 +251,7 @@ def ceiling_joists(
     def index(role: str) -> int:
         return used[role] + sum(1 for m in out if m.role == role)
 
-    for centre, slot in list(zip(centres, slots, strict=True))[1:-1]:
-        x0 = centre - t / 2
-        # The rafter's far face, as gable_on places the rafter: the joist's
-        # face is on it, or (no room before the end rafter) a joist's
-        # thickness before its near face.
-        far = x0 + t
-        x = far if far + tj <= end_face + 1e-9 else x0 - tj
-        at = x if start == 0.0 else start + x
-        if any(min(b, at + tj) - max(a, at) > 1e-9 for a, b in clear):
-            continue
+    for slot, at in joist_positions(inputs, length, place, clear):
         plane_name = f"{axis}/{number_name(at)}"
         offset = _mm(at) if place.along_x else -_mm(at) + 0.0
         out.append(

@@ -286,3 +286,106 @@ def test_partitions_need_1_4_0_walls(client: TestClient) -> None:
     )
     assert response.status_code == 422, response.text
     assert "update the walls to 1.4.0" in response.json()["error"]["message"]
+
+
+# --- Under a ceiling (GYPSUM-SHEETS, CEILING-ORDER) -----------------------------------
+
+CEILING_OVER = (
+    "A ceiling earlier in the tree hangs over this wall; move the wall above "
+    "the ceiling in the tree."
+)
+
+
+def _roof_and_ceiling(part: _Part, walls: str) -> tuple[str, str]:
+    roof = part.add(
+        "Roof",
+        _custom(
+            "loft.roof",
+            "1.8.0",
+            walls=[_ref(walls)],
+            slope_walls=["e1", "e3"],
+            rafter_profile="us_2x8",
+            ridge_profile="us_2x10",
+        ),
+    )
+    ceiling = part.add("Ceiling", _custom("loft.ceiling", "1.0.0", roof=_ref(roof)))
+    return roof, ceiling
+
+
+def _request_errors(part: _Part) -> dict[str, str]:
+    response = part.client.get(
+        f"/api/v1/parts/{part.id}/evaluation-request", headers=HEADERS
+    )
+    assert response.status_code == 200, response.text
+    return {
+        str(f["id"]): str(f["input_error"]["message"])
+        for f in response.json()["features"]
+        if f.get("input_error") is not None
+    }
+
+
+def test_partitions_before_the_ceiling_hang_it_around_them(client: TestClient) -> None:
+    part, ids = _b10(client)
+    _roof_and_ceiling(part, ids["walls"])
+    assert _roles(part.stored(), "Ceiling")["ceiling"] == 13
+    assert _request_errors(part) == {}
+
+
+def test_an_interior_wall_after_the_ceiling_is_refused(client: TestClient) -> None:
+    part = _Part(client)
+    sketch = part.add("Plan", _plan(288))
+    floor = part.add(
+        "Floor",
+        _custom("loft.floor", "1.3.0", outline=_ref(sketch), joist_profile="us_2x10"),
+    )
+    walls = part.add(
+        "Walls",
+        _custom(
+            "loft.wall",
+            "1.4.0",
+            outline=_ref(sketch),
+            floor=_ref(floor),
+            stud_profile="us_2x6",
+            sheathing="osb_7_16",
+        ),
+    )
+    _roof_and_ceiling(part, walls)
+    response = client.post(
+        f"/api/v1/parts/{part.id}/features",
+        json={
+            "name": "Interior walls",
+            "feature": _custom("loft.interior_wall", "1.0.0", host_wall=_ref(walls)),
+            "expected_tree_version": part.version,
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 422, response.text
+    assert CEILING_OVER in response.json()["error"]["message"]
+
+
+def test_a_reorder_under_the_ceiling_refuses_at_rebuild(client: TestClient) -> None:
+    """Moving the roof and ceiling above the partitions keeps the stored
+    members (a reorder is not strict, CEILING-REORDER-NONSTRICT); the
+    rebuild sends the Interior wall with the reason, not a ceiling through
+    its plates."""
+    part, ids = _b10(client)
+    roof, ceiling = _roof_and_ceiling(part, ids["walls"])
+    order = [
+        ids["sketch"],
+        ids["floor"],
+        ids["walls"],
+        roof,
+        ceiling,
+        ids["interior"],
+        ids["door"],
+    ]
+    response = client.put(
+        f"/api/v1/parts/{part.id}/features/order",
+        json={"expected_tree_version": part.version, "order": order},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    # The Interior wall's stored members are sent, each with the reason.
+    errors = _request_errors(part)
+    assert errors
+    assert set(errors.values()) == {f"[plugin_input_unsupported] {CEILING_OVER}"}

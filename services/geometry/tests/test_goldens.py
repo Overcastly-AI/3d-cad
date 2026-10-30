@@ -325,6 +325,9 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B7 sided and trimmed (SIDING-TRIM): b7-outline's class, 4.1e-4 at
         # worst (the notched lap and corner boards add nothing new).
         "b7-siding",
+        # B7 with its ceiling (GYPSUM-SHEETS): b7-outline class, 2.75e-4 at
+        # worst; the ceiling panels are boxes and add nothing.
+        "b7-ceiling",
         # Casework (CASEWORK): C1 at 27 in and in face frame, C3 in face frame
         # and C2's 91 panels, the summation drift (1.0e-7 to 3.6e-7 mm^3);
         # C1 turned 30 deg, OCCT's STEP drift on turned planes (1.05e-4).
