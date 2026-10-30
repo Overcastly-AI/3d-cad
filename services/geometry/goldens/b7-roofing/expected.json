@@ -3,7 +3,7 @@
   "derivation": [
     "INDEPENDENT of the plugins: services/geometry/tests/test_roofing_b7.py's script() is test_siding_b7.script() (329 solids from the independent B7 scripts and the finish typed from buildings.md) with each corner board and lap layer a rake board crosses cut by it, then the roofing typed from buildings.md (32): per plane 3 courses x 4 sheets (X -7/16, 72, 168, 264, 288 7/16; the middle course -7/16, 24, 120, 216, 288 7/16), 2 fascia pieces an eave and 4 rake boards. The STEP matches the 361 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
     "",
-    "roofing volume (analytic, roofing_volume()): deck 2 x 121.586196 x 288.875 x 7/16 = 30 734.06 in^3; fascia 2 x 288.875 x 0.75 x 9.25 = 4 008.14; rake boards 4 x 108.75 x 5.5 sqrt 1.25 x 0.75 = 2 006.18; less the 4 corner boards' triangles under the rakes (0.75 deep, to Y -0.0582 where a rake's underside crosses the plate) and the gables' lap under the rakes (5/16, Y -7/16 to the ridge, a 5.0625 in band square to the plane): 36 063.44 in^3.",
+    "roofing volume (analytic, roofing_volume()): deck 2 x 121.586196 x 288.875 x 7/16 = 30 734.06 in^3; fascia 2 x 288.875 x 0.75 x 9.25 = 4 008.14; rake boards 4 x 108.75 x 5.5 sqrt 1.25 x 0.75 = 2 006.18; less the 4 corner boards' triangles under the rakes (0.75 deep, to Y -0.0581 where a rake's underside crosses the plate) and the gables' lap under the rakes (5/16, Y -7/16 to the ridge, a 5.0625 in band square to the plane): 36 063.44 in^3.",
     "",
     "volume (analytic): b7-siding's 349 796.857 + the roofing's 36 063.441 = 385 860.298 in^3.",
     "",

@@ -484,7 +484,7 @@ ridge cap 24.07 ft (25). Four 1x6 rake boards on the gable OSB's face (X
 -1 3/16 .. -7/16 and 288 7/16 .. 289 3/16), the top in the deck's top
 plane, plumb-cut at Y -12.75 and the ridge line, long point 124.34 (12
 ft); each cuts the end wall's corner board under it (a triangle to Y
--0.0582, where its underside crosses the plate) and the gable's lap. With
+-0.0581, where its underside crosses the plate) and the gable's lap. With
 trim nested on stock B7's casing is **14** 8 ft 5/4x4, not 23, and the
 gable OSB's 12 panels 4 4x8 sheets, not 6. At 8/12: 130.7012 a plane,
 75 512.64 in², **18 bundles**. Golden `b7-roofing` (B7 in lap, roofed):

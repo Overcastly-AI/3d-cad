@@ -156,7 +156,7 @@ def script() -> list[b7.Member]:
     return [*out, *roofing_members()]
 
 
-#: Where a rake board's underside crosses the plate (front plane): Y -0.0582.
+#: Where a rake board's underside crosses the plate (front plane): Y -0.0581.
 Y_PLATE = 2 * (PLATE - top(0.0) - (S - RAKE_W) / COS)
 
 
@@ -192,7 +192,7 @@ def test_the_roofing_numbers_are_buildings_mds() -> None:
     assert pytest.approx(121.5862, abs=1e-4) == SLOPE
     assert pytest.approx(70246.42, abs=5e-3) == 2 * SLOPE * 288.875
     assert top(EAVE) == pytest.approx(107.9079, abs=1e-4)
-    assert pytest.approx(-0.0582, abs=1e-4) == Y_PLATE
+    assert pytest.approx(-0.0581, abs=1e-4) == Y_PLATE
     mine = roofing_members()
     assert len(mine) == 24 + 4 + 4
     volume = sum(float(measure_shape(m.solid).volume) for m in mine) / IN**3
