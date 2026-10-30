@@ -33,7 +33,7 @@ BODY_NAME_MAX_LENGTH = 400
 #: At most one name per body, and a part has at most one body per feature, so
 #: this is ``loft_wire.features.MAX_TREE_FEATURES`` (asserted by the tests;
 #: not imported, because ``features`` imports this module).
-MAX_BODY_NAMES = 1000
+MAX_BODY_NAMES = 1500
 
 #: The separator between the feature and the member, as the cut list and the
 #: rest of the interface join two names.

@@ -97,7 +97,8 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
         ("loft.roof", "1.5.0", "1.8.0"),
         ("loft.roof", "1.6.0", "1.8.0"),
         ("loft.roof", "1.7.0", "1.8.0"),
-        ("loft.floor", "1.2.0", "1.3.0"),
+        ("loft.floor", "1.2.0", "1.4.0"),
+        ("loft.floor", "1.3.0", "1.4.0"),
         ("loft.deck", "1.1.0", "1.3.0"),
         ("loft.deck", "1.2.0", "1.3.0"),
         ("loft.foundation", "1.0.0", "1.1.0"),
@@ -110,7 +111,7 @@ def test_the_latest_and_the_unmapped_releases_are_offered_none() -> None:
         ("loft.window", "1.5.0"),
         ("loft.wall", "1.5.0"),
         ("loft.roof", "1.8.0"),
-        ("loft.floor", "1.3.0"),
+        ("loft.floor", "1.4.0"),
         ("loft.deck", "1.3.0"),
         ("loft.foundation", "1.1.0"),
         ("loft.cabinets", "1.1.0"),
@@ -346,7 +347,7 @@ def test_a_typed_wall_1_2_0_updates_to_the_same_members() -> None:
 
 def test_update_all_moves_every_pin_to_the_newest() -> None:
     assert pins(update_all(b7())) == [
-        ("loft.floor", "1.3.0"),
+        ("loft.floor", "1.4.0"),
         ("loft.wall", "1.5.0"),
         *[("loft.door", "1.5.0")],
         *[("loft.window", "1.5.0")] * 5,

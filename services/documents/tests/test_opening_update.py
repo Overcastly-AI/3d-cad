@@ -9,7 +9,7 @@ a dry run (PLUGIN-UPDATE-ALL): the roof "11 ceiling joists", each opening "2
 header spacers" and "1 header ply" (its wall's); the floor and the walls
 change no member, so their offers are ``quiet``. ``POST
 .../features/plugin-updates`` with no ids updates every one of them: the
-floor to 1.3.0 (Joists bear on Long walls, its members byte for byte), the
+floor to 1.4.0 (Joists bear on Long walls, its members byte for byte), the
 walls to 1.4.0, the openings to 1.5.0 (their inputs carried by
 ``loft_plugins.updates``: Measured from the wall start, Custom size, Rough
 opening only, Header build Fill the wall) and the roof to 1.7.0 with its
@@ -262,7 +262,7 @@ STORED = {
     "Roof": "1.4.0",
 }
 UPDATED = {
-    "Floor": "1.3.0",
+    "Floor": "1.4.0",
     "Walls": "1.5.0",
     **{name: "1.5.0" for name in OPENING_NAMES},
     "Roof": "1.8.0",
@@ -276,7 +276,7 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
     assert offers["Outline"] is None
     # The floor and the walls change no member: no badge, but Update all.
     # The walls' update leaves Exterior finish at None (SIDING-TRIM).
-    for name, version in (("Floor", "1.3.0"), ("Walls", "1.5.0")):
+    for name, version in (("Floor", "1.4.0"), ("Walls", "1.5.0")):
         offer = offers[name]
         assert offer is not None and offer["to_version"] == version
         assert (offer["adds"], offer["quiet"]) == ([], True)
@@ -528,7 +528,7 @@ def test_an_update_that_re_lays_a_floor_is_left_for_its_own_decision(
     assert alone.status_code == 200, alone.text
     assert "skipped_updates" not in alone.json()
     floor = {f["name"]: f for f in alone.json()["features"]}["Floor"]
-    assert floor["feature"]["params"]["plugin_version"] == "1.3.0"
+    assert floor["feature"]["params"]["plugin_version"] == "1.4.0"
     assert floor.get("plugin_update") is None
     # Only the floor was left: Update all now has nothing to do.
     assert part.update().status_code == 422

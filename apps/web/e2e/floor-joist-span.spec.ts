@@ -169,7 +169,7 @@ test.describe("Floor — Joists bear on", () => {
         }[];
       }
     ).features[1]?.feature.params;
-    expect(floor?.plugin_version).toBe("1.3.0");
+    expect(floor?.plugin_version).toBe("1.4.0");
     expect(floor?.inputs?.joists_bear_on).toBe("front_back");
   });
 });

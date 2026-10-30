@@ -479,26 +479,31 @@ _ALL_GOLDENS = sorted(
     (Path(__file__).resolve().parent.parent / "goldens").glob("*/model.json")
 )
 
-#: Parametrized fixture name -> the inventory a module's half is taken from.
-_HALVED_INVENTORIES = {
-    "restart_tree_model": _TREE_GOLDENS,
-    "restart_golden_model": _ALL_GOLDENS,
-    "export_tree_model": _TREE_GOLDENS,
+#: Parametrized fixture name -> the inventory a module's part is taken from,
+#: and how many modules share it. The tree-export sweeps are in THIRDS
+#: (test_export_tree_{a,b,c}.py): a half had grown to 13.4 CI min with
+#: b7-second-floor's five ~70 s cases, near a shard's 16 min target alone
+#: (SECOND-FLOOR); the restart gates stay halved.
+_SPLIT_INVENTORIES = {
+    "restart_tree_model": (_TREE_GOLDENS, 2),
+    "restart_golden_model": (_ALL_GOLDENS, 2),
+    "export_tree_model": (_TREE_GOLDENS, 3),
 }
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Parametrize ``restart_tree_model`` / ``restart_golden_model`` /
-    ``export_tree_model`` over the module's half of the goldens.
+    ``export_tree_model`` over the module's part of the goldens.
 
-    The module's name ends in ``_a`` or ``_b`` to pick its half; the halves interleave
-    by sorted index, so a new golden lands in one of them and both stay even.
+    The module's name ends in ``_a``, ``_b`` (or ``_c``, for thirds) to pick
+    its part; the parts interleave by sorted index, so a new golden lands in
+    one of them and all stay even, and together they take every golden once.
     """
-    for name, inventory in _HALVED_INVENTORIES.items():
+    for name, (inventory, parts) in _SPLIT_INVENTORIES.items():
         if name not in metafunc.fixturenames:
             continue
-        half = "ab".index(metafunc.definition.path.stem[-1])
-        models = inventory[half::2]
+        part = "abc"[:parts].index(metafunc.definition.path.stem[-1])
+        models = inventory[part::parts]
         metafunc.parametrize(name, models, ids=[path.parent.name for path in models])
 
 

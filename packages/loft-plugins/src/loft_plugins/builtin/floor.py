@@ -545,3 +545,7 @@ def expand(inputs: ExpandInputs) -> Iterator[Member]:
 
 
 FLOOR_V1 = Plugin(MANIFEST_V1, expand)
+
+#: The parts a later release frames other pieces with (SECOND-FLOOR).
+cos_sin = _cos_sin
+emit = _emit

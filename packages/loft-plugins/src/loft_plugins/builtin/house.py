@@ -47,6 +47,8 @@ WALL_OUTLINE_VERSION = (1, 3, 0)
 FLOOR_OUTLINE_VERSION = (1, 2, 0)
 #: The floor release that frames across the walls it bears on.
 FLOOR_SPAN_VERSION = (1, 3, 0)
+#: The floor release that may stand on picked walls' top plates (SECOND-FLOOR).
+FLOOR_ON_WALLS_VERSION = (1, 4, 0)
 
 
 def _at_least(version: str, release: tuple[int, int, int]) -> bool:
@@ -172,8 +174,80 @@ def floor_values_v1_3(inputs: ExpandInputs) -> ExpandInputs:
     return _with(values, {"joist_direction": along})
 
 
+def _wall_corners(spec: wall_v1.WallSpec) -> list[tuple[float, float]]:
+    """The plan corners of a wall's framing: its line and its depth to its
+    framing side."""
+    frame = wall_v1.WallFrame.of(spec)
+    t = spec.thickness
+    return [frame.plan(u, v) for u in (0.0, spec.length) for v in (0.0, t)]
+
+
+def floor_on_walls(inputs: ExpandInputs) -> float | None:
+    """The plate a 1.4.0 floor's picked walls carry it on (inches above Z 0:
+    the top of their top plates), or ``None`` when no wall is picked.
+
+    Every picked wall (an outline's walls are each of its lines) must stand
+    under the floor's rectangle, *inputs* being written as 1.1.0's typed
+    rectangle, and all of them at one plate height, as Chief Architect's
+    Build Floor frames a floor on the walls of the level below and Revit
+    hosts it on one level (SECOND-FLOOR)."""
+    picks = inputs.features("walls") if "walls" in inputs.values else []
+    if not picks:
+        return None
+    floor = floor_v1.FloorSpec.from_inputs(inputs)
+    c, s = floor_v1.cos_sin(floor.direction_deg)
+    plates: set[float] = set()
+    for ref in picks:
+        envelope = inputs.resolve(ref)
+        if (
+            not isinstance(envelope, CustomFeature)
+            or envelope.params.plugin_id != "loft.wall"
+        ):
+            raise PluginError(
+                PLUGIN_INPUT_INVALID, "On walls: pick earlier Walls.", input="walls"
+            )
+        for _, spec in wall_specs_of(
+            ref.feature_id, envelope, inputs.earlier, inputs.parameters
+        ):
+            plates.add(round(spec.elevation + spec.height, _DIGITS))
+            for x, y in _wall_corners(spec):
+                dx, dy = x - floor.start_x, y - floor.start_y
+                along, left = dx * c + dy * s, -dx * s + dy * c
+                if not (
+                    -1e-6 <= along <= floor.width + 1e-6
+                    and -1e-6 <= left <= floor.depth + 1e-6
+                ):
+                    raise unsupported(
+                        "On walls: a picked wall stands outside the floor; a "
+                        "floor bears on walls under it (pick the storey "
+                        "below's walls, and its outline or rectangle).",
+                        "walls",
+                    )
+    if len(plates) != 1:
+        raise unsupported(
+            "On walls: the picked walls' top plates are at different heights; "
+            "a floor bears on one plate height.",
+            "walls",
+        )
+    return plates.pop()
+
+
+def floor_values_v1_4(inputs: ExpandInputs) -> ExpandInputs:
+    """A 1.4.0 floor's inputs written as 1.1.0's typed floor: 1.3.0's
+    rectangle and span and, on picked walls, their plate as its base
+    elevation with no sill plates (its rims and end joists bear on the top
+    plates, SECOND-FLOOR)."""
+    values = floor_values_v1_3(inputs)
+    plate = floor_on_walls(values)
+    if plate is None:
+        return values
+    return _with(values, {"elevation_mm": plate * MM_PER_INCH, "sill_plate": "no"})
+
+
 def floor_values_of(version: str, inputs: ExpandInputs) -> ExpandInputs:
     """A stored floor's inputs as the typed 1.1.0 floor its release frames."""
+    if _at_least(version, FLOOR_ON_WALLS_VERSION):
+        return floor_values_v1_4(inputs)
     if _at_least(version, FLOOR_SPAN_VERSION):
         return floor_values_v1_3(inputs)
     if _at_least(version, FLOOR_OUTLINE_VERSION):

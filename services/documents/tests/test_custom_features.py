@@ -385,6 +385,7 @@ def test_the_catalog_needs_a_principal(client: TestClient) -> None:
         ("loft.door", "1.2.0"),
         ("loft.door", "1.1.0"),
         ("loft.door", "1.0.0"),
+        ("loft.floor", "1.4.0"),
         ("loft.floor", "1.3.0"),
         ("loft.floor", "1.2.0"),
         ("loft.floor", "1.1.0"),
@@ -477,12 +478,13 @@ def test_a_loft_whose_members_overflow_the_tree_bound_is_refused(
     client: TestClient,
 ) -> None:
     """Reproduction: two rows of an absent plugin carrying 600 stored members
-    each imported (2 rows), then every evaluation-request was a 500."""
-    response = _import(client, _forged(client, [600, 600]))
+    each imported (2 rows), then every evaluation-request was a 500 (800 each
+    since the bound is 1500, SECOND-FLOOR)."""
+    response = _import(client, _forged(client, [800, 800]))
     assert response.status_code == 422, response.text
     error = response.json()["error"]
     assert error["code"] == "feature_limit_exceeded"
-    assert error["details"]["expanded"] == 1201
+    assert error["details"]["expanded"] == 1601
 
 
 def test_an_overflowing_stored_tree_still_builds_a_bounded_request(
@@ -492,15 +494,15 @@ def test_an_overflowing_stored_tree_still_builds_a_bounded_request(
     feature that does not fit is sent as one member with a typed error."""
     with monkeypatch.context() as m:  # stored as an older build allowed
         m.setattr(custom_features, "MAX_TREE_FEATURES", 5000)
-        imported = _import(client, _forged(client, [600, 600]))
+        imported = _import(client, _forged(client, [800, 800]))
     assert imported.status_code == 201, imported.text
     response = client.get(
         f"/api/v1/parts/{imported.json()['id']}/evaluation-request", headers=HEADERS
     )
     assert response.status_code == 200, response.text
     features = response.json()["features"]
-    assert len(features) == 1 + 600 + 1
-    assert all(f.get("input_error") is None for f in features[:601])
+    assert len(features) == 1 + 800 + 1
+    assert all(f.get("input_error") is None for f in features[:801])
     assert "plugin_expansion_too_large" in features[-1]["input_error"]["message"]
 
 

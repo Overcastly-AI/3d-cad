@@ -9,128 +9,138 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
-Ranked 2026-10-29 (ninth pass) by the product-manager, by "would a
+Ranked 2026-10-30 (tenth pass) by the product-manager, by "would a
 working builder use this today". The founder: "it's all needed"; the
-orchestrator leads. Done in batch52 (97fc65d) and dropped
-(`git log --grep=<ID>`): OPENING-UPDATE, DECK-FOOTINGS, CEILING-JOISTS and
-FOUNDATION-TAKEOFF; CASEWORK-B10 in batch53 (`loft.cabinets` 1.1.0; C2's
-filler is 3 in on B10, not 3.5; the Pieces total drops only banding). The
-order: every saved house takes every plugin release first, because each
-item below ships one; then the deck gets its stair; then the house gets its
-gables closed, its drawings and its siding. Founder-triage Notes folded
-into an item are named in it and removed from Notes.
+orchestrator leads. The ninth pass is done and dropped (`git log
+--grep=<ID>`): PLUGIN-UPDATE-ALL and STAIRS in batch55 (6c3d625),
+GABLE-END-STUDS in batch56 (c291e6f), HOUSE-DRAWINGS in batch57 (840c668),
+and SIDING-TRIM with `loft.deck` 1.3.0's guard opening at a stair
+(DECK-GUARD-OPENING) in batch59 (f2fdd0d). What a builder still cannot do
+end to end on B7: dry it in (no roof deck, underlayment, shingles, drip
+edge, fascia or rake board); add a second storey or an inside stair; hang
+a ceiling, or buy the walls' drywall by the sheet; hand a crew elevations
+with widths, or a yard an order with one line per stock size; or put a
+shed or porch roof on it. Insulation, rake overhangs, electrical and
+timber-frame houses stay out of this pass (Next and triage). The order is:
+dry the house in, stack it, finish it inside, make its drawings a crew's
+set, then add a second roof type. Founder-triage Notes folded into an item
+are named in it and removed from Notes.
 
-1. [ ] **PLUGIN-UPDATE-ALL** (backend-builder for the maps in
-   `loft_plugins.updates`; kernel-architect for the floor map and the
-   byte-identity goldens; frontend-builder for the badge text and the
-   editor prompt). Update all still leaves B7's floor at 1.2.0, a saved
-   deck without footings, a saved crawl space without its vents, and
-   saved cabinets on 1.0.0. Onshape updates a custom feature to its newest
-   Feature Studio with every input it can map, and new parameters take
-   their defaults. Every Build plugin gets a map from every stored version
-   to its newest: floor 1.2.0 Joist direction becomes the Joists bear on
-   that frames the same joists; deck 1.1.0 -> 1.2.0, foundation 1.0.0 ->
-   1.1.0 and casework to its newest. An update adds what the new version
-   adds by default (footings, vents, ceiling joists on a gable on outline
-   or picked walls), and its badge says what it adds ("adds 3 pier
-   footings"); an update that adds and changes nothing gets no badge but
-   rides in Update all. Update from an editor with unsaved edits asks
-   first. Folds OPENING-UPDATE-FLOOR, FOUNDATION-UPDATE-MAP,
-   DECK-FOOTINGS-UPDATE, CASEWORK-UPDATE, ROOF-NOOP-UPDATE,
-   OPENING-UPDATE-EDITOR and OPENING-UPDATE-MIDLOOP. _Accept:_ B7 saved at
-   batch48's versions: one Update all leaves no Build feature out of date
-   and equals B7 built fresh today (opening 1.5.0 headers and spacers, 11
-   ceiling joists): 267 801.7539 + 22 887.596423 = 290 689.350323 in³, the
-   floor's members byte-identical; B1 at deck 1.1.0 gains 3 footings
-   (7 238.23 in³, 8 bags) and 3 post bases, all else byte-identical; B9 at
-   foundation 1.0.0 lists 5 vents and 1 access door and orders 2.75 +
-   4.25 yd³; C1-C3 at casework 1.0.0 keep their panels; each Update all is
-   one undo step, and a refusal on the last feature rolls back the first.
-2. [ ] **STAIRS** (kernel-architect for `loft.stair` 1.0.0, the deck's
-   guard opening and goldens; backend-builder for stringer stock in the cut
-   list). B1 stands 30 in above grade with no way down, and no deck is
-   built or permitted without its stair. Chief Architect's Stair tool and
-   Revit's Stair by Component count risers from the total rise and a
-   maximum riser height, then lay treads at the tread depth; Chief's Build
-   Framing cuts the stringers. A straight stair hosted on a deck edge (or
-   free, with a typed total rise for interior stairs): equal risers of at
-   most 7.75 in and treads of at least 10 in (IRC R311.7.5), the stair
-   36 in wide by default (R311.7.1), 2x12 cut stringers at most 18 in o.c.
-   with a 5 in throat (AWC DCA6), 5/4x6 treads as the decking, closed
-   risers an option, and one handrail where there are 4 or more risers
-   (R311.7.8). The deck's guard opens at the stair. _Accept:_ B1 with a
-   stair centred on the rim at X 96: 4 risers of 7.5 (30 / 4), 3 treads of
-   11 in run (33 in), 3 stringers 2x12 (X 78..114, 17.25 o.c.) from 8 ft
-   stock with a 11.25 - 82.5 / √177.25 = 5.0533 in throat, 6 tread boards
-   5/4x6 x 36, a handrail, no interference; decking at 36 in gives 5
-   risers of 7.2, 4 treads (44 in) and a 5.2257 in throat; a free stair
-   with a 107.09375 in rise gives 14 risers of 7.649554, 13 treads; stored
-   decks are byte-identical.
-3. [ ] **GABLE-END-STUDS** (kernel-architect for `loft.roof` 1.7.0 and
-   goldens). B7's two gable triangles are open over the side walls: the
-   quote misses their studs and OSB, and no framer leaves them. Chief
-   Architect's Build Framing frames a gable wall up to the roof plane with
-   its studs in line with the wall below. 2x6 gable studs on the end
-   wall's top plate at its 16 in layout centres, each cut on the slope to
-   the roof's underside plane (long point up), and the wall's OSB carried
-   up to the same plane, both members of the roof. _Accept:_ B7 at 6/12
-   (2x8 rafters, underside 106.1770833 + Y/2 at the front wall's outside
-   face): each stud's long point is d/2 - 2.416667 in, d the distance of
-   its higher face from the nearer eave wall's outside face; 11 studs a
-   gable, on each wall's own layout (left from the front, Y 21.5, 37.5,
-   ..., 181.5; right from the back, Y 170.5, ..., 10.5), long points
-   summing 262.791667 in; each gable's OSB runs to the rafters' top plane
-   (covering the end rafter): 5 705.19 in², the 12 panels on 6 4x8 sheets
-   by `sheets_to_cut`; no interference; 8/12 re-cuts them; stored roofs
-   are byte-identical. (Corrected by the kernel-architect, RESEARCH §23.)
-4. [ ] **HOUSE-DRAWINGS** (frontend-builder for the Drawing command on a
-   part and the plan view; kernel-architect for a horizontal-section view
-   that holds on about 450 bodies; backend-builder for feet-inch
-   dimensions and the material-list table). A builder cannot take B7 to a
-   permit desk or a crew: the part editor has no Drawing command, there is
-   no plan view, dimensions print in decimals, and the cut list never
-   reaches the sheet. Revit cuts a floor plan at 4'-0" above its level and
-   Chief Architect adds automatic exterior dimensions to opening centres;
-   both place a schedule (Chief's Materials List) on a sheet. A part's
-   Drawing gets a Plan view (a horizontal section 48 in above the lowest
-   floor), the four elevations, architectural feet-inch dimensions to
-   1/16 in, automatic exterior strings, and the cut list as a yard order
-   (Qty, Size, Length, Material, Price) on its own sheet. Folds
-   QA-PART-DRAWING-CMD, CUT-LIST-PDF, DRAWING-PARTS-LIST-EXPORT and
-   QA-DRAWING-DECIMALS. _Accept:_ B7's plan reads 24'-0" x 16'-0" overall
-   (framing), the front string 5'-0", 7'-0", 7'-0", 5'-0" to the opening
-   centres, the back 12'-0" + 12'-0" and each side 8'-0" + 8'-0"; its
-   front elevation dimensions the plate at 8'-1 1/8" and the window heads
-   at 6'-10 1/2" above the subfloor; the material-list sheet equals the
-   cut-list panel line for line and to the cent, in the PDF and the CSV.
-5. [ ] **SIDING-TRIM** (kernel-architect for `loft.wall` 1.5.0 and
-   goldens; backend-builder for siding by the piece and the square in the
-   library and price book). Every B house is bare OSB, so no exterior is
-   quoted and the founder's "homes in different materials" stops at the
-   framing. Chief Architect's wall types carry a siding layer and its
-   Materials List counts siding by area net of openings, with corner
-   boards and exterior casing as lines; US yards sell fibre-cement lap by
-   the 12 ft board and vinyl by the square. A wall Exterior finish: None
-   (the default: a material the user picks; a wall update adds no siding),
-   Lap (fibre cement 8.25 in at 7 in exposure), Vinyl (by the square) or
-   Cedar bevel, over the OSB (on an unsheathed wall, a
-   `wall_finish_no_sheathing` warning) from the foundation top to the top plate;
-   5/4x4 corner boards on each outside corner (one each face) and 5/4x4
-   picture-frame casing round each unit; siding bought net of the cased
-   openings with a 10% allowance (an input). Gables follow
-   GABLE-END-STUDS: `loft.roof` 1.8.0 carries the finish up the gable OSB.
-   _Accept:_ B7 drawn today with Lap picked: the lap runs 939.5 in between the corner
-   boards on the OSB's face (not the framing's 960) from Z 0 to 108.59375,
-   102 023.83 in² gross, less cased openings 3 x 43 x 55 + 2 x 31 x 43 +
-   44.5 x 85.5 (the door cased on its 37.5 x 82 frame) = 13 565.75 and 22
-   tail notches (89.55): 88 368.53 in² on the walls, plus 2 x 5 705.19 on
-   the gables, 99 778.90 x 1.10 / 1 008 = 108.89, **109 boards** (walls
-   alone 97); 8 corner boards of 108.59375; casing 1 099.5 in (door 215.5,
-   36 in windows 3 x 196, 24 in windows 2 x 148); Vinyl **8 squares**; no
-   interference; every line priced; stored walls are byte-identical, and
-   B7 saved at older releases is after Update all byte for byte what it
-   was before SIDING-TRIM (b7-update-all, b7-opening-update unchanged).
-   (Corrected by the kernel-architect, RESEARCH §23.)
+1. [ ] **ROOFING** (kernel-architect for `loft.roof` 1.9.0's deck, fascia
+   and rake boards and goldens; backend-builder for squares, bundles,
+   rolls and trim nested on stock in the cut list and price book). B7-B10
+   are quoted with bare rafters: the roof deck and everything that sheds
+   water are missing, so no builder can quote a house dried in. Chief
+   Architect's roof planes carry sheathing and roofing layers, and its
+   Materials List counts roofing in squares and drip edge and fascia by
+   length; Revit's roof type is a compound of layers. A Roofing choice on
+   the roof: None (the default; stored roofs and every update stay quiet)
+   or Asphalt shingles. That is 7/16 OSB across the rafters in 4x8 sheets
+   on courses staggered 4 ft, from the ridge line to the fascia's face and
+   flush with the gable OSB; synthetic underlayment by the 10-square roll;
+   architectural shingles at 3 bundles a square plus a 10% waste input;
+   starter on the eaves and ridge cap by the foot; drip edge in 10 ft
+   sticks lapped 2 in; a 1x fascia one size deeper than the tails' plumb
+   cut; and a 1x6 rake board on each rake. Trim (casing, corner boards,
+   fascia, rake) is nested on stock as framing is. Gables first; hips and
+   valleys after. Folds ROOF-SHEATHING, SIDING-RAKE-TRIM (the rake board;
+   frieze stays a Note), TRIM-NESTING and GABLE-SHEET-NESTING. _Accept:_
+   B7 at 6/12 (2x8 tails plumb 7.25 x √1.25 = 8.106, so 1x10 fascia):
+   each slope runs 108.75 in plan (96 + 12 + 0.75), 121.5862 on the slope,
+   by 288.875 (X -7/16..288 7/16): 70 246.42 in² = 4.8782 squares, **17
+   bundles** (4.8782 x 1.10 x 3 = 16.10), **1 roll**; the deck **20
+   sheets** (a slope's two 48 in courses and a 25.5862 rip course take
+   3 + 4 + 3, the 7/8 in end strips cut from offcuts); drip edge
+   1 064.09 in, **14 sticks** (3 an eave, 2 a rake); ridge cap 24.07 ft,
+   starter 48.15 ft; each eave's fascia 12 + 14 ft with the joint on the
+   rafter at X 168; 4 rake boards from 12 ft; B7's casing nests into **14**
+   8 ft 5/4x4, not 23; the 12 gable OSB panels in at most 4 sheets, not 6;
+   at 8/12, 130.7012 a slope, 75 512.64 in², 18 bundles; no interference;
+   every line priced; stored roofs byte-identical.
+2. [ ] **SECOND-FLOOR** (kernel-architect for `loft.floor` on picked
+   walls' top plates, the stairwell framing and goldens; frontend-builder
+   for picking the walls a floor stands on). Most US houses have two
+   storeys, and B7 cannot go up: a floor stands only on a foundation,
+   walls only on that floor, and STAIRS' free stair has no well to climb
+   into. Chief Architect stacks floors on levels, frames each with Build
+   Floor and cuts the well with Auto Stairwell; Revit hosts a floor and
+   walls on a level and cuts a shaft opening. A Floor on picked walls
+   bears its rims on their top plates (no sills) and frames a typed
+   stairwell: doubled trimmers, doubled headers on hangers, and tail joists
+   between header and rim (IRC R502.10). Walls stand on that floor, the
+   roof on those walls, and a free stair reads the well for its headroom.
+   The band between storeys takes the wall's OSB and siding, as floor 1's
+   rim does. Folds SIDING-RIM-OSB and STAIRS-HEADROOM-DEFAULT. _Accept:_
+   B7 with a second 2x10 floor on its walls: floor 2 is floor 1 less its
+   sills, raised 107.09375 (joists Z 108.59375..117.84375, finished floor
+   118.5625); a 43.5 x 120 well (X 18.25..61.75, Y 36..156) between the
+   joists at X 16 and 64, each doubled inside, cuts the joists at X 32 and
+   48 into 4 tails of 31.5 (Y 1.5..33 and 159..190.5) on 4 headers 2x10 x
+   43.5 (Y 33..36 and 156..159), with 8 hangers and 5 220 in² out of the
+   subfloor; upper walls Z 118.5625..215.6875; every roof member raised
+   107.09375 with its volume unchanged; a free stair of rise 107.09375 has
+   14 risers of 7.649554 and 13 treads of 10 from Y 26 to the far header at
+   Y 156 (its head plumb on the header's face, so its top nosing at Y
+   154.125), with 97.125 - 2.1875 x 7.649554 = 80.39 in headroom at the near
+   header (corrected 2026-10-30: 81.83 put the nosing on the header's face;
+   R311.7.2 needs 117.61 from the nosing, a well of 119.49); no
+   interference; stored floors byte-identical.
+3. [ ] **GYPSUM-SHEETS** (backend-builder for the count; kernel-architect
+   for the ceiling layer on `loft.roof` and goldens). Yards sell drywall by
+   the sheet, but Loft counts it by area (against the 2026-10-23
+   sheets-cut decision), and no ceiling has any, so a house's interior
+   quote misses its ceilings and under-buys its walls. Chief Architect's
+   wall types and ceiling surfaces carry a gypsum layer, and crews hang
+   ceilings in 4x12 sheets across the joists. Count gypsum by
+   `sheets_to_cut` as OSB is; offer inside gypsum on every exterior wall of
+   an outline in one choice; and hang a 1/2 in sag-resistant ceiling on
+   CEILING-JOISTS, its end joints on a joist. _Accept:_ B10's partitions
+   buy 12 sheets (nesting), not 11; B7's ceiling, X 5.5..282.5 by
+   Y 5.5..186.5 (277 x 181, 348.17 ft²), is three 48 in courses and a 37
+   in rip, each course 140 + 137 with the joint on the joist at X 145.5:
+   **8 sheets 4x12**; no interference; stored walls and roofs
+   byte-identical.
+4. [ ] **HOUSE-DRAWINGS-2** (kernel-architect for elevation speed and the
+   plan's below-cut items; backend-builder for the yard-order merge and
+   feet-inch on every sheet; frontend-builder for the strings).
+   HOUSE-DRAWINGS gave B7 a plan, elevations and a yard order, but a crew
+   still scales widths off the plan, the yard reads one stock size on
+   several lines, and an L-shaped house gets its bounding box's strings.
+   Revit's elevations carry width and opening dimensions, and its plan's
+   view range shows what lies below the cut; Chief's Materials List orders
+   by stock. This adds elevation width strings to opening centres, the
+   plan's strings on every exterior face, items below the cut (base
+   cabinets, steps) drawn in projection, feet-inch on every sheet of an
+   imperial part, one yard-order line per size, stock length and material,
+   and fast elevations. Folds DRAWINGS-ELEVATION-WIDTHS,
+   DRAWINGS-PLAN-RECT-ONLY, DRAWINGS-PLAN-FLOOR-ITEMS,
+   DRAWINGS-IMPERIAL-ALL-SHEETS, DRAWINGS-YARD-ORDER-MERGE and
+   DRAWINGS-ELEVATION-SPEED. _Accept:_ B7's front elevation reads 24'-0"
+   and 5'-0", 7'-0", 7'-0", 5'-0", the back 12'-0" + 12'-0", each side
+   16'-0" and 8'-0" + 8'-0"; B4's plan strings its six faces 10'-0",
+   20'-0", 20'-0", 10'-0", 10'-0", 10'-0" (not a 20'-0" box); B10 with C2
+   shows the base run's 24 in depth on the plan; an ordinary drawing of
+   B7 prints 24'-0"; the yard order has one line per size, stock and
+   material, its Qty the sum of the lines it merges and its total the cut
+   list's to the cent; the 458-body house's four elevations in under 2 s
+   (6.8 s now) on the same host.
+5. [ ] **ROOF-SHED** (kernel-architect for `loft.roof`'s Shed style and
+   goldens). Sheds, lean-tos, porches and additions take a single slope,
+   and Loft's roofs are only gable or hip. Chief Architect builds a shed
+   roof from one wall that Defines Slope, with the opposite wall's plate
+   higher and the side walls framed up to the plane; Revit makes one from
+   a single slope-defining footprint edge. A Shed style: rafters from the
+   low wall to the high wall with a full-plate seat on each, no ridge,
+   overhangs at both ends, and the side walls' rake triangles framed as
+   GABLE-END-STUDS frames a gable. The high wall's height is typed, and a
+   plane that misses a plate by more than 1/16 in warns. Gambrel and
+   dormers after. _Accept:_ B2's walls, the back one 29.125 taller (3/12
+   over the 116.5 between the front plate's inner and the back plate's
+   outer top corners), under a 3/12 shed: 7 rafters 2x6 at X 0.75, 24,
+   ..., 120, 143.25, line 144 x √(1 + 1/16) = 148.4318, overall 149.8068
+   (14 ft stock), heels 0.875; 6 rake studs a side at Y 19.5, 35.5, ...,
+   99.5, long points (16k + 0.75) / 4 summing 85.125 (81.375 if laid out
+   from the back); no interference.
 
 ## Next
 
@@ -194,46 +204,29 @@ Bike gaps first (rounds 2 and 3), then the hard-parts blockers, then speed.
 Founder, 2026-10-15: decks, sheds, rafters, windows and doors without drawing
 every member; 2026-10-23: foundations, interior walls and casework. A plugin
 registers a custom feature that expands into base features (RESEARCH §23),
-preinstalled. B1-B10 and C1-C3 build and price, with B1's footings, B7's
-ceiling joists and B9's full takeoff (batch52); Now carries the updates,
-B1's stair, B7's gables, drawings and siding, and casework on B10.
+preinstalled. B1-B10 and C1-C4 build and price; B1 has its stair, B7 its
+gable ends, siding, plan and elevations (batch55-59). Now carries the roof
+covering, a second storey, drywall by the sheet, the drawings' follow-ups
+and a shed roof.
 
-- [x] **SPLICE-FEWEST-PIECES** (backend-builder; RESEARCH §27): splices
-      rank fewest pieces (joints) first, then least waste, then most even,
-      then the cheapest priced. _Accept:_ with an 8, 10 and 16 ft book, 28 ft
-      buys 2 x 16 (4 ft over), not 10 + 10 + 8. 37 ft buys 2 x 20 when 20 ft
-      is priced. B7's lumber lines price as before.
-      _Done:_ `stock_splice_tiers` keys on (pieces, feet); the priced-tier
-      fallback is unchanged. B7's total and the 28 ft house's are unchanged
-      (`test_price_book.py`, `house-b7.spec.ts`).
+- [ ] **INSULATION** (a builder's quote always has it): batts in wall
+      cavities and over the ceiling as a layer on Wall and Roof, R-value by
+      the IRC N1102 climate zone, as Chief's wall types carry an insulation
+      layer; bought by the bag's coverage. _Accept:_ B7's 2x6 cavities net of
+      framing and openings and its ceiling bays list the ft² the script
+      gives, in whole bags.
+
 - [ ] **STEEL-STUDS** (the founder's homes in different materials): a
       light-gauge steel choice on `loft.wall` with C studs and tracks
       (362S162-33 and 362T125-33), as Chief Architect's metal-stud wall
       types offer. _Accept:_ B2's walls in steel give the same layout
       counts, with Stud and Track lines in the cut list.
-- [ ] **GYPSUM-SHEETS** (folds INTERIOR-WALLS-GYPSUM-COUNT): gypsum is
-      counted by area, against the 2026-10-23 sheets-cut decision, and only
-      partitions carry it by default. Count it by `sheets_to_cut` as OSB is,
-      offer inside gypsum on every exterior wall of an outline in one
-      choice, and hang the ceiling on CEILING-JOISTS. _Accept:_ B10's
-      partitions buy 12 sheets (nesting), not 11; B7's ceiling sheets as
-      the script gives.
 - [ ] **PARTITION-SHAPES** (INTERIOR-WALLS' open ends; folds
       INTERIOR-WALLS-ENDS): L and crossing partitions, a free end, one
       partition feature meeting another's, gypsum on a partition's end,
       and ends read from the solved sketch, not the stored midpoint.
       _Accept:_ B10 with P1 crossed by a full-width line frames with no
       interference and the backing the script gives.
-- [ ] **SECOND-FLOOR**: a floor framed on the walls' top plates and walls
-      standing on it, with a stairwell opening headed off, as Chief
-      Architect's floors stack on levels. _Accept:_ B7 with a 2x10 second
-      floor: finished floor 2 at Z 118.5625 (rise 107.09375 from floor 1,
-      STAIRS' interior case); 80 in headroom needs a well at least 117.61 in
-      long over a 10 in-tread stair.
-- [ ] **ROOF-SHED**: a single-slope (shed) roof on picked walls, as Chief's
-      roof styles and porch roofs; gambrel and dormers after. _Accept:_ B2's
-      walls under a 3/12 shed roof frame with no interference, rafters as
-      the script gives.
 
 ## Later
 
@@ -259,15 +252,31 @@ B1's stair, B7's gables, drawings and siding, and casework on B10.
 
 ## Founder decisions
 
-The eighth- and ninth-pass calls (2026-10-28, 2026-10-29) are in VISION's
+The eighth- to tenth-pass calls (2026-10-28 to 2026-10-30) are in VISION's
 delegated log; reverse any there. Open for the founder:
 
-- An update adds what its new version adds by default (ceiling joists,
-  footings, vents), reversing the CEILING-JOISTS review's "a roof update
-  adds no joists" (0d22c34); or keep updates member-for-member and make
-  each addition a separate edit?
-- Siding bought by area net of cased openings plus 10%, as yards and
-  Chief's Materials List count it, or by the course as sheets are?
+- Tenth pass: roofing before a second storey (a one-storey quote is not
+  dried in today; a two-storey house is a bigger build), and the roofing
+  defaults: architectural shingles, synthetic underlayment, 7/16 OSB, no
+  rake overhang until ROOF-RAKE-OVERHANG?
+- Electrical and plumbing (MEP-PLACEHOLDERS) and timber-frame houses stay
+  in Later, after insulation; promote either if a permit set or a timber
+  client needs it first.
+- Shipped, ratify or reverse: an update adds what its new version adds by
+  default, named on its badge (PLUGIN-UPDATE-ALL), except siding, which
+  no update adds; siding bought by net area plus 10%.
+- Triage proposal (2026-10-30), on top of the two below. Close as done:
+  CASEWORK-UPDATE (removed; PLUGIN-UPDATE-ALL, 437016a). Close without
+  work: SIDING-FC-MASS, KERNEL-HOLE-POKE-TOLERANCE and
+  DECK-RESIZE-STAIR-REFUSAL (behaviour records), KERNEL-FAR-CUT-ISLANDS
+  once the release note says it. Merge: SIDING-TYPED-CORNERS and
+  SIDING-INSIDE-CORNER-TRIM into SIDING-CORNERS; STAIRS-LANDING and
+  STAIRS-GUARD into STAIRS-DECK-2 (a pad and guards a deck permit asks
+  for); UPDATE-DRYRUN-PICKERS and UPDATE-CABINETS-REFUSAL into
+  UPDATE-PREVIEW. Promote to Next: STAIRS-DECK-2, ROOF-RAKE-OVERHANG
+  (after ROOFING), CEILING-JOISTS-LAP with CEILING-JOISTS-HIP (rafter ties
+  past 24 ft and on hips), and FACE-IS-INSIDE-FAR (a classifier that
+  fails 300 in out is wrong geometry waiting for a house).
 - Triage proposal (2026-10-29), on top of the one below. Close without
   work: DECK-FOOTINGS-LAZY-IMPORT (code hygiene), OPENING-UPDATE-RETRY.
   Merge: CASEWORK-HARDWARE-MATERIAL, DECK-FOOTINGS-GALV and
@@ -293,11 +302,8 @@ delegated log; reverse any there. Open for the founder:
 
 One line each. The founder triages weekly; most are closed without work.
 
-- SIDING-RIM-OSB: below the subfloor B7's siding stands 7/16 in proud of the floor's rim, which has no OSB (SHEATHING-WALL-BASE); a framer laps the wall sheathing down over the rim.
 - SIDING-TYPED-CORNERS: a typed (line) wall 1.5.0 is sided end to end with no corner boards; only outline walls trim their outside corners.
 - SIDING-INSIDE-CORNER-TRIM: an outline's inside corner gets no trim; its two sidings close it with a 5/16 x 7/16 in slot.
-- SIDING-RAKE-TRIM: a gable's siding stops at the rafters' top plane with no rake or frieze board, and the eave siding is notched round open rafter tails (no frieze blocking).
-- TRIM-NESTING: each casing piece and corner board is bought as its own stick (23 x 8 ft for B7's 1 099.5 in of casing); trim pieces are not nested on stock.
 - FACE-IS-INSIDE-FAR: geometry's faces.py and assembly patterns still call build123d's Face.is_inside, the 3D classifier that fails about 300 in from the origin; extrude's profile test moved to BRepClass_FaceClassifier (SIDING-TRIM).
 - KERNEL-FAR-CUT-ISLANDS: the far-origin profile classifier fix (SIDING-TRIM) changes how stored CUT sketches with nested loops more than ~300 in from the origin rebuild: the island is now kept, a correction (the old rebuild wrongly cut it away). Release notes: say so.
 - KERNEL-HOLE-POKE-TOLERANCE: a profile's inner loop that pokes out of its outer loop by under 1e-4 mm now counts as contained (the 2D classifier's ON state), where it was refused before.
@@ -305,7 +311,10 @@ One line each. The founder triages weekly; most are closed without work.
 - UPDATE-DRYRUN-PICKERS: an update offer's dry run checks the feature and its host only, not its pickers or the tree after earlier updates in the same Update all.
 - UPDATE-CABINETS-REFUSAL: a cabinets 1.0 -> 1.1 update that 1.1 refuses (a run past a partition) only surfaces as an Update all skip, with no preview on the row.
 - DECK-RESIZE-STAIR-REFUSAL: on `loft.deck` 1.3.0 a deck edit that leaves a stair past the edge (narrowed under it) now refuses the deck write, naming the stair; before 1.3.0 the stair alone failed.
-- STAIRS-HEADROOM-DEFAULT: headroom (IRC R311.7.2) is checked only when a stairwell opening is typed; a free stair's default (0) reads as open above.
+- FLOOR-HANGERS: `loft.floor` 1.4.0's stairwell lists no joist hangers; B7's well wants 4 single (tails on headers) and 4 double (headers on trimmers), Each in the cut list and price book (a new hardware key and migration).
+- SIDING-RIM-OSB: below the subfloor B7's siding stands 7/16 in proud of the floor's rim, which has no OSB; a second storey's band (floor 2's rim, Z 108.59..118.56) has none either. A framer laps the wall sheathing down over the rim (SECOND-FLOOR left it).
+- STAIRS-HEADROOM-DEFAULT: a free stair checks headroom (IRC R311.7.2) only against a typed opening; reading the well from a picked `loft.floor` 1.4.0 needs a stair 1.1.0 (SECOND-FLOOR kept 1.0.0).
+- TREE-BOUND-1500: SECOND-FLOOR raised MAX_TREE_FEATURES 1000 -> 1500 (B7 two storeys is 1 078, evaluated in 57 s cold, 708 MB, a 1.22 MB request); 1500 is about 80 s under the gateway's 90 s GEOMETRY_TIMEOUT_S, so a three-storey or sided and finished two-storey house will meet it again.
 - STAIRS-RISER-VOID: closed risers start on top of the tread below, leaving a 0.75 x 1 in void behind each tread's back edge, over the seat, under the riser board.
 - STAIRS-LANDING: a deck stair's stringers bear on grade with no landing pad or footing (DCA6 asks for one), and its handrail posts stand on grade unanchored.
 - STAIRS-INTERIOR-RAIL: a free stair's handrail stands on posts (the top one as tall as the rise + 36 in); an interior stair beside a wall would take wall brackets.
@@ -343,13 +352,11 @@ One line each. The founder triages weekly; most are closed without work.
 - CASEWORK-B10-INSIDE-CORNER: `_finished_span`'s inside-corner branches are untested (B10 is a rectangle).
 - E2E-ASSEMBLY-FLAKE: assembly-joint-motions.spec.ts:190 failed once on CI (batch48, assemblyFlow.ts:270 row not found) and passed 8/8 locally on base and tip.
 - CEILING-JOISTS-HIP: a `loft.roof` 1.6.0 hip (and a gable on its typed bearing) frames no ceiling joists; Chief stops a hip's joists at the hip jacks and frames them from rooms, so a hip house still has no rafter ties.
-- CASEWORK-UPDATE: no `loft.cabinets` 1.0.0 -> 1.1.0 update map; a 1.0.0 run with a 1/2 in Back gap on a wall later given gypsum would sit 1/2 in off the board after a plain re-pin (the map should zero the gap).
 - CASEWORK-FACE-INPUT: 1.1.0's Face input shows for a wall too, where it is ignored (a wall's run is on its inside face).
 - CASEWORK-PARTITION-NAME: the run-past-a-partition refusal names "partition e6" by its line id, as the partition refusals do, while the form lists it as "Partition 2".
 - CASEWORK-MEASURE-LABELS: on a partition the cabinets form still reads Measured from "Wall start" / "Wall end" (the partition's start and end).
 - PIECES-REBAR: the Pieces total still counts a rebar line's runs, bought in sticks rather than Each.
 - CEILING-JOISTS-LAP: a ceiling joist is one piece wall face to wall face (NO-SPLICE-SPANS), so past 24 ft it lists no stock; framers lap joists over a bearing partition instead.
-- GABLE-SHEET-NESTING: a sloped gable panel is measured along its sloped edge (its frame is its two largest perpendicular faces), so B7's 12 gable panels buy 6 4x8 sheets where their plan rectangles nest in 4 and paired triangles in fewer.
 - GABLE-THROUGH-CORNER: a through end wall's gable OSB stops at the framing's corner, so above the plate a 7/16 x 7/16 column is left open beside the eave wall's corner rip (B7 turned; not B7).
 - GABLE-RIDGE-PARTIAL: a gable stud partly under the ridge board is cut square across its full width at the board's underside, leaving a gap under the rafters beyond the board (no B7 stud is under the ridge).
 
@@ -764,7 +771,6 @@ One line each. The founder triages weekly; most are closed without work.
 - CUT-LIST-PRICES-EDIT-PRICED: clicking a priced cell does nothing; it could open the book on the entry that priced it, as a blank opens a new one.
 - CUT-LIST-PRICES-DRAWING-RUN: the drawing's 320 px side panel hides the Run (qty x length) column to fit the two price columns; a wider drawing panel would bring it back.
 - SHELL-EDGE-DETERMINISM (was in Next): the sealed cross-bored rod rebuilds with 21 or 20 edges depending on OCCT's address order (46c075f); volume and faces agree, so it is a determinism nit, not wrong geometry.
-- ROOF-SHEATHING: roof planes get no sheathing; after SHEATHING, a gable's two planes first (rectangles), then hips and valleys (triangles and trapezoids).
 - FLOOR-IDS: `loft.floor` 1.0.0 names joists by slot with integer indices (`joist/0`, `joist/1` the end joists, `joist/k+1` slot k), so it does not have WALL-MEMBER-RENUMBER's bug; if that fix adds string slot names, the floor can adopt them in a 1.1.0.
 - WALL-SHEATHING-JOINTS: outside corners are lapped only where one wall butts another square on the same base (B2's corners); a mitred or offset corner, walls on different bases and T-junctions keep butt ends, and a wall end within 1/8 in past a joint still leaves a hair panel (only openings snap).
 - SHEATHING-OVER-RIM: wall sheathing stops at the wall's base; on a platform floor real OSB laps the rim joist down to the sill (Chief's sheathing extension), which would also tie the walls to the floor.
@@ -784,9 +790,3 @@ One line each. The founder triages weekly; most are closed without work.
 - B7-OPENING-UNITS-PRICE (QA-B7): the door and the four windows are not cut-list or price-book lines, so a house's price leaves out its doors and windows. Chief's materials list prices them.
 - B7-OPENING-SIZES (QA-B7): Window defaults to 24 x 36 and has no size list, so each of B7's three 36 x 48 windows has two fields retyped. Chief and Revit pick from a catalogue (3048, 2436).
 - B7-TREE-STATUS-DASH (QA-B7, seen once): after editing Wall 1's start and length on a solved B7, the tree showed "—" instead of OK for Wall 4 and Window 5 until the next edit.
-- DRAWINGS-ELEVATION-SPEED (HOUSE-DRAWINGS): the four elevations take 6.8 s on a 458-body house (exact HLR of the whole compound, once per view); the plan's cut takes 0.5 s.
-- DRAWINGS-PLAN-FLOOR-ITEMS (HOUSE-DRAWINGS): the plan draws only plates and rough sills below the cut, so base cabinets and steps under 48 in are not shown.
-- DRAWINGS-IMPERIAL-ALL-SHEETS (HOUSE-DRAWINGS): feet-inch prints only on sheets with a plan, elevation or materials view; an ordinary drawing of an imperial part still prints mm.
-- DRAWINGS-ELEVATION-WIDTHS (HOUSE-DRAWINGS): elevations dimension heights (heads, plate) only, with no width strings.
-- DRAWINGS-PLAN-RECT-ONLY (HOUSE-DRAWINGS): the plan's exterior strings read the four sides of the framing's bounding box, so an L-shaped house gets its bounding box's strings.
-- DRAWINGS-YARD-ORDER-MERGE (HOUSE-DRAWINGS): the yard order keeps the cut list's lines, so one stock size cut to three lengths shows as three lines.

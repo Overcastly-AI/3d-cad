@@ -1,4 +1,4 @@
-"""Tree-export endpoint sweeps (``POST /api/v1/export/tree``), half A of the
+"""Tree-export endpoint sweeps (``POST /api/v1/export/tree``), third A of the
 tree goldens.
 
 Five cases per golden (headers and in-process determinism for STEP and STL,

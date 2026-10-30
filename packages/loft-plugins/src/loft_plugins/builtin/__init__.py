@@ -17,6 +17,7 @@ from loft_plugins.builtin.cabinets_v1_1 import CABINETS_V1_1
 from loft_plugins.builtin.crawl_space import FOUNDATION_V1, FOUNDATION_V1_1
 from loft_plugins.builtin.deck import DECK_V1, DECK_V1_1, DECK_V1_2, DECK_V1_3
 from loft_plugins.builtin.floor import FLOOR_V1
+from loft_plugins.builtin.floor_well import FLOOR_V1_4
 from loft_plugins.builtin.interior_wall import INTERIOR_WALL_V1, WALL_V1_4
 from loft_plugins.builtin.openings import (
     DOOR_V1,
@@ -94,4 +95,5 @@ BUILTIN_PLUGINS: tuple[Plugin, ...] = (
     DECK_V1_3,
     WALL_V1_5,
     ROOF_V1_8,
+    FLOOR_V1_4,
 )
