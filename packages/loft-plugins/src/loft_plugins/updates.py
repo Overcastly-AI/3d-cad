@@ -62,6 +62,11 @@ taken by Update all, which lists it as needing its own decision.
   spacing does not divide the floor, no choice reproduces them: the map
   keeps the span 1.2.0 framed and the update re-lays the framing (B7's own
   drawing is byte for byte).
+  Since 1.4.0 (SECOND-FLOOR) a floor 1.2.0 goes straight to 1.4.0.
+* ``loft.floor`` 1.3.0 -> 1.4.0, every input as it is, so On walls takes
+  1.4.0's default, none, and Stairwell None: the update adds no member (1.3.0
+  member for member), so it is quiet and rides in Update all. A floor on
+  walls and a stairwell are what the user picks, never added by an update.
 * ``loft.deck`` 1.1.0 -> 1.3.0, every input as it is: each post gains its
   round pier footing and post base (1.2.0's defaults; B1's 3 piers), and
   the guard opens at each stair that picks the deck (1.3.0).
@@ -294,6 +299,10 @@ _FLOOR = (
     "Joists bear on replaces Joist direction, set to the span this floor "
     "frames; 1.3.0 lays an outline's floor from its lowest corner."
 )
+_FLOOR_1_3 = (
+    "Can stand on the walls of the storey below and frame a stairwell, "
+    "both off until you pick them; nothing is rebuilt."
+)
 _GUARD_OPENS = (
     "opens the guard where a stair lands on the deck, with a post at each side"
 )
@@ -347,11 +356,12 @@ _TABLE: tuple[tuple[str, tuple[str, ...], str, str, InputMap, str], ...] = (
     (
         "loft.floor",
         ("1.2.0",),
-        "1.3.0",
+        "1.4.0",
         _FLOOR,
         _floor_to_1_3,
         " from the outline's lowest corner",
     ),
+    ("loft.floor", ("1.3.0",), "1.4.0", _FLOOR_1_3, _same, ""),
     ("loft.deck", ("1.1.0",), "1.3.0", _DECK, _same, _AT_THE_STAIR),
     ("loft.deck", ("1.2.0",), "1.3.0", _DECK_1_2, _same, _AT_THE_STAIR),
     ("loft.foundation", ("1.0.0",), "1.1.0", _FOUNDATION, _same, ""),

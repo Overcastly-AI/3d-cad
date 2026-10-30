@@ -144,7 +144,7 @@ def test_one_update_all_leaves_nothing_out_of_date() -> None:
     updated = update_all(stored)
     assert still_offered(updated) == []
     assert pins(updated) == [
-        ("loft.floor", "1.3.0"),
+        ("loft.floor", "1.4.0"),
         ("loft.wall", "1.5.0"),
         ("loft.door", "1.5.0"),
         *[("loft.window", "1.5.0")] * 5,
