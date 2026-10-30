@@ -64,7 +64,9 @@ runs to the fitted wall's framing and the fitted wall's stops at it; at an
 inside corner the through wall's board runs on past its end by the board's
 thickness, and the fitted wall's past its own by the through wall's depth,
 over the through wall's end grain. Panels are listed under Walls and bought
-by area per sheet, as every sheet good is.
+by the sheets they are cut from, as every sheet good is (GYPSUM-SHEETS); a
+face hung from 4x12s names its sheet on each panel (:func:`hung_sheet`), so
+its end pieces are nested on 4x12s too, not bought as 4x8s.
 """
 
 import dataclasses
@@ -90,7 +92,12 @@ from loft_wire.plugins import (
     PluginMemberRole,
     semver_key,
 )
-from loft_wire.sheet_goods import SHEET_GOODS_BY_KEY, SHEET_SIZES_BY_KEY, SheetGood
+from loft_wire.sheet_goods import (
+    SHEET_GOODS_BY_KEY,
+    SHEET_SIZES_BY_KEY,
+    SheetGood,
+    SheetSizeKey,
+)
 
 from loft_plugins.api import (
     ExpandInputs,
@@ -583,9 +590,11 @@ def finish_members(
     face: str,
     plane_index: int,
     panel_index: int,
+    sheet: SheetSizeKey | None = None,
 ) -> Iterator[Member]:
     """The panels of one face (on *spec*'s exterior face: :func:`flipped`
-    for the other), named ``finish/<face>/...`` under *inputs*' prefix."""
+    for the other), named ``finish/<face>/...`` under *inputs*' prefix,
+    each naming the *sheet* it is hung from (:func:`hung_sheet`)."""
     if not regions:
         return
     plane = sheathing.face_plane(spec)
@@ -605,6 +614,7 @@ def finish_members(
             good,
             plane.reverse,
             f"finish/{face}/{name}",
+            sheet,
         )
 
 
@@ -621,6 +631,17 @@ def _sheet_length(inputs: ExpandInputs, name: str = "finish_sheet") -> float:
     if size is None:
         raise PluginError(PLUGIN_INPUT_INVALID, f"{key!r} is not a sheet.", input=name)
     return size.length_in
+
+
+def hung_sheet(inputs: ExpandInputs, name: str = "finish_sheet") -> SheetSizeKey | None:
+    """The sheet a face's panels name as the one they are hung from
+    (GYPSUM-SHEETS): a 4x12 choice, so the cut list nests every panel of it,
+    end pieces too, on 4x12s. 4x8 (the default) is the shortest gypsum
+    sheet, which the cut list picks for every panel it covers anyway, so its
+    panels name none and stay byte for byte what they were."""
+    choice = inputs.choice(name) if name in inputs.values else "sheet_4x8"
+    key = choice.removeprefix("sheet_")
+    return None if key == "4x8" else key  # type: ignore[return-value]
 
 
 def _rename(
@@ -703,6 +724,7 @@ class Partitions:
     backing: Backing
     finish: SheetGood | None
     sheet_length: float
+    sheet: SheetSizeKey | None = None
 
 
 def partitions_of(
@@ -782,6 +804,7 @@ def partitions_of(
         backing,
         _finish_good(inputs),
         _sheet_length(inputs),
+        hung_sheet(inputs),
     )
 
 
@@ -1177,7 +1200,16 @@ def expand_interior_v1(inputs: ExpandInputs) -> Iterator[Member]:
                 p.spec.height, first, last, found.sheet_length, cuts
             )
             members = list(
-                finish_members(sub, spec, good, regions, face, planes, counts["finish"])
+                finish_members(
+                    sub,
+                    spec,
+                    good,
+                    regions,
+                    face,
+                    planes,
+                    counts["finish"],
+                    found.sheet,
+                )
             )
             planes += sum(1 for m in members if m.role == "finish_plane")
             yield from _rename(iter(members), p.line_id, counts)
@@ -1265,6 +1297,7 @@ def _framed_wall_v1_4(inputs: ExpandInputs) -> Iterator[Member]:
                 exc.code, f"{h.name}: {exc.message}", input=exc.input
             ) from exc
     sheet_length = _sheet_length(inputs)
+    hung = hung_sheet(inputs)
     counts: Counter[str] = Counter()
     for wall in walls:
         sub = dataclasses.replace(inputs, name_prefix=wall.line_id)
@@ -1299,7 +1332,7 @@ def _framed_wall_v1_4(inputs: ExpandInputs) -> Iterator[Member]:
             first, last = _inside_run(wall, finish)
             regions = finish_regions(wall.spec.height, first, last, sheet_length, cuts)
             members += finish_members(
-                sub, flipped(wall.spec), finish, regions, "inside", 0, 0
+                sub, flipped(wall.spec), finish, regions, "inside", 0, 0, hung
             )
         yield from _rename(iter(members), wall.line_id, counts)
 

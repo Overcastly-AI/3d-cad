@@ -535,6 +535,26 @@ def test_4x12_sheets_hang_144_in_panels() -> None:
     assert max(lengths) == 144
     area = sum(_area(m, interior) for m in interior if m.role == "finish")
     assert area == pytest.approx(48130.5, abs=1e-6)
+    # GYPSUM-SHEETS: every panel names its 4x12, the 37 in ends too, so the
+    # cut list nests them on 4x12s (one line), not on 4x8s.
+    finish = [m for m in interior if m.role == "finish"]
+    assert {m.metadata.sheet for m in finish if m.metadata is not None} == {"4x12"}
+
+
+def test_4x8_panels_name_no_sheet() -> None:
+    """4x8 is the shortest gypsum sheet, the cut list's pick for every panel
+    it covers, so the default's panels name none: byte for byte as before."""
+    interior = row(b10(roof=False), INTERIOR_ID)
+    finish = [m for m in interior if m.role == "finish"]
+    assert finish and all(
+        m.metadata is not None and m.metadata.sheet is None for m in finish
+    )
+    walls = row(
+        b10(walls={"finish": "gypsum_1_2", "finish_sheet": "sheet_4x12"}, roof=False),
+        WALLS_ID,
+    )
+    inside = [m for m in walls if m.role == "finish"]
+    assert inside and {m.metadata.sheet for m in inside if m.metadata} == {"4x12"}
 
 
 def test_inside_gypsum_on_the_walls_closes_every_corner_without_overlap() -> None:

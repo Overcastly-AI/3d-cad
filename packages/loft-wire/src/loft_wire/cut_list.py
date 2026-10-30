@@ -309,6 +309,7 @@ PLUGIN_SYSTEMS: Final[Mapping[str, CutListSystem]] = {
     "loft.floor": "floor",
     "loft.wall": "walls",
     "loft.interior_wall": "walls",
+    "loft.ceiling": "walls",
     "loft.window": "walls",
     "loft.door": "walls",
     "loft.roof": "roof",
