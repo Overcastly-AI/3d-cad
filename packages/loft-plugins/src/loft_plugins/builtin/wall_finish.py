@@ -63,6 +63,7 @@ from loft_wire.features import (
     SketchParamsV1,
 )
 from loft_wire.lumber import MM_PER_INCH, lumber_profile
+from loft_wire.plugin_warning import WALL_FINISH_NO_SHEATHING
 from loft_wire.plugins import (
     PLUGIN_INPUT_INVALID,
     ChoiceInput,
@@ -194,6 +195,12 @@ def finish_note(inputs: ExpandInputs) -> str | None:
         f"Exterior finish is {name}, but this wall has no sheathing: no siding "
         "without sheathing; turn sheathing on, or set Exterior finish to None."
     )
+
+
+def finish_notes(inputs: ExpandInputs) -> list[tuple[str, str]]:
+    """The stored wall's warnings, as (code, message), as ``stair_notes``."""
+    note = finish_note(inputs)
+    return [] if note is None else [(WALL_FINISH_NO_SHEATHING, note)]
 
 
 def waste_percent(inputs: ExpandInputs) -> int:
@@ -629,6 +636,7 @@ __all__ = [
     "Face",
     "exterior_finish",
     "finish_note",
+    "finish_notes",
     "finish_product",
     "line_face",
     "outer_plane",
