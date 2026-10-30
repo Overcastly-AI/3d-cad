@@ -53,6 +53,7 @@ from loft_plugins.builtin.roof_ceiling import CEILING_BESIDE
 from loft_plugins.builtin.roof_outline import ceiling_joist_note
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
 from loft_plugins.builtin.stair import STAIR, stair_notes
+from loft_plugins.builtin.wall_finish import finish_note
 from loft_plugins.updates import UpdateEffect, update_effect
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_VALUE_INVALID
@@ -89,6 +90,7 @@ from loft_wire.plugin_warning import (
     CEILING_JOISTS_OMITTED,
     CRAWL_HEIGHT_LOW,
     ROOF_THROUGH_SHEATHING,
+    WALL_FINISH_NO_SHEATHING,
     PluginWarning,
 )
 from loft_wire.plugins import (
@@ -1098,6 +1100,10 @@ def plugin_warnings(
         return _crawl_height_warning(envelope)
     if isinstance(envelope, CustomFeature) and envelope.params.plugin_id == STAIR:
         return _stair_warnings(part, row, envelope, rows)
+    if isinstance(envelope, CustomFeature) and envelope.params.plugin_id == (
+        "loft.wall"
+    ):
+        return _finish_warning(part, row, envelope, rows)
     if (
         not isinstance(envelope, CustomFeature)
         or envelope.params.plugin_id != "loft.roof"
@@ -1216,6 +1222,33 @@ def _stair_warnings(
         )
         for code, message in notes
     ] or None
+
+
+def _finish_warning(
+    part: db.Part, row: db.Feature, envelope: CustomFeature, rows: Sequence[db.Feature]
+) -> list[PluginWarning] | None:
+    """A wall's ``wall_finish_no_sheathing`` (SIDING-TRIM), or None: an
+    Exterior finish with no sheathing to hang it on, so the wall builds bare.
+    Advice, never a refusal."""
+    if "exterior_finish" not in envelope.params.inputs:
+        return None
+    values = parameter_values(part.parameters)
+    earlier = _earlier_from_rows(
+        [r for r in rows if r.order_index < row.order_index and not r.suppressed],
+        parameters=values,
+    )
+    note = finish_note(stored_inputs(row.id, envelope, earlier, values))
+    if note is None:
+        return None
+    return [
+        PluginWarning(
+            code=WALL_FINISH_NO_SHEATHING,
+            message=note,
+            overlap_in3=0.0,
+            pairs=0,
+            update_to=None,
+        )
+    ]
 
 
 def declared_update(row: db.Feature) -> PluginUpdate | None:

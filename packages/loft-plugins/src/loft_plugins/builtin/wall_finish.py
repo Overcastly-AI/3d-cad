@@ -10,8 +10,8 @@ double 4 in, by the square; Cedar bevel 1/2 x 8), each wall's:
 
 * **Siding**: one body per connected region of the wall's face, drawn at
   the product's thickness on the sheathing's outer face (a wall with no
-  exterior sheathing takes no finish: a shed's bare studs stay bare), from
-  the FOUNDATION TOP to the top of the
+  exterior sheathing takes no finish and warns ``wall_finish_no_sheathing``),
+  from the FOUNDATION TOP to the top of the
   top plate: on a floor, the floor's underside (its sills' bearing), so the
   siding covers the rim too; on a slab or on no floor, the wall's own base.
   Every cased opening and corner board is cut out of it, and it is bought
@@ -158,7 +158,8 @@ FINISH_ROLES = [
 
 def finish_product(inputs: ExpandInputs) -> SidingProduct | None:
     """The wall's Exterior finish, or ``None``: None, a release without one,
-    or a wall with no exterior sheathing (the finish goes over it)."""
+    or a wall with no exterior sheathing (the finish goes over it;
+    :func:`finish_note` warns)."""
     if "exterior_finish" not in inputs.values:
         return None
     if sheathing.sheet_good(inputs, "sheathing") is None:
@@ -174,6 +175,23 @@ def finish_product(inputs: ExpandInputs) -> SidingProduct | None:
             input="exterior_finish",
         )
     return product
+
+
+def finish_note(inputs: ExpandInputs) -> str | None:
+    """The stored wall's ``wall_finish_no_sheathing`` message, or None: it
+    asks for an Exterior finish but has no exterior sheathing, so
+    :func:`finish_product` gives it none and it builds bare. Pure."""
+    if "exterior_finish" not in inputs.values:
+        return None
+    value = inputs.choice("exterior_finish")
+    if value == FINISH_NONE or sheathing.sheet_good(inputs, "sheathing") is not None:
+        return None
+    product = SIDING_PRODUCTS_BY_KEY.get(value)
+    name = product.label if product is not None else value
+    return (
+        f"Exterior finish is {name}, but this wall has no sheathing: no siding "
+        "without sheathing; turn sheathing on, or set Exterior finish to None."
+    )
 
 
 def waste_percent(inputs: ExpandInputs) -> int:
@@ -608,6 +626,7 @@ __all__ = [
     "Cased",
     "Face",
     "exterior_finish",
+    "finish_note",
     "finish_product",
     "line_face",
     "outer_plane",

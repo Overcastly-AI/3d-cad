@@ -295,6 +295,9 @@ One line each. The founder triages weekly; most are closed without work.
 - SIDING-RAKE-TRIM: a gable's siding stops at the rafters' top plane with no rake or frieze board, and the eave siding is notched round open rafter tails (no frieze blocking).
 - TRIM-NESTING: each casing piece and corner board is bought as its own stick (23 x 8 ft for B7's 1 099.5 in of casing); trim pieces are not nested on stock.
 - FACE-IS-INSIDE-FAR: geometry's faces.py and assembly patterns still call build123d's Face.is_inside, the 3D classifier that fails about 300 in from the origin; extrude's profile test moved to BRepClass_FaceClassifier (SIDING-TRIM).
+- KERNEL-FAR-CUT-ISLANDS: the far-origin profile classifier fix (SIDING-TRIM) changes how stored CUT sketches with nested loops more than ~300 in from the origin rebuild: the island is now kept, a correction (the old rebuild wrongly cut it away). Release notes: say so.
+- KERNEL-HOLE-POKE-TOLERANCE: a profile's inner loop that pokes out of its outer loop by under 1e-4 mm now counts as contained (the 2D classifier's ON state), where it was refused before.
+- SIDING-FC-MASS: fibre-cement lap is a flat 5/16 in slab at 75 pcf, about 1.95 lb/ft² of wall, roughly 15% lighter than James Hardie's 2.3 lb/ft² (the laps' overlap is not modelled).
 - UPDATE-DRYRUN-PICKERS: an update offer's dry run checks the feature and its host only, not its pickers or the tree after earlier updates in the same Update all.
 - UPDATE-CABINETS-REFUSAL: a cabinets 1.0 -> 1.1 update that 1.1 refuses (a run past a partition) only surfaces as an Update all skip, with no preview on the row.
 - DECK-RESIZE-STAIR-REFUSAL: on `loft.deck` 1.3.0 a deck edit that leaves a stair past the edge (narrowed under it) now refuses the deck write, naming the stair; before 1.3.0 the stair alone failed.

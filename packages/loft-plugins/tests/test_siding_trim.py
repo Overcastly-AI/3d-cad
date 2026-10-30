@@ -46,6 +46,8 @@ from unittest import mock
 
 import pytest
 from loft_plugins import REGISTRY, PluginError, canonical_inputs, update_for
+from loft_plugins.api import ExpandInputs
+from loft_plugins.builtin.wall_finish import WALL_V1_5, finish_note
 from loft_plugins.updates import update_effect, updated_inputs
 from loft_wire.cut_list import ROLE_SYSTEMS, CutListMember
 from loft_wire.features import (
@@ -819,6 +821,31 @@ def test_the_golden_is_b7_today_with_its_finish() -> None:
 
 def test_the_kernel_cases_are_the_plugins_expansion() -> None:
     assert gzip.decompress(CASES.read_bytes()).decode() == cases()
+
+
+@pytest.mark.parametrize(
+    ("raw", "warns"),
+    [
+        ({}, True),  # the default: Lap, no sheathing
+        ({"exterior_finish": "vinyl_d4"}, True),
+        ({"sheathing": "osb_7_16"}, False),
+        ({"exterior_finish": "none"}, False),
+    ],
+)
+def test_a_finish_with_no_sheathing_is_noted(raw: dict[str, Any], warns: bool) -> None:
+    """``wall_finish_no_sheathing``: a finish the wall cannot hang is named,
+    not dropped silently; the bare wall builds no siding either way."""
+    full = canonical_inputs(
+        WALL_V1_5.manifest,
+        {"length_mm": 144 * IN, "stud_spacing_mm": 16 * IN, **raw},
+    )
+    note = finish_note(ExpandInputs(uuid.uuid4(), full))
+    if not warns:
+        assert note is None
+        return
+    assert note is not None
+    assert "no siding without sheathing; turn sheathing on" in note
+    assert ("Vinyl" in note) == ("exterior_finish" in raw)
 
 
 if __name__ == "__main__":

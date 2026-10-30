@@ -28,6 +28,10 @@ more than 30 in up that IRC R312.1.1 guards (``stair_guard_required``), and
 a deck before 1.3.0 whose guard crosses the stair's head (``stair_deck_guard``:
 1.3.0 opens its guard at the stair). A layout that breaks IRC R311.7 is refused
 instead, never warned.
+
+``loft.wall`` 1.5.0 (SIDING-TRIM) carries ``wall_finish_no_sheathing`` when
+it asks for an Exterior finish but has no exterior sheathing to hang it on:
+the wall builds bare, and the message says to turn sheathing on.
 """
 
 from typing import Any, Final, Literal
@@ -53,6 +57,8 @@ STAIR_STRINGER_SPAN: Final = "stair_stringer_span"
 STAIR_GUARD_REQUIRED: Final = "stair_guard_required"
 #: STAIRS: the picked deck's guard runs across the stair's head.
 STAIR_DECK_GUARD: Final = "stair_deck_guard"
+#: SIDING-TRIM: a wall with an Exterior finish but no sheathing: no siding.
+WALL_FINISH_NO_SHEATHING: Final = "wall_finish_no_sheathing"
 
 
 class PluginWarning(BaseModel):
@@ -66,6 +72,7 @@ class PluginWarning(BaseModel):
         "stair_stringer_span",
         "stair_guard_required",
         "stair_deck_guard",
+        "wall_finish_no_sheathing",
     ] = Field(
         description="'roof_through_sheathing': the roof's tails pass through "
         "wall sheathing, so the two share volume; 'crawl_height_low': a "
@@ -77,7 +84,9 @@ class PluginWarning(BaseModel):
         "more than DCA6's 6'-0\" horizontally between supports; "
         "'stair_guard_required': a stair's top tread is over "
         "30 in up and its open sides have no guard (IRC R312.1.1); "
-        "'stair_deck_guard': the deck's guard runs across the stair's head"
+        "'stair_deck_guard': the deck's guard runs across the stair's head; "
+        "'wall_finish_no_sheathing': a wall has an Exterior finish but no "
+        "sheathing, so it is built without siding"
     )
     message: str = Field(description="Names the problem and what fixes it")
     overlap_in3: float = Field(
@@ -108,7 +117,7 @@ PLUGIN_WARNINGS_FIELD: Any = Field(
     "(`roof_through_sheathing`), each with the release that fixes it, or a "
     "warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, "
     "`stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, "
-    "`stair_deck_guard`). "
+    "`stair_deck_guard`, `wall_finish_no_sheathing`). "
     "Omitted when there are none.",
 )
 
@@ -122,6 +131,7 @@ __all__ = [
     "STAIR_GUARD_REQUIRED",
     "STAIR_STRINGER_SPAN",
     "STAIR_THROAT_THIN",
+    "WALL_FINISH_NO_SHEATHING",
     "PluginWarning",
     "PluginWarnings",
 ]
