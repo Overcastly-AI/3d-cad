@@ -1,0 +1,1736 @@
+[
+  {
+    "feature_id": "94e512b7-2b9a-5db8-acf7-6a9faddb6198",
+    "role": "ledger",
+    "title": "Ledger",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "32ddd331-319c-5593-bb3a-839d7b08a0fa",
+    "role": "rim",
+    "title": "Rim",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a1556cdc-b487-53ac-ac42-daee740363f1",
+    "role": "beam",
+    "title": "Beam",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cb69714a-bb15-5879-8b6f-2a507b937b42",
+    "role": "beam",
+    "title": "Beam",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8ac03b96-a002-50fe-941a-df82628bb14e",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f812ffd2-0786-58b7-8589-e0264b3aa5c8",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "12a0447c-41e0-50ae-ad59-1548c552fdc3",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "aa96c7dc-710d-592a-9424-9dae5f5de879",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c402a518-2d5c-5de5-bf8d-7e423ad46da5",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4b7dfd72-4362-5d44-ae1d-56fb0ff98fe8",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f7f10cd3-71d5-5c32-bda2-29f5715e672f",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6a20d991-a1d6-522f-8730-07eb5d611b78",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cd6f23fc-89ba-5d8d-b585-191267d2b07e",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5ef3bfee-5134-5b8d-989b-897f93181ea5",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "eb089495-9a15-5b4d-81b5-318eac68ce9c",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0d2645c8-0148-5ce4-9c0a-6ed9f712f611",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6f29a29a-9371-5cf6-997a-a7fa80183dea",
+    "role": "joist",
+    "title": "Joist",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x10",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9ded16ca-9181-5d5e-a093-47750cdfa1c5",
+    "role": "post",
+    "title": "Post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "6x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "40d86ac4-30d1-5a85-993c-787e2c88ab03",
+    "role": "post",
+    "title": "Post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "6x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f298e0e8-c8d5-546a-8e2c-3e2cf26705b9",
+    "role": "post",
+    "title": "Post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "6x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d877c88c-b71f-56e8-9276-4fe1178772f5",
+    "role": "footing",
+    "title": "Footing",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "Concrete, 80 lb bag",
+      "material": "concrete",
+      "nominal_size": null,
+      "concrete": {
+        "item": "concrete_bag_80",
+        "waste_percent": 5,
+        "one_delivery": true,
+        "post_base": "post_base_6x6"
+      }
+    }
+  },
+  {
+    "feature_id": "9c78ddac-952b-51bd-9a8c-cf87bbf5bfd1",
+    "role": "footing",
+    "title": "Footing",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "Concrete, 80 lb bag",
+      "material": "concrete",
+      "nominal_size": null,
+      "concrete": {
+        "item": "concrete_bag_80",
+        "waste_percent": 5,
+        "one_delivery": true,
+        "post_base": "post_base_6x6"
+      }
+    }
+  },
+  {
+    "feature_id": "72e1bb06-ad47-522d-8ca8-dcfb8bb12bc0",
+    "role": "footing",
+    "title": "Footing",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "Concrete, 80 lb bag",
+      "material": "concrete",
+      "nominal_size": null,
+      "concrete": {
+        "item": "concrete_bag_80",
+        "waste_percent": 5,
+        "one_delivery": true,
+        "post_base": "post_base_6x6"
+      }
+    }
+  },
+  {
+    "feature_id": "1d0fb6b9-7a37-5c22-a31b-8538861b2e3f",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9a024a7d-103b-5576-a8a1-17ae5482275f",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c516b825-a944-5bae-87ad-e9f32b54e4e3",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b64292d5-4158-5488-b516-c91a0b647596",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fa2b0470-6ac5-594f-b205-d08ddb61b2b2",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fe7e345f-ed47-575a-86a0-b8775820ddd3",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "94b31205-7bfb-5fb5-8e1f-f472f150871d",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "dda263f2-eb09-53a4-b408-47a015acca70",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9fb3b177-e907-5b0b-a30d-4597e736c810",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d8c8e068-82f7-5ea5-9ff7-453d1b865823",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c6e95328-837a-534c-baee-4032d02debc1",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3249090b-de5d-5363-a33b-ebef3ed751a0",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fc1fa542-5faa-5e59-91aa-55890badf7ce",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c937c3ff-102b-5213-b275-f4f09d0ee708",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "df7879bd-81e0-53c2-83ea-359de6bc566b",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "441b1462-5e5d-5fea-941f-7e4d48082bb5",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "87e64c72-40c2-569b-99d1-cec9a7be2ed3",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "bd8b870f-997a-533b-b5be-708d3287db11",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "db2200e7-d7ad-54f9-afd4-4804d1cba772",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "47e3099b-b6f4-5ddb-88bc-d0307bc63fea",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fbcda0a2-a677-5b5a-a707-aaa94075cef1",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "76bb6f07-d7e7-57c1-8941-63dabeb535e4",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f6bef47a-49f2-5a81-abc6-3ad2720d954b",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ba282f77-2f8f-5472-9b96-2e3b2a4c78bb",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d3d57471-32c0-53c2-aaf2-feeb9ccd8c0e",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "383be769-15bb-58e7-bf11-458de51218c3",
+    "role": "deck",
+    "title": "Deck",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "76c22cc1-1220-5301-858d-09e2aea6573d",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f273d3eb-6d37-53ef-88f1-fec866b7b06c",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2f1d3b94-08ef-521b-8711-38737346e552",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ca2e8818-812e-5884-b880-5e5e2fee9fdf",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8b5bb172-50fc-5ed1-a72e-6f017bed7127",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9d7dbb9f-0a6a-5c13-a077-6b30b68d0c3a",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "da7c586e-c36f-5eec-93f9-8c65db8badda",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "aeffff53-9735-5666-b05e-bcd83adec4f5",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "501cdd8a-b057-5168-a4fb-438f517478ff",
+    "role": "guard_post",
+    "title": "Guard post",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "12c3dbd1-b156-515e-9ae1-7d0992de4b7b",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "62e58979-9406-545e-bd56-27962f83a7f5",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f43ba4af-b053-5c5e-975e-b2a5190dbd1c",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0eec9fbd-398f-5e27-851d-074b9be76b55",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "61310381-01dd-51c7-9286-f3af8dfea5f6",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ccc990f6-c3a2-588c-8d41-7ca446a478cc",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "aaa4f189-f16f-59e7-ae2a-7824d89a4f88",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "41d85492-7cee-50be-a96d-ca89207fc404",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4dd2f0f4-64a0-5d52-a481-ba0fecf2cf17",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e4dcc4cd-b911-554e-a4da-7662dd126c8a",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b16d4e7c-473b-55c6-a991-8e1dc18c2874",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a871b771-be11-5b2e-b3f9-eb233bee849f",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "029aef5c-ebc5-550f-9c08-83a610c5ebe6",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "04bfcc0a-26fa-56f2-9612-6fdd5f4ffa83",
+    "role": "rail",
+    "title": "Rail",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b17f8779-fda7-52e3-9934-da8dea04c2e2",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a37afe68-f3f1-539a-ad64-b90b7fc750b8",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4451b7ec-c1c1-51c9-831e-48a997581eff",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8f74ddfa-e83b-54cb-9751-62e13f61d999",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7250f9a0-922c-5d62-ba1a-9ba3fb310785",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e3d7b00c-75fb-5277-83f7-03217fe55d67",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "12609f71-a78b-580c-9cab-d068c2ff322d",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "67d7bb9d-119a-53dd-b916-624186a18280",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b97bbe58-062f-5457-9a8e-ff9efa876009",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "496389bc-094a-59c2-b46a-6db63ba0b4c9",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4d69a615-2001-55d1-91c8-2e857ff5c76d",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "51ef4a15-b208-5088-993a-ad7f501cb28a",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "48655d45-dc43-561a-9ae9-a11f15d904c3",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a1c5d1cb-5f50-58a9-ac8e-d43fa706a82f",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "f6282d6f-3328-5246-ae03-73963e97fcce",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8b3170e2-8c2b-53dc-b36d-eaec3354fb3a",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "7d5b3a3f-9a05-5ed9-8c68-f2e17d6f4446",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0e45b258-61c1-58de-9c01-a14dfb0554de",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "58de68b3-3f84-5f76-b0da-0f003451ec21",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2132ef50-60a3-577c-8309-342a7b483cdb",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "d40bce77-adfb-571b-b7a0-2e8e2a4ec5b4",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "df8552bb-4b10-550b-aa74-4ff90fc12ba0",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ce3af20e-a988-5b08-b801-85e225a58850",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1113cff1-eaf0-5bdf-9288-6e9febe8b33b",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b95a8e2a-8431-55f8-8487-50ec9516da9d",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0ceee473-95a0-5f3b-bd7b-e13ba53a75a4",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5530d812-2602-56d9-aeb0-c8392a8a5401",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "9dcffb61-8b31-5954-8b93-0691c9309874",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "49ae9ebc-902a-5c65-8377-6b41be978a45",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "690374f5-ec27-587f-a62c-3ad30c4c974a",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "2b6625fa-97b5-5d8d-af8f-0361397fa675",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "08694e44-d37a-5999-97ff-5461cc9cf6e8",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a70c0887-5920-5972-ba0e-7206bed0a64a",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b8f00691-a9bf-5b6e-b1e3-dad95865f22f",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "0d3d1144-a629-5244-94e2-915bf867deac",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ffa17774-65e9-5697-9a5f-4b6ac97fcf0d",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "a9ebc491-74db-5d59-9b19-15a83600b6a7",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1b669982-fa93-5d0e-9e56-ec30ea796103",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "67be8af1-1e84-52ba-82cd-a904282e6196",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "ebb89fad-c7a9-5757-bde8-b87b5dece4a0",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "878c82d9-978b-53c8-b421-161273348059",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "875869a0-b1d7-5d8b-9f92-9e4311d9d1c1",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5a809aa5-8a71-5ad2-8336-fc7898486dd9",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3c9450da-1a35-5b7c-a4b9-aadc2d0e190a",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4c2d0997-eb4f-59da-be64-5db9b54ddba7",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "35e26fba-cff0-53ff-81fc-df4f78c2e479",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8a122d51-8c86-5697-b3f4-d0ae9f184cd3",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fe16cf74-37ea-57cf-bc96-e7ad019171e4",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "52028191-886b-587d-bda9-785a129df137",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b8bf174b-7e3d-5d68-9009-2e2e1d0e303f",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "52ce9a40-7c01-510c-b351-648510d2428c",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "984aca28-e4bb-503c-8b14-9d93cad52da8",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "abd5b2f5-48c4-581c-871b-254d4e50d11f",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "4159f826-b182-5d5d-8b55-9f3f8c6b2423",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "eca58098-2bf5-53c3-837e-910c0769d27c",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "42a98b1e-4216-588a-977b-bc37bfa487d5",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "514dbe4e-516e-5b76-8efd-f9b2eac51dbf",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "40ee67d4-02dc-5a43-bc45-607e2e56ae14",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "6b3cb886-8ede-5b30-a16a-b234886a2756",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "874448de-1713-53ac-918b-1a2023088caf",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "533c365c-2ed1-5567-8561-05bfdce14e03",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8ae2dbcd-b41e-5ec4-a929-5e70989ae39a",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "db70512e-801a-5329-88ff-2ccd2bfe6f41",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "8b3fe80c-90fe-52d2-b6fd-cc21423efdd7",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "05f920bb-77fa-5bf4-93b1-a11af590176e",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "084fa50e-bed9-57a3-bfb5-9c04894a9ef5",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3e51bf4a-1a00-537c-b0b0-491e88bd9644",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "60196b80-4964-5ebc-979f-8c5ac1c4e279",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "48a5e059-fa65-5cac-9069-9c2d01c545e1",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1a0874ff-9669-5400-b051-e32ee88e337b",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "e45a7676-3a4b-53f5-8454-1a7fa553c6af",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "5735f589-f846-5f02-a6cf-79b2558d4b33",
+    "role": "baluster",
+    "title": "Baluster",
+    "plugin_id": "loft.deck",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "59438a74-0f5d-5c91-a125-19f0c235d712",
+    "role": "stringer",
+    "title": "Stringer",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x12",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "79e5fea6-b580-5329-b24c-dfedc0381433",
+    "role": "stringer",
+    "title": "Stringer",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x12",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "fcfb58a7-ccb1-5528-b960-6d05720cde0e",
+    "role": "stringer",
+    "title": "Stringer",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x12",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b232b41e-ef79-5f07-9d07-0257a0f64fef",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "b2450e1b-57c1-50e9-af89-72178f374b94",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "eccc0a90-2b49-5262-a03a-ec0d126de256",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "1154b9d2-b11f-5e80-9a17-dafb70ac7e6b",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "622b47d0-23e8-5aad-bc10-6ab451704ab2",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "43e868ed-df7c-5353-a7a6-1b7046d6b8a5",
+    "role": "tread",
+    "title": "Tread",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "5/4x6",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "cced0e87-e858-5f29-988c-76162a352334",
+    "role": "handrail",
+    "title": "Handrail",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "2x2",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "c4d35ed5-cc5c-55c9-a2c3-705ce79d0126",
+    "role": "handrail_post",
+    "title": "Handrail post",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  },
+  {
+    "feature_id": "3f9b67f7-3bce-5003-b658-43b9ff82c3a0",
+    "role": "handrail_post",
+    "title": "Handrail post",
+    "plugin_id": "loft.stair",
+    "metadata": {
+      "profile": "4x4",
+      "material": "southern_pine_pt",
+      "nominal_size": null
+    }
+  }
+]

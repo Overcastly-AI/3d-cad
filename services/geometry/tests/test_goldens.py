@@ -348,6 +348,8 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         # B1's guard opened at its stair (DECK-GUARD-OPENING): b1-stair-30's
         # class, 3.8e-6 mm^3 measured (the twin 3.1e-5); the guard is boxes.
         "b1-stair-30-guard-opening",
+        # Its stair flush with the deck's corner: 1.4e-5 measured (twin 3.1e-5).
+        "b1-stair-30-guard-corner",
     }
 )
 

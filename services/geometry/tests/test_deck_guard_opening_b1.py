@@ -2,8 +2,9 @@
 
 ``goldens/b1-stair-30-guard-opening`` is B1 at ``loft.deck`` 1.3.0 with its
 guard on the open sides and every other default, and a ``loft.stair`` 1.0.0
-centred on its rim at X 96 (b1-stair-30's stair). ``model.json`` and
-``members.json`` are pinned to the plugins by
+centred on its rim at X 96 (b1-stair-30's stair); ``b1-stair-30-guard-corner``
+the same stair flush with the deck's left corner, centred at X 18. Their
+``model.json`` and ``members.json`` are pinned to the plugins by
 ``packages/loft-plugins/tests/test_deck_guard_opening.py``. Geometry never
 learns plugins exist, so this module imports nothing from them.
 
@@ -14,12 +15,12 @@ the plugins (B1's framing and its stair are ``test_stair_b1``'s script):
 
 1. the STEP is the script's solids, solid for solid, and its volume the
    hand sum;
-2. the front guard opens between the stair's outer stringer faces, X 78 to
-   X 114, with a post each side whose face is the stringer's;
+2. the front guard opens between the stair's outer stringer faces (X 78 to
+   114; at the corner X 0 to 36), with a post each side whose face is the
+   stringer's, or the corner post alone where the run to the corner is
+   shorter than two posts;
 3. interference none, every pair whose boxes meet probed exactly;
-4. the cut list's guard lines are the hand counts: 10 posts, rails 8 of
-   66.75 and 8 of 33.75 (86 in less than the closed guard's 890), 72
-   balusters.
+4. the cut list's guard lines are the hand counts.
 
 Regenerate expected.json's numbers with
 ``uv run python services/geometry/tests/test_deck_guard_opening_b1.py``.
@@ -29,6 +30,7 @@ import itertools
 import json
 import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -48,14 +50,15 @@ from test_stair_b1 import (
     B1_STAIR,
     DECK_30,
     DENSITY,
+    NOSE,
     PT,
     Member,
+    Stair,
     cut_list,
     deck,
     stair_volume,
 )
 
-NAME = "b1-stair-30-guard-opening"
 WIDTH, DEPTH, FLOOR = 192.0, 144.0, 30.0
 
 # --- The guard, typed from buildings.md B1 and IRC R312 (inches) ------------------
@@ -66,8 +69,6 @@ BAL = 1.5  # 2x2
 TOP = FLOOR + 36.0
 BOTTOM_RAIL = (FLOOR + 3.5, FLOOR + 3.5 + RAIL_W)  # Z 33.5..37
 TOP_RAIL = (TOP - RAIL_W, TOP)  # Z 62.5..66
-#: The stair's outer stringer faces: its 36 in width centred at X 96.
-OPENING = (78.0, 114.0)
 
 
 def run_posts(lo: float, hi: float) -> list[float]:
@@ -78,11 +79,86 @@ def run_posts(lo: float, hi: float) -> list[float]:
     return [first + (last - first) * k / bays for k in range(bays + 1)]
 
 
-#: B1's three open sides, each as its runs: the left (X line 1.75) and the
-#: right (X 190.25) whole, Y 0..144; the front (Y 142.25) broken at the stair.
-LEFT = [run_posts(0.0, DEPTH)]  # 1.75, 72, 142.25
-RIGHT = [run_posts(0.0, DEPTH)]
-FRONT = [run_posts(0.0, OPENING[0]), run_posts(OPENING[1], WIDTH)]
+@dataclass(frozen=True)
+class Case:
+    """One golden: the stair, its opening on the front (its outer stringer
+    faces), the front's runs of posts, and the guard's hand numbers."""
+
+    stair: Stair
+    opening: tuple[float, float]
+    front: list[list[float]]
+    #: Posts, rail inches over both courses, balusters.
+    posts: int
+    rail: float
+    balusters: int
+    #: The cut list's rail lines: (quantity, length).
+    rails: list[tuple[int, float]]
+    #: The front's posts (X spans), and a post the opening may hold (the
+    #: corner's, on the deck, when the stair is flush with it).
+    front_posts: list[tuple[float, float]]
+    corner_in_opening: bool = False
+
+    @property
+    def guard_volume(self) -> float:
+        return (
+            self.posts * POST * POST * 36
+            + self.rail * RAIL_T * RAIL_W
+            + self.balusters * BAL * BAL * (TOP_RAIL[0] - BOTTOM_RAIL[1])
+        )
+
+
+#: Both sides are whole runs, Y 0..144: posts at 1.75, 72, 142.25, two bays
+#: of 66.75 clear and 12 balusters each ((66.75 - 4) / 5.5 -> 12).
+SIDE = [run_posts(0.0, DEPTH)]
+
+CASES: dict[str, Case] = {
+    # At X 96 (X 78..114): runs 0..78 and 114..192, posts 1.75, 39, 76.25 and
+    # 115.75, 153, 190.25; four 33.75 bays of 6 balusters. Posts 10; rails
+    # 2 x (133.5 + 4 x 33.75 + 133.5) = 804 (the closed guard's 890: the front
+    # 192 - 36 - 6 x 3.5 = 135 a course against 192 - 4 x 3.5 = 178).
+    "b1-stair-30-guard-opening": Case(
+        stair=B1_STAIR,
+        opening=(78.0, 114.0),
+        front=[run_posts(0.0, 78.0), run_posts(114.0, WIDTH)],
+        posts=10,
+        rail=804.0,
+        balusters=72,
+        rails=[(8, 66.75), (8, 33.75)],
+        front_posts=[
+            (0.0, 3.5),
+            (37.25, 40.75),
+            (74.5, 78.0),
+            (114.0, 117.5),
+            (151.25, 154.75),
+            (188.5, 192.0),
+        ],
+    ),
+    # Flush at X 18 (X 0..36): the run to the corner is 0 in, so the corner
+    # post (the left side's, X 0..3.5) alone stands there and is the
+    # opening's post on that side. The run 36..192 (156 in): posts 37.75 and
+    # 190.25, (152.5 / 72 -> 3 bays) 50.8333 apart, three bays of 47.3333
+    # clear and 8 balusters each (43.3333 / 5.5 -> 8). Posts 3 + 3 + 3 = 9;
+    # rails 2 x (133.5 + 3 x 47.3333 + 133.5) = 2 x 409 = 818 (the front
+    # 192 - 36 - 4 x 3.5 = 142 a course); balusters 24 + 24 + 24 = 72.
+    "b1-stair-30-guard-corner": Case(
+        stair=Stair(30.0, 18.0, NOSE, 2.125, closed=False),
+        opening=(0.0, 36.0),
+        front=[[POST / 2], run_posts(36.0, WIDTH)],
+        posts=9,
+        rail=818.0,
+        balusters=72,
+        rails=[(8, 66.75), (6, 47.3333)],
+        front_posts=[
+            (0.0, 3.5),
+            (36.0, 39.5),
+            (86.833333, 90.333333),
+            (137.666667, 141.166667),
+            (188.5, 192.0),
+        ],
+        corner_in_opening=True,
+    ),
+}
+each_case = pytest.mark.parametrize("name", sorted(CASES))
 
 
 def _plan(
@@ -111,15 +187,16 @@ def bay(s0: float, s1: float, fixed: float, axis: str) -> list[Member]:
     return out
 
 
-def guard() -> list[Member]:
+def guard(case: Case) -> list[Member]:
     """Posts (each corner once), then rails, then balusters, as built."""
     half = POST / 2
+    sides = (
+        (SIDE, half, "y"),
+        (case.front, DEPTH - half, "x"),
+        (SIDE, WIDTH - half, "y"),
+    )
     centres: set[tuple[float, float]] = set()
-    for runs, fixed, axis in (
-        (LEFT, half, "y"),
-        (FRONT, DEPTH - half, "x"),
-        (RIGHT, WIDTH - half, "y"),
-    ):
+    for runs, fixed, axis in sides:
         for run in runs:
             for s in run:
                 centres.add((s, fixed) if axis == "x" else (fixed, s))
@@ -129,59 +206,67 @@ def guard() -> list[Member]:
         )
         for x, y in sorted(centres)
     ]
-    for runs, fixed, axis in (
-        (LEFT, half, "y"),
-        (FRONT, DEPTH - half, "x"),
-        (RIGHT, WIDTH - half, "y"),
-    ):
+    for runs, fixed, axis in sides:
         for run in runs:
             for a, b in itertools.pairwise(run):
                 out += bay(a + half, b - half, fixed, axis)
     return out
 
 
-def script() -> list[Member]:
-    return deck(FLOOR) + B1_STAIR.members() + guard()
+def script(name: str) -> list[Member]:
+    case = CASES[name]
+    return deck(FLOOR) + case.stair.members() + guard(case)
 
 
-#: The guard by hand (in^3): 10 posts of 3.5 x 3.5 x 36; the rails, 2 x
-#: (133.5 + 135 + 133.5) = 804 in of 1.5 x 3.5; 72 balusters of 1.5 x 1.5 x
-#: 25.5. The front's rails are 192 - 36 - 6 x 3.5 = 135 a course.
-GUARD_VOLUME = 10 * 3.5 * 3.5 * 36 + 804 * 1.5 * 3.5 + 72 * 1.5 * 1.5 * 25.5
-
-
-def hand_volume() -> float:
-    return DECK_30 + stair_volume(B1_STAIR) + GUARD_VOLUME
+def hand_volume(name: str) -> float:
+    case = CASES[name]
+    return DECK_30 + stair_volume(case.stair) + case.guard_volume
 
 
 # --- 1. The STEP against the script ------------------------------------------------
 
 
 @pytest.fixture(scope="module")
-def solids(tmp_path_factory: pytest.TempPathFactory) -> list[Solid]:
-    return _step_solids(tmp_path_factory, NAME)
+def solids(tmp_path_factory: pytest.TempPathFactory) -> dict[str, list[Solid]]:
+    return {name: _step_solids(tmp_path_factory, name) for name in CASES}
 
 
-def test_the_hand_counts() -> None:
-    """The script's guard is the docstring's: posts at 1.75, 39, 76.25 and
-    115.75, 153, 190.25 on the front; 12 balusters a 66.75 side bay and 6 a
-    33.75 front bay."""
-    assert FRONT == [[1.75, 39.0, 76.25], [115.75, 153.0, 190.25]]
-    assert LEFT == [[1.75, 72.0, 142.25]]
-    members = guard()
-    count = {m.member: 0 for m in members}
+@each_case
+def test_the_hand_counts(name: str) -> None:
+    """The script's guard is the case's hand numbers."""
+    case = CASES[name]
+    members = guard(case)
+    count = {"Guard post": 0, "Rail": 0, "Baluster": 0}
     for m in members:
         count[m.member] += 1
-    assert count == {"Guard post": 10, "Rail": 16, "Baluster": 72}
-    assert pytest.approx(4410 + 4221 + 4131, abs=1e-9) == GUARD_VOLUME
+    assert count == {
+        "Guard post": case.posts,
+        "Rail": sum(q for q, _ in case.rails),
+        "Baluster": case.balusters,
+    }
+    assert sum(q * length for q, length in case.rails) == pytest.approx(
+        case.rail, abs=1e-3
+    )
 
 
-def test_the_step_is_the_independent_scripts(solids: list[Solid]) -> None:
-    mine = script()
-    assert len(solids) == len(mine)
-    assert _unmatched(solids, [m.solid for m in mine]) == []
-    volume = sum(float(measure_shape(s).volume) for s in solids) / IN**3
-    assert volume == pytest.approx(hand_volume(), abs=1e-4)
+def test_the_hand_volumes() -> None:
+    assert CASES["b1-stair-30-guard-opening"].guard_volume == pytest.approx(
+        4410 + 4221 + 4131, abs=1e-9
+    )
+    assert CASES["b1-stair-30-guard-corner"].guard_volume == pytest.approx(
+        3969 + 4294.5 + 4131, abs=1e-9
+    )
+
+
+@each_case
+def test_the_step_is_the_independent_scripts(
+    solids: dict[str, list[Solid]], name: str
+) -> None:
+    mine = script(name)
+    assert len(solids[name]) == len(mine)
+    assert _unmatched(solids[name], [m.solid for m in mine]) == []
+    volume = sum(float(measure_shape(s).volume) for s in solids[name]) / IN**3
+    assert volume == pytest.approx(hand_volume(name), abs=1e-4)
 
 
 # --- 2. The opening ------------------------------------------------------------------
@@ -195,10 +280,16 @@ def _bounds(s: Solid) -> tuple[float, ...]:
     )
 
 
-def test_the_guard_opens_between_the_outer_stringer_faces(solids: list[Solid]) -> None:
-    """No guard member stands over X 78..114 on the front; a post's face is
-    on each outer stringer's: X 74.5..78 and X 114..117.5."""
-    every = [_bounds(s) for s in solids]
+@each_case
+def test_the_guard_opens_between_the_outer_stringer_faces(
+    solids: dict[str, list[Solid]], name: str
+) -> None:
+    """No guard member stands over the opening on the front but, at the
+    corner, the corner post; a post's face is on each outer stringer's or
+    the corner post stands for it."""
+    case = CASES[name]
+    lo, hi = case.opening
+    every = [_bounds(s) for s in solids[name]]
     # The front guard: on the decking, on its line Y 140.5..144 (the
     # stair's handrail starts at its top nosing, Y 146.125).
     over_decking = [
@@ -208,57 +299,58 @@ def test_the_guard_opens_between_the_outer_stringer_faces(solids: list[Solid]) -
     ]
     assert over_decking, "the front guard"
     for b in over_decking:
-        assert b[1] <= OPENING[0] + 1e-6 or b[0] >= OPENING[1] - 1e-6, b
+        if case.corner_in_opening and (b[0], b[1], b[5]) == (0.0, POST, TOP):
+            continue
+        assert b[1] <= lo + 1e-6 or b[0] >= hi - 1e-6, b
     posts = sorted(b for b in over_decking if b[5] == TOP and b[1] - b[0] == POST)
-    assert [(b[0], b[1]) for b in posts] == [
-        (0.0, 3.5), (37.25, 40.75), (74.5, 78.0),
-        (114.0, 117.5), (151.25, 154.75), (188.5, 192.0),
-    ]  # fmt: skip
+    assert [(b[0], b[1]) for b in posts] == case.front_posts
     stringers = sorted(
         b
         for b in every
         if b[2] == 144.0 and round(b[1] - b[0], 6) == 1.5 and b[4] == 0.0
     )
-    assert (stringers[0][0], stringers[-1][1]) == OPENING
+    assert (stringers[0][0], stringers[-1][1]) == case.opening
 
 
 # --- 3. Interference none ----------------------------------------------------------
 
 
-def test_nothing_interferes(solids: list[Solid]) -> None:
-    assert _overlapping(solids) == []
+@each_case
+def test_nothing_interferes(solids: dict[str, list[Solid]], name: str) -> None:
+    assert _overlapping(solids[name]) == []
 
 
 # --- 4. The cut list ---------------------------------------------------------------
 
 
-def test_the_cut_list_loses_the_opened_rail() -> None:
-    """The guard's lines (Deck): 10 posts at 36, rails 8 x 66.75 (the sides)
-    and 8 x 33.75 (the front's runs; the closed guard's 6 x 59.3333), 72
-    balusters at 25.5. Rail in all: 534 + 270 = 804 in, 86 less than the
-    closed guard's 534 + 356 = 890."""
+@each_case
+def test_the_cut_list_loses_the_opened_rail(name: str) -> None:
+    """The guard's lines (Deck): its posts at 36, its rails (the sides' 8 x
+    66.75 and the front's runs), its balusters at 25.5; rail in all 804 in
+    at X 96 and 818 at the corner, against the closed guard's 890."""
+    case = CASES[name]
     rows = [
         (line.member, line.profile, line.quantity, round(line.length_mm / IN, 4))
-        for line in cut_list(NAME).lines
+        for line in cut_list(name).lines
         if line.member in ("Guard post", "Rail", "Baluster")
     ]
     assert sorted(rows) == sorted(
         [
-            ("Guard post", "4x4", 10, 36.0),
-            ("Rail", "2x4", 8, 66.75),
-            ("Rail", "2x4", 8, 33.75),
-            ("Baluster", "2x2", 72, 25.5),
+            ("Guard post", "4x4", case.posts, 36.0),
+            *(("Rail", "2x4", q, length) for q, length in case.rails),
+            ("Baluster", "2x2", case.balusters, 25.5),
         ]
     )
     rail = sum(q * length for m, _, q, length in rows if m == "Rail")
-    assert rail == pytest.approx(890 - 86, abs=1e-9)
+    assert rail == pytest.approx(case.rail, abs=1e-3)
 
 
-def test_the_stair_and_the_framing_keep_their_cut_list() -> None:
+@each_case
+def test_the_stair_and_the_framing_keep_their_cut_list(name: str) -> None:
     """The deck's framing and the stair's lines are b1-stair-30's."""
     mine = [
         (line.system, line.member, line.quantity, round(line.length_mm / IN, 4))
-        for line in cut_list(NAME).lines
+        for line in cut_list(name).lines
         if line.member not in ("Guard post", "Rail", "Baluster")
     ]
     theirs = [
@@ -271,11 +363,11 @@ def test_the_stair_and_the_framing_keep_their_cut_list() -> None:
 # --- expected.json -----------------------------------------------------------------
 
 
-def expected_numbers() -> dict[str, Any]:
-    """The golden's mass properties and topology from the script: the volume
+def expected_numbers(name: str) -> dict[str, Any]:
+    """A golden's mass properties and topology from the script: the volume
     by hand, the rest measured on the script's solids."""
-    mine = script()
-    volume = hand_volume() * IN**3
+    mine = script(name)
+    volume = hand_volume(name) * IN**3
     area = 0.0
     moments = [0.0, 0.0, 0.0]
     mass = 0.0
@@ -318,4 +410,5 @@ def expected_numbers() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    sys.stderr.write(f"{NAME}: {json.dumps(expected_numbers())}\n")
+    for case in sys.argv[1:] or sorted(CASES):
+        sys.stderr.write(f"{case}: {json.dumps(expected_numbers(case))}\n")

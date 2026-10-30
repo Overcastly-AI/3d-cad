@@ -216,6 +216,8 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B1's guard opened at its stair (DECK-GUARD-OPENING): the same class,
     # measured 3.8e-6 mm^3 (the twin 3.1e-5); the guard adds boxes only.
     "b1-stair-30-guard-opening": 1e-4,
+    # Its stair flush with the deck's corner: 1.4e-5 measured (twin 3.1e-5).
+    "b1-stair-30-guard-corner": 1e-4,
     # The free 14-riser stair: 5.1e-4 mm^3 measured (the twin 1.2e-4).
     "free-stair-107": 1e-3,
 }
