@@ -16,7 +16,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * 8 corner boards and 23 casing pieces, and the roof's 2 gable layers. The
  * cut list's Siding and trim group lists one lap line: 6 layers, 99 778.90
  * in² net, x 1.10 / 1 008 in² a 12 ft board = 108.89, 109 boards; 8 corner
- * boards of 108.59375 on 10 ft stock; casing in 5 lengths, 1 099.5 in. The
+ * boards of 108.59375 on 10 ft stock; casing's 23 pieces, 1 099.5 in,
+ * nested on 14 8 ft sticks (ROOFING). The
  * Exterior finish set to Vinyl buys 8 squares.
  */
 
@@ -256,15 +257,16 @@ test.describe("Siding and trim — B7's exterior finish", () => {
     await expect(boards).toHaveCount(1);
     await expect(boards.getByTestId("cut-list-qty")).toHaveText("8");
     await expect(boards.getByTestId("cut-list-length")).toHaveText("108.5938");
-    await expect(boards.getByTestId("cut-list-stock")).toHaveText("10 ft");
+    await expect(boards.getByTestId("cut-list-stock")).toHaveText("8 × 10 ft");
+    // The casing's 23 pieces, 1 099.5 in, nested on 8 ft sticks (ROOFING):
+    // 14, not 23; its longest piece the door's 85.5 in legs.
     const casing = page
       .getByTestId("cut-list-panel")
       .locator('[data-testid="cut-list-row"][data-member="Casing"]');
-    await expect(casing).toHaveCount(5);
-    const lengths = await casing.getByTestId("cut-list-length").allInnerTexts();
-    expect(lengths).toEqual(["31", "43", "44.5", "55", "85.5"]);
-    const counts = await casing.getByTestId("cut-list-qty").allInnerTexts();
-    expect(counts).toEqual(["4", "10", "1", "6", "2"]);
+    await expect(casing).toHaveCount(1);
+    await expect(casing.getByTestId("cut-list-qty")).toHaveText("23");
+    await expect(casing.getByTestId("cut-list-length")).toHaveText("85.5");
+    await expect(casing.getByTestId("cut-list-stock")).toHaveText("14 × 8 ft");
     await lap.scrollIntoViewIfNeeded();
     await shot(page, "siding-cut-list");
 

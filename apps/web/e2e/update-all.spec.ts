@@ -17,7 +17,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * parameter at its default, so each Build release maps to its newest: the
  * floor 1.2.0 -> 1.4.0 (Joists bear on Long walls frames the same joists,
  * byte for byte), the walls 1.3.0 -> 1.5.0 (Exterior finish None), the
- * openings 1.1.0 -> 1.5.0 and the roof 1.4.0 -> 1.8.0, which ties the gable with its 11 ceiling joists
+ * openings 1.1.0 -> 1.5.0 and the roof 1.4.0 -> 1.9.0, which ties the gable with its 11 ceiling joists
  * and frames its gable ends (GABLE-END-STUDS). The badge names what an
  * update adds ("adds 11 ceiling joists, 22 gable studs and ..."); the floor
  * and the walls change no member, so they wear none but ride in Update all.
@@ -64,7 +64,7 @@ test.describe("Update all on a saved B7", () => {
     const roofBadge = page.getByTestId("feature-update-badge-9");
     await expect(roofBadge).toHaveAttribute(
       "title",
-      "Update to 1.8.0: adds 11 ceiling joists, 22 gable studs and 12 gable sheathing panels",
+      "Update to 1.9.0: adds 11 ceiling joists, 22 gable studs and 12 gable sheathing panels",
     );
     await expect(page.getByTestId("feature-update-badge-3")).toHaveAttribute(
       "title",
@@ -78,7 +78,7 @@ test.describe("Update all on a saved B7", () => {
     const editor = page.getByTestId("plugin-editor");
     await expect(editor).toContainText("Edit Roof");
     await expect(page.getByTestId("plugin-update-notice")).toContainText(
-      "1.8.0: Adds 11 ceiling joists, 22 gable studs and 12 gable sheathing panels.",
+      "1.9.0: Adds 11 ceiling joists, 22 gable studs and 12 gable sheathing panels.",
     );
     await page.getByTestId("plugin-cancel").click();
     await expect(editor).toBeHidden();
@@ -130,7 +130,7 @@ test.describe("Update all on a saved B7", () => {
       Floor: "1.4.0",
       Walls: "1.5.0",
       ...Object.fromEntries(OPENING_NAMES.map((n) => [n, "1.5.0"])),
-      Roof: "1.8.0",
+      Roof: "1.9.0",
     });
     for (const row of Object.values(after)) {
       expect(row.plugin_update ?? null, row.name).toBeNull();
