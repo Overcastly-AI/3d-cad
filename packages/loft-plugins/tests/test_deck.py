@@ -430,7 +430,7 @@ def test_two_beams_may_not_overlap() -> None:
 
 def test_a_large_deck_fits_the_tree_bound() -> None:
     """A 40 x 24 ft freestanding deck at 12 in o.c. with blocking and a guard
-    expands inside the part's tree bound, and since the bound is 2000
+    expands inside the part's tree bound, and since the bound is 1500
     (SECOND-FLOOR) so does the extreme corner of the inputs' bounds (8 in
     o.c., 2x4 decking: 1 111 features); over it documents refuses the write
     with ``feature_limit_exceeded`` (RESEARCH §23 caps), never a partial deck."""

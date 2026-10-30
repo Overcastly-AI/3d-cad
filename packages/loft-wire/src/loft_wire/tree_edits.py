@@ -21,8 +21,10 @@ from loft_wire.twist import is_none
 #: bounding the per-request kernel work + the buffered JSON body (audit G2
 #: hole 4). A house counts its framing by member (a sketch and an extrude a
 #: body): B7 with a second storey sends 1 078 (SECOND-FLOOR), so the bound is
-#: 2000, still a bound on the work.
-MAX_TREE_FEATURES = 2000
+#: 1500. It is held there by the gateway's 90 s GEOMETRY_TIMEOUT_S: 1 078
+#: features evaluate in 57 s cold (708 MB, a 1.22 MB request), so 1500 is
+#: about 80 s and 2000 would be about 105 s, a 504.
+MAX_TREE_FEATURES = 1500
 
 
 #: Most nouns an update offer names in ``adds`` (a feature adds a few kinds).

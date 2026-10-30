@@ -1100,7 +1100,7 @@ WARM_YIELD_SLICE_S = 0.05
 #:    truncated the 200-feature one to a fraction, which is exactly the part the
 #:    fix exists for. 30 s covers a full-prefix warm at the top of the range the
 #:    tool is usable in, and still bounds the pathological tree
-#:    (``MAX_TREE_FEATURES`` is 1000, whose prefix would be minutes).
+#:    (``MAX_TREE_FEATURES`` is 1500, whose prefix would be minutes).
 #: 2. **The pessimal case is bounded by the USER, not by this.** A warm that
 #:    finishes stops; a warm whose reason goes away is cancelled within one
 #:    feature (~200 ms) of the editor closing or the stop moving. So "opened a

@@ -1202,7 +1202,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -4375,7 +4375,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -4503,7 +4503,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -4753,7 +4753,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -5137,7 +5137,7 @@
             "items": {
               "$ref": "#/components/schemas/BodyName"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Body Names",
             "type": "array"
           },
@@ -5146,7 +5146,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -5664,7 +5664,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -13178,7 +13178,7 @@
           "prefix_length": {
             "anyOf": [
               {
-                "maximum": 2000.0,
+                "maximum": 1500.0,
                 "minimum": 1.0,
                 "type": "integer"
               },

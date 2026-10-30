@@ -3561,7 +3561,8 @@ and reframe it, a material per member, and a cut list that is always current.
   - *The tree bound.* B7 with its second storey, roof and stair sends
     1 078 features to geometry (a sketch and an extrude a body), over audit
     G2's 1000, which documents refused; `MAX_TREE_FEATURES` and
-    `MAX_BODY_NAMES` are 2000. Golden `b7-second-floor`: 470 bodies,
+    `MAX_BODY_NAMES` are 1500 (1 078 features evaluate in 57 s cold; 2000
+    would pass the gateway's 90 s timeout). Golden `b7-second-floor`: 470 bodies,
     solid for solid against an independent build123d script on STEP,
     nothing interfering, probed exactly.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the

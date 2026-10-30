@@ -314,7 +314,7 @@ One line each. The founder triages weekly; most are closed without work.
 - FLOOR-HANGERS: `loft.floor` 1.4.0's stairwell lists no joist hangers; B7's well wants 4 single (tails on headers) and 4 double (headers on trimmers), Each in the cut list and price book (a new hardware key and migration).
 - SIDING-RIM-OSB: below the subfloor B7's siding stands 7/16 in proud of the floor's rim, which has no OSB; a second storey's band (floor 2's rim, Z 108.59..118.56) has none either. A framer laps the wall sheathing down over the rim (SECOND-FLOOR left it).
 - STAIRS-HEADROOM-DEFAULT: a free stair checks headroom (IRC R311.7.2) only against a typed opening; reading the well from a picked `loft.floor` 1.4.0 needs a stair 1.1.0 (SECOND-FLOOR kept 1.0.0).
-- TREE-BOUND-2000: SECOND-FLOOR raised MAX_TREE_FEATURES 1000 -> 2000 (B7 two storeys is 1 078); a three-storey or sided and finished two-storey house will meet it again, and the kernel takes ~3 min to build 470 bodies.
+- TREE-BOUND-1500: SECOND-FLOOR raised MAX_TREE_FEATURES 1000 -> 1500 (B7 two storeys is 1 078, evaluated in 57 s cold, 708 MB, a 1.22 MB request); 1500 is about 80 s under the gateway's 90 s GEOMETRY_TIMEOUT_S, so a three-storey or sided and finished two-storey house will meet it again.
 - STAIRS-RISER-VOID: closed risers start on top of the tread below, leaving a 0.75 x 1 in void behind each tread's back edge, over the seat, under the riser board.
 - STAIRS-LANDING: a deck stair's stringers bear on grade with no landing pad or footing (DCA6 asks for one), and its handrail posts stand on grade unanchored.
 - STAIRS-INTERIOR-RAIL: a free stair's handrail stands on posts (the top one as tall as the rise + 36 in); an interior stair beside a wall would take wall brackets.

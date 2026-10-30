@@ -6419,7 +6419,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -6547,7 +6547,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -6797,7 +6797,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -6888,7 +6888,7 @@
             "items": {
               "$ref": "#/components/schemas/EvaluatedFeatureInput"
             },
-            "maxItems": 2000,
+            "maxItems": 1500,
             "title": "Features",
             "type": "array"
           },
@@ -13912,7 +13912,7 @@
                 "items": {
                   "$ref": "#/components/schemas/BodyName"
                 },
-                "maxItems": 2000,
+                "maxItems": 1500,
                 "type": "array"
               },
               {
@@ -15070,7 +15070,7 @@
                   "format": "uuid",
                   "type": "string"
                 },
-                "maxItems": 2000,
+                "maxItems": 1500,
                 "minItems": 1,
                 "type": "array"
               },
@@ -15132,7 +15132,7 @@
                 "items": {
                   "$ref": "#/components/schemas/SkippedPluginUpdate"
                 },
-                "maxItems": 2000,
+                "maxItems": 1500,
                 "type": "array"
               },
               {
