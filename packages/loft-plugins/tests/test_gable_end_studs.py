@@ -422,7 +422,7 @@ def test_an_update_from_1_6_0_takes_the_new_default() -> None:
     may add members, and says so. B7 stored at 1.6.0 updates to the roof a
     new 1.7.0 gable is."""
     update = update_for("loft.roof", "1.6.0", REGISTRY)
-    assert update is not None and update.to_version == "1.8.0"
+    assert update is not None and update.to_version == "1.9.0"
     assert "gable studs" in update.summary and "sheathing" in update.summary
     rows = house(rectangle(288, 192), b7_openings(), B7_STUDS, B7_FLOOR, None)
     stored = canonical_inputs(ROOF_1_6.manifest, {"walls": [ref(WALLS_ID)], **B7_GABLE})
@@ -431,7 +431,7 @@ def test_an_update_from_1_6_0_takes_the_new_default() -> None:
     assert roof_of(roofed(rows, moved, ROOF_1_8)) == roof_of(
         roofed(rows, B7_GABLE, ROOF_1_7)
     )
-    assert update_for("loft.roof", "1.8.0", REGISTRY) is None
+    assert update_for("loft.roof", "1.9.0", REGISTRY) is None
 
 
 def test_the_update_names_what_it_adds_and_re_lays() -> None:
@@ -450,7 +450,7 @@ def test_the_update_names_what_it_adds_and_re_lays() -> None:
 
 
 def test_1_7_0_frames_the_gable_ends() -> None:
-    # New roofs are 1.8.0 (SIDING-TRIM), which keeps these inputs.
+    # New roofs are 1.9.0 (ROOFING), which keeps these inputs.
     inputs = {i.name: i for i in ROOF_1_7.manifest.inputs}
     choice = inputs["gable_ends"]
     assert isinstance(choice, ChoiceInput)

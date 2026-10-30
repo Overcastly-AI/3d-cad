@@ -11,7 +11,7 @@ mapping every input it can and taking the defaults of new parameters
   leaves no release out of date and is B7 built fresh today, member for
   member: the floor 1.3.0 on Long walls (byte for byte 1.2.0's), the walls
   1.5.0 (Exterior finish None), the openings 1.5.0 (18 plies, 12 spacers)
-  and the roof 1.8.0 (no siding on unsided walls) with
+  and the roof 1.9.0 (no siding on unsided walls, no roofing) with
   its 11 ceiling joists and its gable ends (22 gable studs, 2 134 in³ a
   gable, and 12 gable OSB panels, 2 496.018680 in³ a gable:
   GABLE-END-STUDS): 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423 +
@@ -148,7 +148,7 @@ def test_one_update_all_leaves_nothing_out_of_date() -> None:
         ("loft.wall", "1.5.0"),
         ("loft.door", "1.5.0"),
         *[("loft.window", "1.5.0")] * 5,
-        ("loft.roof", "1.8.0"),
+        ("loft.roof", "1.9.0"),
     ]
 
 

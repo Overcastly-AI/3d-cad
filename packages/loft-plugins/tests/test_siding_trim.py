@@ -688,7 +688,7 @@ def test_the_update_adds_nothing_and_picking_lap_names_the_finish() -> None:
         effect.sentence == "Adds 4 siding layers, 8 corner boards and 23 casing pieces."
     )
     roof_update = update_for("loft.roof", "1.7.0", REGISTRY)
-    assert roof_update is not None and roof_update.to_version == "1.8.0"
+    assert roof_update is not None and roof_update.to_version == "1.9.0"
     rows = b7_today()
     stored = roof_of(roofed(rows[:-1], B7_GABLE, ROOF_1_7))
     effect = update_effect([("loft.roof", stored, roof_of(rows))], REGISTRY)
@@ -702,7 +702,7 @@ def test_the_update_adds_nothing_and_picking_lap_names_the_finish() -> None:
 
 def test_new_walls_are_1_5_0_and_offer_the_finish() -> None:
     assert REGISTRY.latest("loft.wall").manifest.version == "1.5.0"
-    assert REGISTRY.latest("loft.roof").manifest.version == "1.8.0"
+    assert REGISTRY.latest("loft.roof").manifest.version == "1.9.0"
     inputs = {i.name: i for i in WALL_1_5.manifest.inputs}
     old = [i.name for i in WALL_1_4.manifest.inputs]
     assert [n for n in inputs if n not in old] == [
