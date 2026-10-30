@@ -41,21 +41,18 @@ covers, or one that is not lumber, has no stock suggestion.
 smallest measured extent and its net area its volume over that thickness
 (openings cut out), and it is cut from the shortest sheet covering its other
 two extents, or from the sheet its plugin hung it from when that covers it
-(``MemberMetadata.sheet``: a wall hung from 4x12s is one 4x12 line, its end
-pieces nested in it, GYPSUM-SHEETS). Panels group by product, material and
-sheet (not by member or size), and a line buys the sheets its panels are CUT
-from, as a yard sells whole sheets (:func:`sheets_to_cut`,
-SHEET-COUNT-PIECES): each panel takes a sheet unless an earlier offcut of the
-line covers it whole, largest panels first (:mod:`loft_wire.sheet_nesting`), a
-saw kerf lost at every cut (SHEET-KERF) and a piece up to 1/8 in short filling
-its panel in APA's panel gap (SHEET-KERF-GAP). A floor panel keeps the sheet's
-strength axis across the joists, so it is never turned to fit an offcut
-(SUBFLOOR-GRAIN); a wall panel may be. Openings are not credited (framers
-sheathe over them and cut them out), so a line's offcut area is its sheets'
-area less its net area. Gypsum board is bought the same way, by the sheets its
-panels are cut from, as a drywall crew orders it (GYPSUM-SHEETS; it was
-counted by area before, which under-bought B10's partitions 11 sheets for the
-12 they are cut from).
+(``MemberMetadata.sheet``, GYPSUM-SHEETS: one 4x12 line, ends nested). Panels
+group by product, material and sheet (not by member or size), and a line buys
+the sheets its panels are CUT from, as a yard sells whole sheets
+(:func:`sheets_to_cut`, SHEET-COUNT-PIECES): each panel takes a sheet unless
+an earlier offcut of the line covers it whole, largest panels first
+(:mod:`loft_wire.sheet_nesting`), a saw kerf lost at every cut (SHEET-KERF)
+and a piece up to 1/8 in short filling its panel in APA's panel gap
+(SHEET-KERF-GAP). A floor panel keeps the sheet's strength axis across the
+joists, so it is never turned to fit an offcut (SUBFLOOR-GRAIN); a wall panel
+may be. Openings are not credited (framers sheathe over them and cut them
+out), so a line's offcut area is its sheets' area less its net area. Gypsum
+too (GYPSUM-SHEETS: B10's partitions are 12 sheets, 11 by area).
 
 **Order** (CUT-LIST-PANEL): lines are grouped by SYSTEM, as Chief
 Architect's Materials List groups by category: Floor, Walls (with their doors
