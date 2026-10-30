@@ -298,11 +298,23 @@ for (const mount of MOUNTS) {
       const gesture = await trackGesture(page, mount.id);
       // The press point must BE the gauge before it is pressed — otherwise a
       // null result measures whatever else is under the shaft's midpoint.
-      const under = await hitTestAt(
-        page,
-        gesture.from,
-        `[data-gauge="${mount.id}"]`,
-      );
+      //
+      // WAITED FOR, not read once. The track above is the drawn SPINE, which
+      // r3f commits; the bands a finger hits are DOM, committed by drei `Html`
+      // in a separate React root and placed by the next frame. Between the two
+      // the midpoint is canvas. Polled on the hit itself, so a band that is
+      // never placed still fails here, by name (CI 41002801473: "resolves to
+      // viewport" at the right coordinates).
+      const owner = `[data-gauge="${mount.id}"]`;
+      await expect
+        .poll(async () => (await hitTestAt(page, gesture.from, owner)).owned, {
+          message:
+            `the ${mount.id} shaft midpoint never resolved to the gauge, ` +
+            `so a finger there lands on whatever is under the drawn arrow`,
+          timeout: 5_000,
+        })
+        .toBe(true);
+      const under = await hitTestAt(page, gesture.from, owner);
       const before = await fieldValue(page, mount);
 
       const finger = await Finger.open(page);
@@ -722,5 +734,72 @@ test.describe("touch census — revolve at its seeded 360 degrees", () => {
         `points on the drawn ring belong to the instrument — the rest are ` +
         `${seen.filter((s) => s !== "gauge").join(", ")}`,
     ).toBeGreaterThanOrEqual(REACH_FLOOR);
+  });
+});
+
+/**
+ * A GROWN ARC IS GRABBABLE ALONG ITS NEW LENGTH.
+ *
+ * The arc's hit sleeve is one DOM band per drawn segment, so a larger angle
+ * MOUNTS new bands. drei `Html` commits them in its own React root, and under
+ * `frameloop="demand"` that commit could land after the last frame the change
+ * asked for: the new bands then stayed at their mount-time `display: none`
+ * until something unrelated rendered. Measured before the fix, 3 runs of 3:
+ * 130 -> 300 deg left 45 of 80 bands hidden, 60 -> 180 left 32 of 48 — every
+ * band the growth added, i.e. a dead stretch of the drawn arc under a finger.
+ *
+ * Polled, because placing a band takes one frame after its commit; the defect
+ * is that the frame never came, which no timeout hides.
+ */
+test.describe("touch census — revolve arc grown after it is drawn", () => {
+  test("every band of the grown arc is laid out", async ({ page }) => {
+    const mount = MOUNTS.find((m) => m.id === "revolve-angle");
+    if (mount === undefined) throw new Error("no revolve-angle mount");
+    await installSceneProbe(page);
+    await mount.open(page);
+    await expectGaugeSettled(page, "revolve grown arc");
+
+    const bands = (): Promise<{ total: number; hidden: number }> =>
+      page.evaluate(() => {
+        const all = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-testid^="revolve-angle-sleeve"]',
+          ),
+        );
+        return {
+          total: all.length,
+          hidden: all.filter((b) => b.style.display === "none").length,
+        };
+      });
+
+    // Shrink, then grow: the grow is the step that MOUNTS bands. The poll
+    // demands more bands than the shrunk arc had, so it cannot pass on the
+    // old, already-placed set before the new ones commit.
+    for (const [from, to] of [
+      ["130", "300"],
+      ["60", "180"],
+    ] as const) {
+      await page.getByTestId("revolve-angle").fill(from);
+      await expect
+        .poll(async () => (await bands()).hidden, { timeout: 5_000 })
+        .toBe(0);
+      const shrunk = (await bands()).total;
+      await page.getByTestId("revolve-angle").fill(to);
+      await expect
+        .poll(
+          async () => {
+            const now = await bands();
+            return now.total > shrunk ? now.hidden : `${now.total} bands`;
+          },
+          {
+            message:
+              `after ${from} -> ${to} deg, bands the growth mounted are still ` +
+              `display:none, so a finger on that stretch of the drawn arc ` +
+              `hits the canvas`,
+            timeout: 5_000,
+          },
+        )
+        .toBe(0);
+    }
   });
 });

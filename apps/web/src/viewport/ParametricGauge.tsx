@@ -122,6 +122,7 @@ import {
 
 import { useCommandActionStore } from "../features/commandActions";
 import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
+import { attachBand } from "./gaugeBands";
 import { gaugePose, projectedSpineLength, spineLength } from "./gaugePose";
 import {
   ANNOTATION_LAYER,
@@ -1401,13 +1402,12 @@ export function ParametricGauge({
           {Array.from({ length: Math.max(1, drawing.spine.length - 1) }).map(
             (_, i) => (
               <div
-                // The bands are positional by construction — band `i` is the
-                // i-th segment back from the point — and the list only changes
-                // length when the tessellation does.
+                // Positional: band `i` is the i-th segment back from the point.
+                // A NEW band is owed a frame — see `attachBand`.
                 key={i}
-                ref={(node) => {
-                  bandRefs.current[i] = node;
-                }}
+                ref={(node) =>
+                  attachBand(bandRefs.current, i, node, invalidate)
+                }
                 aria-hidden
                 tabIndex={-1}
                 data-gauge={gaugeId}
