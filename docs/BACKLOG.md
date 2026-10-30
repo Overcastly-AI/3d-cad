@@ -287,7 +287,7 @@ One line each. The founder triages weekly; most are closed without work.
 
 - UPDATE-DRYRUN-PICKERS: an update offer's dry run checks the feature and its host only, not its pickers or the tree after earlier updates in the same Update all.
 - UPDATE-CABINETS-REFUSAL: a cabinets 1.0 -> 1.1 update that 1.1 refuses (a run past a partition) only surfaces as an Update all skip, with no preview on the row.
-- DECK-GUARD-CORNER: on a guarded `loft.deck` 1.3.0 a stair within 7 in of the deck's corner (flush included) is refused, as the run to the corner cannot hold its two posts.
+- DECK-RESIZE-STAIR-REFUSAL: on `loft.deck` 1.3.0 a deck edit that leaves a stair past the edge (narrowed under it) now refuses the deck write, naming the stair; before 1.3.0 the stair alone failed.
 - STAIRS-HEADROOM-DEFAULT: headroom (IRC R311.7.2) is checked only when a stairwell opening is typed; a free stair's default (0) reads as open above.
 - STAIRS-RISER-VOID: closed risers start on top of the tread below, leaving a 0.75 x 1 in void behind each tread's back edge, over the seat, under the riser board.
 - STAIRS-LANDING: a deck stair's stringers bear on grade with no landing pad or footing (DCA6 asks for one), and its handrail posts stand on grade unanchored.

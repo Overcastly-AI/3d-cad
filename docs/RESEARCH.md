@@ -3337,8 +3337,16 @@ and reframe it, a material per member, and a cut list that is always current.
     the stringer's, equally spaced at most 6 ft apart, rails and
     balusters filling the bays. A side keeps its corner posts' names
     (`front/0`, `front/end`); the rest are named by run (`front/run/1/0`).
-    A run under two posts (7 in) is refused, naming the stair: on the
-    stair's write a 422, as a window past its wall's end is. With no stair
+    A run from a corner under two posts (7 in, a stair flush with the
+    corner included) is the corner post alone, which is then the
+    opening's post on that side; a bay no wider than 4 in (IRC R312.1.3's
+    sphere) is closed by its posts and takes no rail, so no sliver rail is
+    cut (Chief's own rule could not be checked from this sandbox; the
+    sphere is the code's). A run between two stairs under two posts is
+    refused, naming both: on the stair's write a 422, as a window past its
+    wall's end is. An update whose dry run is refused says why ("Can't
+    preview this update: <the refusal>"). Golden `b1-stair-30-guard-corner`
+    (stair at X 18: 9 posts, rails 818 in, 72 balusters). With no stair
     1.3.0 is 1.2.0 member for member, and the stair stops warning
     `stair_deck_guard` on 1.3.0.
   - *The update.* `loft.deck` 1.2.0 -> 1.3.0 (and 1.1.0 -> 1.3.0) carry
