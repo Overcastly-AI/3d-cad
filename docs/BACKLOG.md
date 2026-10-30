@@ -80,9 +80,11 @@ are named in it and removed from Notes.
    subfloor; upper walls Z 118.5625..215.6875; every roof member raised
    107.09375 with its volume unchanged; a free stair of rise 107.09375 has
    14 risers of 7.649554 and 13 treads of 10 from Y 26 to the far header at
-   Y 156, with 97.125 - 2 x 7.649554 = 81.83 in headroom at the near header
-   (R311.7.2 needs a well only 117.61 long); no interference; stored floors
-   byte-identical.
+   Y 156 (its head plumb on the header's face, so its top nosing at Y
+   154.125), with 97.125 - 2.1875 x 7.649554 = 80.39 in headroom at the near
+   header (corrected 2026-10-30: 81.83 put the nosing on the header's face;
+   R311.7.2 needs 117.61 from the nosing, a well of 119.49); no
+   interference; stored floors byte-identical.
 3. [ ] **GYPSUM-SHEETS** (backend-builder for the count; kernel-architect
    for the ceiling layer on `loft.roof` and goldens). Yards sell drywall by
    the sheet, but Loft counts it by area (against the 2026-10-23
@@ -309,6 +311,10 @@ One line each. The founder triages weekly; most are closed without work.
 - UPDATE-DRYRUN-PICKERS: an update offer's dry run checks the feature and its host only, not its pickers or the tree after earlier updates in the same Update all.
 - UPDATE-CABINETS-REFUSAL: a cabinets 1.0 -> 1.1 update that 1.1 refuses (a run past a partition) only surfaces as an Update all skip, with no preview on the row.
 - DECK-RESIZE-STAIR-REFUSAL: on `loft.deck` 1.3.0 a deck edit that leaves a stair past the edge (narrowed under it) now refuses the deck write, naming the stair; before 1.3.0 the stair alone failed.
+- FLOOR-HANGERS: `loft.floor` 1.4.0's stairwell lists no joist hangers; B7's well wants 4 single (tails on headers) and 4 double (headers on trimmers), Each in the cut list and price book (a new hardware key and migration).
+- SIDING-RIM-OSB: below the subfloor B7's siding stands 7/16 in proud of the floor's rim, which has no OSB; a second storey's band (floor 2's rim, Z 108.59..118.56) has none either. A framer laps the wall sheathing down over the rim (SECOND-FLOOR left it).
+- STAIRS-HEADROOM-DEFAULT: a free stair checks headroom (IRC R311.7.2) only against a typed opening; reading the well from a picked `loft.floor` 1.4.0 needs a stair 1.1.0 (SECOND-FLOOR kept 1.0.0).
+- TREE-BOUND-2000: SECOND-FLOOR raised MAX_TREE_FEATURES 1000 -> 2000 (B7 two storeys is 1 078); a three-storey or sided and finished two-storey house will meet it again, and the kernel takes ~3 min to build 470 bodies.
 - STAIRS-RISER-VOID: closed risers start on top of the tread below, leaving a 0.75 x 1 in void behind each tread's back edge, over the seat, under the riser board.
 - STAIRS-LANDING: a deck stair's stringers bear on grade with no landing pad or footing (DCA6 asks for one), and its handrail posts stand on grade unanchored.
 - STAIRS-INTERIOR-RAIL: a free stair's handrail stands on posts (the top one as tall as the rise + 36 in); an interior stair beside a wall would take wall brackets.

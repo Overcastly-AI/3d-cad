@@ -3508,6 +3508,62 @@ and reframe it, a material per member, and a cut list that is always current.
     which calls every point outside once the face's plane is about 300 in
     from the origin: B7 at 28 ft could not draw its right wall's window
     unit. The test now uses `BRepClass_FaceClassifier` (2D, any distance).
+- **Decided while stacking a second storey** (SECOND-FLOOR, 2026-10-30;
+  Chief Architect stacks floors on levels, frames the floor of the level
+  above on the walls below with Build Floor and cuts the well with Auto
+  Stairwell; Revit hosts a floor on a level and cuts a shaft opening):
+  - *The floor stands on picked walls, not on a level object.* `loft.floor`
+    1.4.0 adds On walls, a pick of `loft.wall` features (the roof's Pick
+    Walls, so the form and its picker are the roof's). Its base is their
+    plate (the top of the top plate) and it has no sills: its rims and end
+    joists bear on the plates. The plan stays the floor's own (outline or
+    typed rectangle), every picked wall must stand under it and all at one
+    plate height, or it is refused naming On walls. A level would be a new
+    feature kind every Build tool must learn; the walls already carry their
+    height, and walls on the new floor read its top (On floor) exactly as
+    floor 1's walls do, so the roof on them is B7's raised, member for
+    member. Elevation and the sill inputs are hidden while walls are
+    picked.
+  - *A typed stairwell, framed as R502.10 and framing guides frame one.*
+    Stairwell (None, or Framed opening: the clear opening's near corner
+    along the floor's width and depth, and its two sizes; B7's well the
+    defaults). Trimmers and headers are always doubled (R502.10 asks for it
+    over a 4 ft header span; framers double them at any span). The trimmers
+    run rim to rim beside the opening; a layout joist exactly where an
+    outer ply goes IS that ply and keeps its id (B7's joists at X 16 and
+    64, "doubled inside"); one inside the opening becomes two tail joists
+    (`tail_joist/2m`, `/2m+1` for `joist/m`), from each header to its rim;
+    one that would collide with a trimmer ply is left out (the trimmer
+    carries its strip). Headers run between the inner trimmers. A well
+    whose doubled framing would run into an end joist or rim is refused.
+    The subfloor's 1.1.0 panels are cut round it with the sheathing's
+    region cut, a panel split in two being two pieces (`row/r/c/k`).
+    Hangers (a tail on its header, a doubled header on its trimmer: B7's 4
+    single and 4 double) are not listed yet (BACKLOG FLOOR-HANGERS).
+  - *Updates are quiet.* Floor 1.3.0 -> 1.4.0 carries every input, so both
+    new inputs are off and the floor is 1.3.0's member for member; 1.2.0
+    goes straight to 1.4.0 through 1.3.0's map. No update adds a well or
+    puts a floor on walls.
+  - *The stair reads the opening it is typed.* `loft.stair` 1.0.0 is
+    released, so the free stair's headroom check reads its typed opening
+    and floor depth (STAIRS-HEADROOM-DEFAULT stays a note). With STAIRS'
+    closed treads the head is plumb 1.875 in behind the top nosing (0.75 +
+    11.125 - 10), so a stair whose head is on the far header's face (Y 156)
+    has its nosing at Y 154.125: the near header's face is 118.125 from it.
+  - *The PM's numbers, re-derived.* Levels, the well's framing (4 tails of
+    31.5, 4 headers of 43.5, 5 220 in^2 out of the subfloor) and the stair
+    (14 risers of 7.649554, 13 treads of 10, Y 26 to the far header) are
+    the spec's. The headroom is 97.125 - 2.1875 R = 80.3916 in, not 97.125
+    - 2R = 81.83: the spec put the floor's nosing on the header's face,
+    which would hang the stringers' heads 1.875 in inside the header. 80 in
+    needs 117.6131 in from the nosing (the spec's 117.61), 119.4881 between
+    the header faces; the 120 well passes with 0.39 to spare.
+  - *The tree bound.* B7 with its second storey, roof and stair sends
+    1 078 features to geometry (a sketch and an extrude a body), over audit
+    G2's 1000, which documents refused; `MAX_TREE_FEATURES` and
+    `MAX_BODY_NAMES` are 2000. Golden `b7-second-floor`: 470 bodies,
+    solid for solid against an independent build123d script on STEP,
+    nothing interfering, probed exactly.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

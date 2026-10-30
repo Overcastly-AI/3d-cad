@@ -436,6 +436,25 @@ gables' lap over the gable OSB 2 x 5 705.19: 99 778.90 x 1.10 / 1 008 =
 in. Vinyl: 7.62, **8 squares**; cedar bevel (900 in² a board) 122. Golden
 `b7-siding`: 329 bodies, 349 796.857 in³.
 
+**Second storey** (SECOND-FLOOR, `loft.floor` 1.4.0 On walls, a framed
+Stairwell): floor 2 is floor 1 less its sills on the walls' top plates,
+raised 107.09375 (joists Z 108.59375..117.84375, subfloor to 118.5625); the
+upper walls 118.5625..215.6875; the roof B7's, every member raised
+107.09375. The well, 43.5 x 120 clear (X 18.25..61.75, Y 36..156): the
+joists at X 16 and 64 doubled inside (trimmers 16.75..18.25 and
+61.75..63.25, rim to rim), the joists at X 32 and 48 cut into 4 tails of
+31.5 (Y 1.5..33, 159..190.5) on 4 header plies 2x10 x 43.5 (Y 33..36,
+156..159), 8 hangers (4 single on the headers, 4 double on the trimmers;
+not yet listed), 5 220 in² out of the subfloor (its row-2 panel cut in
+two). The free stair: rise 107.09375, 14 risers of 7.649554, 13 treads of
+10, closed; its head plumb on the far header's face (Y 156), so its top
+nosing is 1.875 in front (Y 154.125) and its bottom riser line at Y 26.
+Headroom under the near header's face (118.125 from the nosing): 97.125 -
+2.1875 x 7.649554 = **80.39 in** (IRC R311.7.2: 80; the PM's 81.83 put the
+nosing on the header's face); 80 in needs 117.61 from the nosing, a well
+of 119.49 between the header faces. Golden `b7-second-floor`: 470 bodies
+(no openings upstairs).
+
 **Drawings** (HOUSE-DRAWINGS): plan cut 48 in above the subfloor, 24'-0" x
 16'-0" overall; front string 5'-0", 7'-0", 7'-0", 5'-0", back 12'-0" +
 12'-0", sides 8'-0" + 8'-0"; elevations: plate 8'-1 1/8", window heads
