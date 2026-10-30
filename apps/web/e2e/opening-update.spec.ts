@@ -16,25 +16,28 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * 1.1.0, the gable `loft.roof` 1.4.0, the floor 1.2.0), so its 2x6 headers
  * are two plies with a 2-1/2 in void. As Onshape marks a custom feature whose
  * Feature Studio is newer and Fusion badges stale content, each out-of-date
- * Build feature that an update changes wears an Update badge (the floor and
- * the walls, whose updates change no member, none: PLUGIN-UPDATE-ALL), its
+ * Build feature that an update changes wears an Update badge (the floor,
+ * whose update changes no member, none: PLUGIN-UPDATE-ALL; the walls add
+ * their Exterior finish, SIDING-TRIM), its
  * editor says what "Update to 1.5.0" adds, and the tree offers one "Update
  * all Build features". That one step takes the headers to 18 plies (was 12)
  * and draws 12 spacers of 1/2 plywood, cut from one 4x8, and ties the gable
  * with its 11 ceiling joists and frames its gable ends (22 studs, 12 OSB
- * panels: GABLE-END-STUDS): 264 852.3789 + 1 769.625 + 1 179.75 +
- * 22 887.596423 + 4 268 + 4 992.0374 = 299 949.3876 in³ (golden
+ * panels: GABLE-END-STUDS), sides the walls and the gables in fibre-cement
+ * lap with corner boards and casing (SIDING-TRIM): 264 852.3789 +
+ * 1 769.625 + 1 179.75 + 22 887.596423 + 4 268 + 4 992.0374 + 34 217.2285
+ * + 3 565.7410 = 337 732.3571 in³ (golden
  * `b7-update-all`). Ctrl+Z restores
  * 264 852.3789 and every pin.
  */
 
-const AFTER = 299949.387649;
+const AFTER = 337732.357136;
 
 const UPDATED = {
   Floor: "1.3.0",
-  Walls: "1.4.0",
+  Walls: "1.5.0",
   ...Object.fromEntries(OPENING_NAMES.map((n) => [n, "1.5.0"])),
-  Roof: "1.7.0",
+  Roof: "1.8.0",
 };
 
 test.describe("Updating B7's out-of-date Build features", () => {
@@ -58,16 +61,12 @@ test.describe("Updating B7's out-of-date Build features", () => {
       .poll(() => partVolume(page), { timeout: 120_000 })
       .toBeCloseTo(B7_SAVED_IN3, 2);
 
-    // Every Build feature an update changes is badged; the floor and the
-    // walls (no member changes) are not.
+    // Every Build feature an update changes is badged; the floor (no member
+    // changes) is not.
     const strip = page.getByTestId("feature-update-strip");
-    await expect(strip).toContainText("7 Build features out of date");
-    for (const index of [1, 2]) {
-      await expect(
-        page.getByTestId(`feature-update-badge-${index}`),
-      ).toHaveCount(0);
-    }
-    for (const index of [3, 4, 5, 6, 7, 8, 9]) {
+    await expect(strip).toContainText("8 Build features out of date");
+    await expect(page.getByTestId("feature-update-badge-1")).toHaveCount(0);
+    for (const index of [2, 3, 4, 5, 6, 7, 8, 9]) {
       await expect(
         page.getByTestId(`feature-update-badge-${index}`),
       ).toBeVisible();
@@ -145,6 +144,6 @@ test.describe("Updating B7's out-of-date Build features", () => {
     expect(await storedPins(page, partId, account.token)).toEqual(
       B7_SAVED_PINS,
     );
-    await expect(strip).toContainText("7 Build features out of date");
+    await expect(strip).toContainText("8 Build features out of date");
   });
 });

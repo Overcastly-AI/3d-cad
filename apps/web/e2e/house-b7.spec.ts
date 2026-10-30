@@ -346,6 +346,10 @@ test.describe("B7 house — built, priced and edited from Build features", () =>
       await page.getByTestId("plugin-input-elevation_mm").fill("11.46875");
       await page.getByTestId("plugin-input-stud_profile-us_2x6").click();
       await page.getByTestId("plugin-input-sheathing").selectOption("osb_7_16");
+      // SIDING-TRIM: the round's walls are bare OSB (siding.spec.ts sides them).
+      await page
+        .getByTestId("plugin-input-exterior_finish")
+        .selectOption("none");
       await submit(page);
       await expect(rows).toHaveCount(index + 2);
     }

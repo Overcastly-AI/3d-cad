@@ -254,7 +254,7 @@ test.describe("Ceiling joists — B7's gable tied at the plates", () => {
       ["Ceiling joist", "13", "192", "16 ft"],
     ]);
 
-    // Stored at 1.7.0 with the joists' default kept.
+    // Stored at 1.8.0 with the joists' default kept.
     const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });
@@ -270,7 +270,7 @@ test.describe("Ceiling joists — B7's gable tied at the plates", () => {
         }[];
       }
     ).features;
-    expect(features[3]?.feature.params.plugin_version).toBe("1.7.0");
+    expect(features[3]?.feature.params.plugin_version).toBe("1.8.0");
     expect(features[3]?.feature.params.inputs?.ceiling_joists).toBe(
       "beside_common",
     );

@@ -268,7 +268,7 @@ test.describe("Gable ends — B7's gables framed and sheathed", () => {
     await openCutList(page);
     await expectStuds(page, AT_8_12);
 
-    // Stored at 1.7.0 with the default kept.
+    // Stored at 1.8.0 with the default kept.
     const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });
@@ -284,7 +284,7 @@ test.describe("Gable ends — B7's gables framed and sheathed", () => {
         }[];
       }
     ).features;
-    expect(features[3]?.feature.params.plugin_version).toBe("1.7.0");
+    expect(features[3]?.feature.params.plugin_version).toBe("1.8.0");
     expect(features[3]?.feature.params.inputs?.gable_ends).toBe(
       "studs_sheathing",
     );

@@ -216,6 +216,8 @@ test.describe("B7 from one outline sketch", () => {
     await expect(page.getByTestId("plugin-input-elevation_mm")).toHaveCount(0);
     await choose(page, "stud_profile", "us_2x6");
     await choose(page, "sheathing", "osb_7_16");
+    // SIDING-TRIM: the outline's walls stay bare OSB (siding.spec.ts sides them).
+    await choose(page, "exterior_finish", "none");
     await submit(page);
     await expect(rows).toHaveCount(3);
     await expectSolved(page);
