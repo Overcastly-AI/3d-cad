@@ -520,7 +520,7 @@ def test_an_update_that_re_lays_a_floor_is_left_for_its_own_decision(
     assert skipped["message"].endswith("Update it on its own.")
     assert _pins({f["name"]: f for f in body["features"]}) == {
         "Floor": "1.2.0",
-        "Deck": "1.2.0",
+        "Deck": "1.3.0",
     }
     # On its own it updates, re-laid as it said.
     alone = part.update([rows["Floor"]["id"]])
@@ -544,7 +544,7 @@ def test_b1_at_deck_1_1_0_gains_its_footings_and_post_bases(
 ) -> None:
     part = _deck(client, "1.1.0")
     offer = part.rows()["Deck"]["plugin_update"]
-    assert offer is not None and offer["to_version"] == "1.2.0"
+    assert offer is not None and offer["to_version"] == "1.3.0"
     assert offer["adds"] == ["3 pier footings", "3 post bases"]
     assert offer["summary"].startswith("Adds 3 pier footings and 3 post bases. ")
     before = part.rows()["Deck"]["feature"]["params"]["expansion"]
@@ -627,5 +627,5 @@ def test_an_update_it_cannot_preview_is_left_for_its_own_decision(
     assert (skipped["name"], skipped["reason"]) == ("Floor", "separate")
     assert _pins({f["name"]: f for f in body["features"]}) == {
         "Floor": "1.2.0",
-        "Deck": "1.2.0",
+        "Deck": "1.3.0",
     }

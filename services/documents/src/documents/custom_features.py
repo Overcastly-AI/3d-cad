@@ -606,17 +606,16 @@ def prepare_custom_write(
 
 
 def host_id(envelope: AuthoredEnvelope) -> uuid.UUID | None:
-    """The feature *envelope* names as its host (a window's wall), or ``None``
-    (not hosted, or its plugin is not on this server)."""
+    """The feature *envelope* names as its host (a window's wall, or the
+    deck a stair offers its inputs to), or ``None`` (not hosted, or its
+    plugin is not on this server)."""
     if not isinstance(envelope, CustomFeature):
         return None
     try:
-        manifest = PLUGINS.get(
-            envelope.params.plugin_id, envelope.params.plugin_version
-        ).manifest
+        plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
     except PluginError:
         return None
-    return host_of(manifest, envelope.params.inputs)
+    return host_of(plugin.manifest, envelope.params.inputs, plugin)
 
 
 def stored_host_id(row: db.Feature) -> uuid.UUID | None:

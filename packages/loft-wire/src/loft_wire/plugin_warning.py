@@ -25,8 +25,8 @@ stringer's throat under AWC DCA6's 5 in (``stair_throat_thin``), a cut
 stringer spanning more than DCA6's 6'-0" horizontally between supports
 (``stair_stringer_span``), open sides
 more than 30 in up that IRC R312.1.1 guards (``stair_guard_required``), and
-a deck whose guard crosses the stair's head (``stair_deck_guard``: the
-stair never changes the deck). A layout that breaks IRC R311.7 is refused
+a deck before 1.3.0 whose guard crosses the stair's head (``stair_deck_guard``:
+1.3.0 opens its guard at the stair). A layout that breaks IRC R311.7 is refused
 instead, never warned.
 """
 

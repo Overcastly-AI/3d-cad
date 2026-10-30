@@ -395,12 +395,12 @@ B1 = deck.GOLDEN_INPUTS["plugin-deck-v1.2-b1-footings-16ft"]
 def _deck_update() -> tuple[list[ExpandedMember], list[ExpandedMember]]:
     old = REGISTRY.get("loft.deck", "1.1.0")
     update = update_for("loft.deck", "1.1.0", REGISTRY)
-    assert update is not None and update.to_version == "1.2.0"
+    assert update is not None and update.to_version == "1.3.0"
     stored = canonical_inputs(old.manifest, B1)
     moved = canonical_inputs(
         newest("loft.deck").manifest, updated_inputs(update, stored)
     )
-    return deck.members(B1, "1.1.0"), deck.members(moved, "1.2.0")
+    return deck.members(B1, "1.1.0"), deck.members(moved, "1.3.0")
 
 
 def test_b1_gains_three_footings_eight_bags_and_three_post_bases() -> None:

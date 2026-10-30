@@ -63,6 +63,17 @@ practice; noted in RESEARCH §23):
   and bottom rails on edge between the posts, the top 36 in above the
   decking and the bottom 3.5 in above it; 2x2 balusters between the rails,
   equally spaced with no clear gap over 4 in (IRC R312).
+* The guard opens at a stair (1.3.0, DECK-GUARD-OPENING), as Chief
+  Architect's deck railing breaks where a stair lands: a ``loft.stair`` that
+  picks the deck offers it its inputs (``ExpandInputs.hosted``, as a window
+  is hosted in a wall), and the side it lands on is broken between the
+  stair's outer stringer faces (its position less and plus half its
+  width). Each run either side is laid out as a whole side is, a post at
+  both ends (so one each side of the stair, its face on the stringer's
+  face) and no more than 6 ft apart; its rails and balusters fill its bays.
+  A run too short for its two posts is refused. The deck reads only the
+  stair's inputs, and the stair only the deck's, so neither expansion
+  depends on the other's. With no stair, 1.3.0 is 1.2.0 member for member.
 
 Inputs are millimetres on the wire (their names end ``_mm``, so a §20 formula
 drives them) and inches inside; every inch value is rounded to 1e-9 in so a
@@ -71,7 +82,7 @@ round trip through millimetres gives back the exact spec value.
 
 import itertools
 import math
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -126,6 +137,9 @@ _INCH_DIGITS = 9
 _EPS = 1e-9
 
 _PT_PINE: MaterialKey = "southern_pine_pt"
+#: The plugin whose features open the guard (1.3.0), and the edges it names.
+STAIR_PLUGIN = "loft.stair"
+_STAIR_EDGES = frozenset({"front", "left", "right"})
 
 
 def _mm(inches: float) -> float:
@@ -408,6 +422,9 @@ def baluster_count(clear: float, size: float = 1.5) -> int:
 Rect = tuple[float, float, float, float]  # world x0, x1, y0, y1 (in)
 #: The world axis a guard side runs along.
 Axis = Literal["x", "y"]
+#: 1.3.0's guard openings: a guarded side's name -> the stairs that land on
+#: it, as (low, high, stair name) along the side (in), sorted.
+Openings = Mapping[str, list[tuple[float, float, str]]]
 
 
 def _rectangle(rect: Rect) -> list[SketchLine]:
@@ -624,8 +641,24 @@ def expand_v1_2(inputs: ExpandInputs) -> Iterator[Member]:
     yield from _expand(inputs, named=True, footings=_footings(inputs))
 
 
+def expand_v1_3(inputs: ExpandInputs) -> Iterator[Member]:
+    """1.3.0: 1.2.0's members, and the guard open at each stair that picks
+    the deck (DECK-GUARD-OPENING): a side a stair lands on is laid out as
+    runs either side of it, a post at each end of each run. With no stair it
+    is 1.2.0 member for member."""
+    yield from _expand(
+        inputs,
+        named=True,
+        footings=_footings(inputs),
+        openings=stair_openings(inputs),
+    )
+
+
 def _expand(
-    inputs: ExpandInputs, named: bool, footings: _Footings | None = None
+    inputs: ExpandInputs,
+    named: bool,
+    footings: _Footings | None = None,
+    openings: Openings | None = None,
 ) -> Iterator[Member]:
     width = _inches("width_mm", inputs)
     depth = _inches("depth_mm", inputs)
@@ -829,7 +862,7 @@ def _expand(
         )
 
     if guard:
-        yield from _guard(e, width, depth, height, attached, guard_mat)
+        yield from _guard(e, width, depth, height, attached, guard_mat, openings)
 
 
 def _piers(
@@ -869,6 +902,64 @@ def _piers(
         )
 
 
+def stair_openings(inputs: ExpandInputs) -> dict[str, list[tuple[float, float, str]]]:
+    """The guard openings of the stairs that pick this deck (1.3.0): each
+    ``loft.stair`` among :attr:`ExpandInputs.hosted` opens its edge between
+    its outer stringers' faces, its position less and plus half its width
+    (the stair's width is across those faces). Read from the stair's inputs,
+    never its members, so the deck and its stairs cannot cycle."""
+    out: dict[str, list[tuple[float, float, str]]] = {}
+    for hosted in inputs.hosted:
+        if hosted.plugin_id != STAIR_PLUGIN:
+            continue
+        stair = hosted.inputs
+        edge = stair.choice("edge")
+        if edge not in _STAIR_EDGES:
+            raise _unsupported(f"{hosted.name}: {edge!r} is not a deck edge", "guard")
+        centre = _inches("position_mm", stair)
+        half = _inches("width_mm", stair) / 2
+        out.setdefault(edge, []).append((centre - half, centre + half, hosted.name))
+    for cuts in out.values():
+        cuts.sort()
+    return out
+
+
+def _run_centres(
+    side: str, length: float, cuts: list[tuple[float, float, str]], post: float
+) -> list[list[float]]:
+    """Post centres of each run of a side broken at *cuts*, low to high: a
+    post at both ends of a run (its faces on the stair's stringer faces or
+    the side's ends), equally spaced, no more than 6 ft apart. A run too
+    short for its two posts is refused, naming the stair."""
+    out: list[list[float]] = []
+    start, after = 0.0, ""
+    for lo, hi, name in [*cuts, (length, length, "")]:
+        run = lo - start
+        if run < 2 * post - _EPS:
+            where = (
+                f"{after} and {name}: only {max(run, 0.0):g} in of the {side} "
+                "guard is left between them"
+                if after and name
+                else f"{name or after}: only {max(run, 0.0):g} in of the {side} "
+                "guard is left to the deck's corner"
+            )
+            raise _unsupported(
+                f"{where}, and the guard needs a {post:g} in post at each side "
+                "of a stair: move the stair, or turn the guard off.",
+                "guard",
+            )
+        first, last = start + post / 2, lo - post / 2
+        bays = max(1, math.ceil((last - first) / GUARD_POST_SPACING - _EPS))
+        out.append(
+            [
+                last if n == bays else first + (last - first) * n / bays
+                for n in range(bays + 1)
+            ]
+        )
+        start, after = hi, name
+    return out
+
+
 def _guard(
     e: _Emitter,
     width: float,
@@ -876,8 +967,11 @@ def _guard(
     floor: float,
     attached: bool,
     material: MaterialKey | None,
+    openings: Openings | None = None,
 ) -> Iterator[Member]:
-    """The guard on the open sides, in world coordinates (module docstring)."""
+    """The guard on the open sides, in world coordinates (module docstring).
+    *openings* (1.3.0) breaks a side at each stair: its runs either side are
+    laid out as a side is, a post at each end of each run."""
     post_p = lumber_profile("us_4x4")
     rail_p = lumber_profile("us_2x4")
     baluster_p = lumber_profile("us_2x2")
@@ -909,16 +1003,35 @@ def _guard(
             posts.append((x, y, name))
 
     for side, axis, line, length, backwards in sides:
-        along = equal_centres(length, ps, GUARD_POST_SPACING)
-        if backwards:
-            along = along[::-1]
-        for k, s in enumerate(along):
-            name = f"{side}/{_ordinal(k, len(along))}"
-            add_post(*((s, line) if axis == "x" else (line, s)), name)
-        for bay, (s0, s1) in enumerate(itertools.pairwise(along)):
-            lo, hi = min(s0, s1), max(s0, s1)
-            bay_name = _ordinal(bay, len(along) - 1)
-            bays.append((side, bay_name, axis, line, lo + half, hi - half))
+        cuts = (openings or {}).get(side, [])
+        # A side with no stair is one run named as the side (1.0.0-1.2.0's
+        # names); a stair breaks it into runs named in walking order.
+        runs: list[tuple[str, list[float]]] = (
+            [(side, equal_centres(length, ps, GUARD_POST_SPACING))]
+            if not cuts
+            else [
+                (f"{side}/run/{r}", centres)
+                for r, centres in enumerate(
+                    _run_centres(side, length, cuts, ps)[:: -1 if backwards else 1]
+                )
+            ]
+        )
+        for r, (prefix, along) in enumerate(runs):
+            if backwards:
+                along = along[::-1]
+            for k, s in enumerate(along):
+                name = f"{prefix}/{_ordinal(k, len(along))}"
+                if cuts and k == 0 and r == 0:
+                    name = f"{side}/0"  # the side's corners keep their names
+                elif cuts and k == len(along) - 1 and r == len(runs) - 1:
+                    name = f"{side}/end"
+                add_post(*((s, line) if axis == "x" else (line, s)), name)
+            for bay, (s0, s1) in enumerate(itertools.pairwise(along)):
+                lo, hi = min(s0, s1), max(s0, s1)
+                if hi - lo - ps <= _EPS:
+                    continue  # two posts face to face: no rail between
+                bay_name = _ordinal(bay, len(along) - 1)
+                bays.append((prefix, bay_name, axis, line, lo + half, hi - half))
 
     top = floor + GUARD_HEIGHT
     for x, y, name in posts:
@@ -1097,4 +1210,19 @@ MANIFEST_V1_2 = PluginManifest.model_validate(
 #: 1.2.0 shares out the footings as it does their posts.
 DECK_V1_2 = Plugin(
     MANIFEST_V1_2, expand_v1_2, renumbered_roles=_SHARED_OUT | {"footing"}
+)
+
+MANIFEST_V1_3 = MANIFEST_V1_2.model_copy(
+    update={
+        "version": "1.3.0",
+        "description": MANIFEST_V1_2.description
+        + " The guard opens where a stair lands on the deck's edge, with a post "
+        "at each side (Chief Architect's deck railing).",
+    }
+)
+
+#: 1.3.0 reads the stairs that pick it (their inputs, as a wall reads its
+#: windows): a stair's opening re-lays the runs of the side it lands on.
+DECK_V1_3 = Plugin(
+    MANIFEST_V1_3, expand_v1_3, renumbered_roles=_SHARED_OUT | {"footing"}
 )

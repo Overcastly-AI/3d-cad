@@ -51,8 +51,15 @@ taken by Update all, which lists it as needing its own decision.
   spacing does not divide the floor, no choice reproduces them: the map
   keeps the span 1.2.0 framed and the update re-lays the framing (B7's own
   drawing is byte for byte).
-* ``loft.deck`` 1.1.0 -> 1.2.0, every input as it is: each post gains its
-  round pier footing and post base (1.2.0's defaults; B1's 3 piers).
+* ``loft.deck`` 1.1.0 -> 1.3.0, every input as it is: each post gains its
+  round pier footing and post base (1.2.0's defaults; B1's 3 piers), and
+  the guard opens at each stair that picks the deck (1.3.0).
+* ``loft.deck`` 1.2.0 -> 1.3.0, every input as it is: a guarded deck opens
+  its guard where a stair lands on its edge, the side's runs either side of
+  the stair laid out again with a post at each side (DECK-GUARD-OPENING).
+  That re-lays the side's guard posts, rails and balusters, so the update is
+  offered on its own; a deck with no stair, or no guard, is 1.2.0 member for
+  member and its update is quiet.
 * ``loft.foundation`` 1.0.0 -> 1.1.0, every input as it is: the stem lists
   the vents and the access door it cuts (B9's 5 and 1), priced Each.
 * ``loft.cabinets`` 1.0.0 -> 1.1.0: 1.1.0 stands a run on the wall's
@@ -270,9 +277,15 @@ _FLOOR = (
     "Joists bear on replaces Joist direction, set to the span this floor "
     "frames; 1.3.0 lays an outline's floor from its lowest corner."
 )
+_GUARD_OPENS = (
+    "opens the guard where a stair lands on the deck, with a post at each side"
+)
 _DECK = (
     "Stands each post on a round pier footing with its post base, the "
-    "concrete bought in 80 lb bags."
+    f"concrete bought in 80 lb bags, and {_GUARD_OPENS}."
+)
+_DECK_1_2 = (
+    f"{_GUARD_OPENS[0].upper()}{_GUARD_OPENS[1:]}; a deck with no stair is unchanged."
 )
 _FOUNDATION = (
     "Lists the foundation vents and the access door set in the stem wall, priced Each."
@@ -281,6 +294,9 @@ _CABINETS = (
     "Stands the run on the wall's finished face, its Back gap and Distance "
     "taken from the gypsum, so the run keeps its place."
 )
+
+#: Why a deck update re-lays its guard.
+_AT_THE_STAIR = " to open the guard at the stair"
 
 # --- The table ----------------------------------------------------------------------
 
@@ -317,7 +333,8 @@ _TABLE: tuple[tuple[str, tuple[str, ...], str, str, InputMap, str], ...] = (
         _floor_to_1_3,
         " from the outline's lowest corner",
     ),
-    ("loft.deck", ("1.1.0",), "1.2.0", _DECK, _same, ""),
+    ("loft.deck", ("1.1.0",), "1.3.0", _DECK, _same, _AT_THE_STAIR),
+    ("loft.deck", ("1.2.0",), "1.3.0", _DECK_1_2, _same, _AT_THE_STAIR),
     ("loft.foundation", ("1.0.0",), "1.1.0", _FOUNDATION, _same, ""),
     (
         "loft.cabinets",
