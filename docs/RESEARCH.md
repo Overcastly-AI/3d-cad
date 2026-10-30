@@ -3286,7 +3286,7 @@ and reframe it, a material per member, and a cut list that is always current.
     sides over 30 in up with no guard, whose
     openings would stop a 4-3/8 in sphere (R312.1.1, R312.1.3:
     `stair_guard_required`), and a deck guard across its head
-    (`stair_deck_guard`: the guard opening is a later deck release). The
+    (`stair_deck_guard`, on a deck before 1.3.0: DECK-GUARD-OPENING). The
     riser variance (3/8 in) is zero by construction; 4-3/8 in is the stair
     guard's sphere, not a variance (the brief had them crossed).
   - *Treads, risers, handrail.* Treads are whole boards the stair's width;
@@ -3308,6 +3308,55 @@ and reframe it, a material per member, and a cut list that is always current.
     `free-stair-107`, matched solid for solid to an independent build123d
     script on STEP, the throat measured on every exported stringer, no pair
     interfering (the deck's members among them), probed exactly.
+- **Decided while opening the deck's guard at its stair**
+  (DECK-GUARD-OPENING, 2026-10-29; Chief Architect's deck railing breaks
+  where a stair lands on the deck's edge, newels each side):
+  - *How the deck learns where the stair is: it reads its dependents'
+    inputs.* The stair picks the deck, so the stair is the later feature
+    and the dependency graph already runs deck -> stair. A deck that read
+    the stair's MEMBERS (its stringers) would close a cycle, and one that
+    owned an opening input would need a second, hand-kept copy of the
+    stair's place. Instead the stair offers its INPUTS to the deck it
+    picks, through the hosting channel a window uses in its wall
+    (`ExpandInputs.hosted`): `Plugin.offers_inputs_to = "deck"` on
+    `loft.stair` 1.0.0, a registry attribute outside the manifest, so no
+    released manifest changes and the pick stays optional (a free stair
+    offers nothing). The deck's expansion reads the stair's edge,
+    position and width, the stair's reads the deck's stored inputs, and
+    neither reads an expansion, so there is no cycle and each rebuild is
+    a pure function of the two rows' inputs, in tree order. Documents
+    re-expands the deck when the stair is written, moved, suppressed or
+    deleted (`reexpand_hosts`) and the stair when the deck is written
+    (`reexpand_pickers`), in the same write. Decks 1.0.0-1.2.0 receive the
+    stair too and ignore it: frozen, byte for byte.
+  - *The opening.* `loft.deck` 1.3.0 breaks the guarded side a stair lands
+    on (front, left or right) between the stair's outer stringer faces,
+    its position less and plus half its width (the stair's width is
+    across those faces). Each run either side is laid out as a whole side
+    is: posts at both ends, so one each side of the stair with its face on
+    the stringer's, equally spaced at most 6 ft apart, rails and
+    balusters filling the bays. A side keeps its corner posts' names
+    (`front/0`, `front/end`); the rest are named by run (`front/run/1/0`).
+    A run under two posts (7 in) is refused, naming the stair: on the
+    stair's write a 422, as a window past its wall's end is. With no stair
+    1.3.0 is 1.2.0 member for member, and the stair stops warning
+    `stair_deck_guard` on 1.3.0.
+  - *The update.* `loft.deck` 1.2.0 -> 1.3.0 (and 1.1.0 -> 1.3.0) carry
+    every input. With no stair, or no guard, nothing changes and the
+    update is quiet. A guarded deck with a stair gains posts and rails at
+    the opening and its front's posts, rails and balusters move, which
+    `updates.relaid` counts as re-laid, so the update is `separate` and
+    its badge says so (B1: "Re-lays 2 guard posts, 6 rails and 33
+    balusters to open the guard at the stair. Adds 2 guard posts and 2
+    rails.").
+  - *Numbers.* B1 guarded, stair at X 96: posts at X 1.75, 39, 76.25 and
+    115.75, 153, 190.25 on the front (faces at X 78 and 114), 10 in all
+    (8 closed); rails 8 x 66.75 and 8 x 33.75, a course 402 in against
+    445 (the front's 192 - 36 - 6 x 3.5 = 135 against 192 - 4 x 3.5 =
+    178), 86 in less over both courses; balusters 72 (81). Golden
+    `b1-stair-30-guard-opening`, 159 solids, matched solid for solid to an
+    independent build123d script on STEP, 88 560.870607 in³ by hand, no
+    pair interfering, probed exactly.
 - **Decided while closing the gables** (GABLE-END-STUDS, 2026-10-29;
   Chief Architect's Build Framing frames a gable wall up to the roof with
   its studs in line with the wall below and carries the wall's layers up
