@@ -223,6 +223,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "b1-stair-30-guard-corner": 1e-4,
     # The free 14-riser stair: 5.1e-4 mm^3 measured (the twin 1.2e-4).
     "free-stair-107": 1e-3,
+    # B7 with a second storey and a stair through its well (SECOND-FLOOR):
+    # b7-outline's class, measured -3.6e-4 mm^3 (the twin -3.8e-4).
+    "b7-second-floor": 1e-3,
 }
 
 #: The second case: the golden's shape class, other numbers. Its spline's

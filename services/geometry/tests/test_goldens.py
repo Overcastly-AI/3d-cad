@@ -353,6 +353,10 @@ ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset(
         "b1-stair-30-guard-opening",
         # Its stair flush with the deck's corner: 1.4e-5 measured (twin 3.1e-5).
         "b1-stair-30-guard-corner",
+        # B7 with a second storey, its roof raised and a free stair through
+        # the well (SECOND-FLOOR): b7-outline's class, -3.6e-4 measured (the
+        # twin -3.8e-4); floor 2 and its split subfloor are boxes.
+        "b7-second-floor",
     }
 )
 

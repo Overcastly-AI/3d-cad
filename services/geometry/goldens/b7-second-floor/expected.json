@@ -1,0 +1,60 @@
+{
+  "description": "B7 WITH A SECOND STOREY AND A STAIR (SECOND-FLOOR; docs/reference-parts/buildings.md B7, docs/BACKLOG.md SECOND-FLOOR): B7 drawn today (its 288 x 192 outline sketch, loft.floor 1.4.0 on it, loft.wall 1.5.0 on the floor with B7's door and five windows at 1.5.0), then a second loft.floor 1.4.0 On walls (B7's walls: no sills, its rims and joists on their top plates) with a framed stairwell 43.5 x 120 clear (X 18.25..61.75, Y 36..156), a second storey of loft.wall 1.5.0 on it (no openings), loft.roof 1.8.0 on those walls, and a free loft.stair 1.0.0 of rise 107.09375 from floor 1 up through the well (top nosing X 40, Y 154.125, running -Y, treads 10, closed risers, its typed opening 118.125 and floor depth 9.96875). model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_second_floor.py pins both; services/geometry/tests/test_second_floor_b7.py checks the STEP, interference, the cut list and the mass).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_second_floor_b7.script() types the 470 solids: test_outline_b7's B7 storey (floor, framing, OSB with its openings, no longer notched) with test_opening_update_b7's 6 plies and 12 spacers; floor 2 typed here (2 rims, 17 joists, 4 tails, 2 trimmers, 4 headers of 2x10, 15 subfloor pieces); the upper walls (B7's walls with no openings, raised 107.09375) and their OSB notched round the raised tails; the roof (test_outline_b7's 26 rafters and ridge, test_ceiling_joists_b7's 11 joists and test_gable_ends_b7's 22 studs and 12 panels) moved up 107.09375; the stair typed from IRC R311.7 and STAIRS' conventions. The STEP matches it solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
+    "",
+    "Levels: floor 1's joists Z 1.5..10.75, subfloor to 11.46875, walls 97.125 plate to plate, so the top plates' top is 108.59375; floor 2 is floor 1 less its 1.5 in sills raised 107.09375: joists 108.59375..117.84375, subfloor to 118.5625; the upper walls 118.5625..215.6875.",
+    "",
+    "The well: the layout joists at X 16 (15.25..16.75) and 64 (63.25..64.75) are the outer trimmer plies, doubled inside (16.75..18.25, 61.75..63.25), rim to rim (189); the joists at X 32 and 48 are cut into 4 tails of 31.5 (Y 1.5..33, 159..190.5) on doubled headers 2x10 x 43.5 (Y 33..36, 156..159). Floor 2's framing 13.875 x (2 x 288 + 17 x 189 + 2 x 189 + 4 x 31.5 + 4 x 43.5) = 61 979.625 in^3 (floor 1's 57 817.125 + 4 162.5); its subfloor (288 x 192 - 43.5 x 120) x 23/32 = 50 076 x 23/32 = 35 992.125 in^3 (5 220 in^2 out).",
+    "",
+    "The stair: 14 risers of R = 107.09375 / 14 = 7.649554, 13 treads of 10 (two 5/4x6 and a 1/8 gap, 11.125: a 1.125 nosing), closed, so each nosing is 0.75 + 11.125 = 11.875 past its riser line: the head plumb at u = -1.875 on the far header's face (Y 156), the top nosing at Y 154.125, the bottom riser line at Y 26. Headroom under the near header's face (Y 36, u = 118.125): 97.125 - (107.09375 - 118.125 R / 10) = 97.125 - 2.1875 R = 80.3916015625 in (IRC R311.7.2: 80); the spec's 81.83 (97.125 - 2R) put the floor's nosing on the header's face.",
+    "",
+    "volume (analytic): B7 today's 299 949.3876486 in^3 (b7-update-all: moving the roof up moves its 26 tail notches from the lower OSB to the upper, so its volume is unchanged) + floor 2's 61 979.625 + 35 992.125 + the upper walls' framing and OSB (exact rationals of their boxes) + the stair (3 x 1.5 x the stringer's shoelace, 26 x 36 x 5.5, 13 x 36 x 0.75 x (R - 1), the rail 1.5 x 130 x 1.5 L / 10, 3 posts 12.25 x their heights).",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582, osb 641 and plywood 577 kg/m^3.",
+    "",
+    "topology and MESH from the script's B-rep; every face is planar, so a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles on n vertices. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly): the stringers' heads meet the far header's face, the inner trimmers the doubled layout joists, the headers the trimmers and the tails the headers, face to face; floor 2's rims and end joists stand on the top plates, the upper walls on floor 2's subfloor."
+  ],
+  "tolerance": 4e-5,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), 2026-10-30. The bounds are ABSOLUTE and the part is ~8.65e9 mm^3 over 470 bodies: the kernel's measure of the built part differs from the analytic volume by +1.72e-05 mm^3 (2e-15 relative), -8.3e-07 mm^2 on the area, <= 3.0e-11 mm on the centroid and 0 on the bounds; the 470 solids' own volumes summed in 200 shuffled orders meet the analytic volume exactly, so the residue is the whole part's integral accumulating over twice b7-update-all's bodies (+7.6e-06 there), not geometry. 4e-5 is 2.3x the measured; one tail joist missed takes 7 160 000 mm^3, one subfloor piece left uncut 3 150 000 and one header ply 9 890 000, so any fails by eleven orders.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline's class, measured 2026-10-30: OCCT's STEP writer rounds the 26 sloped rafters', the notched upper OSB panels', the 11 snipped joists', the 22 sloped gable studs' and 12 gable panels' and the stair's 3 notched stringers' and sloped rail's irrational coordinates. Round-trip drift: volume -3.59e-4 mm^3, area -1.54e-5 mm^2, centroid <= 1.6e-10 mm; the independent build123d twin (test_second_floor_b7.script(), exported with build123d's export_step) drifts -3.81e-4 / -1.63e-5, so it is OCCT's STEP, not Loft's export; floor 2's framing and its split subfloor are boxes and add nothing. 1e-3 is 2.6x the worst and the b2-roof goldens' bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 8654381589.625832,
+    "surface_area": 785620990.4700466,
+    "centroid": {
+      "x": 3574.710450193529,
+      "y": 2428.7831302497075,
+      "z": 2719.1937264722324
+    },
+    "mass_g": 4398615.150839739,
+    "center_of_mass": {
+      "x": 3567.477107973716,
+      "y": 2433.0981401435683,
+      "z": 2675.201735566172
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 6842.165125694959
+      }
+    }
+  },
+  "topology": {
+    "faces": 3145,
+    "edges": 6615,
+    "shells": 470
+  },
+  "mesh": {
+    "vertices": 13230,
+    "triangles": 6940
+  }
+}
