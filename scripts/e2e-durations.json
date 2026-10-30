@@ -54,6 +54,7 @@
     "datum-sheet-size.spec.ts": 27.4,
     "deck-b1.spec.ts": 42.5,
     "deck-footings.spec.ts": 52.0,
+    "deck-guard-opening.spec.ts": 117.5,
     "dimension-expressions.spec.ts": 88.0,
     "dimension-placement.spec.ts": 97.7,
     "document-units.spec.ts": 64.1,

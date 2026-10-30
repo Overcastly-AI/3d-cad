@@ -192,7 +192,7 @@ test.describe("Deck footings — B1 on piers", () => {
         }[];
       }
     ).features[0]?.feature.params;
-    expect(params?.plugin_version).toBe("1.2.0");
+    expect(params?.plugin_version).toBe("1.3.0");
     expect(params?.inputs.footing_concrete).toBe("ready_mix");
     expect(params?.inputs.footings).toBe("piers");
   });
