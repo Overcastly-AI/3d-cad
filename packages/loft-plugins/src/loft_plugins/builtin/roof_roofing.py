@@ -248,10 +248,7 @@ class Plane:
         y, z = self.eave, self.top(self.eave)
 
         def at(s: float, n: float) -> tuple[float, float]:
-            return (
-                _r(y + s * self.cos - n * self.sin),
-                _r(z + s * self.sin + n * self.cos),
-            )
+            return (y + s * self.cos - n * self.sin, z + s * self.sin + n * self.cos)
 
         return [at(s0, 0.0), at(s1, 0.0), at(s1, t), at(s0, t)]
 
@@ -265,10 +262,10 @@ class Plane:
         y0, y1 = self.eave, self.span / 2
         drop = width / self.cos
         return [
-            (_r(y0), _r(self.deck_top(y0) - drop)),
-            (_r(y1), _r(self.deck_top(y1) - drop)),
-            (_r(y1), _r(self.deck_top(y1))),
-            (_r(y0), _r(self.deck_top(y0))),
+            (y0, self.deck_top(y0) - drop),
+            (y1, self.deck_top(y1) - drop),
+            (y1, self.deck_top(y1)),
+            (y0, self.deck_top(y0)),
         ]
 
     def fascia(self, width: float) -> list[tuple[float, float]]:
@@ -276,12 +273,7 @@ class Plane:
         the rafters' top plane at its outer face."""
         y0, y1 = self.eave, -self.rafter.overhang
         z1 = self.top(y0)
-        return [
-            (_r(y0), _r(z1 - width)),
-            (_r(y1), _r(z1 - width)),
-            (_r(y1), _r(z1)),
-            (_r(y0), _r(z1)),
-        ]
+        return [(y0, z1 - width), (y1, z1 - width), (y1, z1), (y0, z1)]
 
 
 def joints(
@@ -568,7 +560,7 @@ def roofing(
     def mirrored(points: Poly, side: str) -> Poly:
         if side == sides[0]:
             return points
-        return [(_r(ctx.span - y), z) for y, z in reversed(points)]
+        return [(ctx.span - y, z) for y, z in reversed(points)]
 
     x_lo, x_hi = -ctx.sheathed, ctx.length + ctx.sheathed
     centres = joist_centres(ctx.length, ctx.spacing, ctx.rafter_t)
