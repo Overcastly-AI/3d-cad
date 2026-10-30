@@ -254,22 +254,31 @@ def test_the_studs_are_listed_by_their_long_points_under_roof() -> None:
     )
 
 
-def test_the_gables_osb_is_six_4x8_sheets() -> None:
+def test_the_gables_osb_is_four_4x8_sheets() -> None:
     """The 12 gable panels fit 4x8 sheets (the walls' 97.125 in panels are
-    on 4x9s, a line of their own), 11 410.37 in^2. Each panel is measured in
-    its own frame, along its two largest perpendicular faces: the peak panel
-    and the corner pieces along the plate (48 x 53.69, 5.9375 x 8.44), the
-    four trapezoids along their sloped edge, the longer (48 x 50.94 is
-    65.71 x 45.56, 48 x 32.44 is 57.44 x 29.01, 37 x 26.94 is 45.14 x
-    24.10). By hand, largest first: each 65.71 and each 53.69 takes a sheet
-    (no offcut is 48 by more than 42.2), each 57.44 too (its offcuts are
-    30.16 x 45.56 and 42.19 x 48), and the rest fit the offcuts: 6 sheets,
-    sheets_to_cut's count."""
-    rects = [(65.7132, 45.5613), (53.6891, 48.0), (57.4397, 29.0144), (45.1413, 24.095)]
-    rects = [*rects, (8.4391, 5.9375), (8.4391, 5.9375)] * 2
+    on 4x9s, a line of their own), 11 410.37 in^2. Each panel is measured by
+    its PLAN rectangle (GABLE-SHEET-NESTING, ROOFING: of its edge faces'
+    normals, the frame that boxes it in the least area), its width along the
+    wall by its height from the plate to its highest corner: 48 x 53.69 at
+    the peak, 48 x 50.94, 48 x 32.94, 37 x 26.94 and 5.94 x 8.44 at each
+    end. Before, each trapezoid read along its sloped top (48 x 50.94 as
+    65.71 x 45.56) and the 12 took 6 sheets; by plan rectangle,
+    sheets_to_cut's count is 4."""
+    rects: list[tuple[float, float]] = []
+    for cuts in (LEFT_COLUMNS, RIGHT_COLUMNS):
+        for a, b in itertools.pairwise(cuts):
+            high = max(top_plane(y) for y in (a, b, min(max(W / 2, a), b)))
+            rects.append((b - a, high - PLATE))
+    assert sorted((round(max(r), 2), round(min(r), 2)) for r in rects)[-1] == (
+        53.69,
+        48.0,
+    )
     assert (
-        sheets_to_cut(((a * IN, b * IN) for a, b in rects), SHEET_SIZES_BY_KEY["4x8"])
-        == 6
+        sheets_to_cut(
+            ((max(a, b) * IN, min(a, b) * IN) for a, b in rects),
+            SHEET_SIZES_BY_KEY["4x8"],
+        )
+        == 4
     )
     cut_list = _cut_list()
     osb = [
@@ -280,7 +289,7 @@ def test_the_gables_osb_is_six_4x8_sheets() -> None:
         and line.profile == "7/16 OSB"
     ]
     assert len(osb) == 1
-    assert (osb[0].quantity, osb[0].stock_quantity) == (12, 6)
+    assert (osb[0].quantity, osb[0].stock_quantity) == (12, 4)
     assert osb[0].area_mm2 / IN**2 == pytest.approx(2 * gable_osb_area(), abs=1e-4)
     assert round(2 * gable_osb_area(), 2) == 11410.37
     # The walls' line is b7-ceiling-joists': 24 panels on 21 4x9 sheets.
@@ -292,9 +301,10 @@ def test_the_gables_osb_is_six_4x8_sheets() -> None:
     assert [(line.quantity, line.stock_quantity) for line in walls] == [(24, 21)]
 
 
-def test_the_sloped_panels_measure_along_their_slope() -> None:
-    """The four trapezoids' frames: along the sloped edge (2, 1) / sqrt 5
-    and across it, the extents of their corners (the hand numbers above)."""
+def test_each_trapezoid_boxes_smaller_on_its_plan_than_its_slope() -> None:
+    """Why the plan rectangle wins (GABLE-SHEET-NESTING): along the sloped
+    edge (2, 1) / sqrt 5 the trapezoids box in 65.71 x 45.56, 57.44 x 29.01
+    and 45.14 x 24.10, each more area than its plan rectangle."""
 
     def extents(y0: float, y1: float) -> tuple[float, float]:
         pts = [(y - y0, z - PLATE) for y, z in panel_side(y0, y1)]
@@ -310,6 +320,11 @@ def test_the_sloped_panels_measure_along_their_slope() -> None:
         (57.4397, 29.0144),
         (45.1413, 24.095),
     ]
+    for (a, b), (sloped, across) in zip(
+        ((101.5, 149.5), (5.5, 53.5), (149.5, 186.5)), got, strict=True
+    ):
+        plan = (b - a) * (max(top_plane(a), top_plane(b)) - PLATE)
+        assert plan < sloped * across
 
 
 # --- 4. The edits and the other cases ---------------------------------------------

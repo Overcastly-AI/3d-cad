@@ -1,0 +1,58 @@
+{
+  "description": "B7 SIDED AND ROOFED (ROOFING; docs/reference-parts/buildings.md B7 Roofing, docs/BACKLOG.md ROOFING, Chief Architect's roof-plane sheathing and roofing layers and Materials List): b7-siding (B7 drawn today, sided in fibre-cement lap) with loft.roof 1.9.0's Roofing picked, Asphalt shingles at 10% waste: a 7/16 OSB deck on each 6/12 plane, square to it on the rafters' top plane from the fascia's face (Y -12.75) to the ridge line, X -7/16 .. 288 7/16 flush with the gable OSB, in 48 in courses up from the eave (the last a 25.5862 rip) of sheets jointed on rafter centres and staggered 4 ft; a 1x10 fascia on each eave's tails, its top on the rafters' top plane at its face, jointed on the rafter at X 144; a 1x6 rake board up each rake on the gable OSB's face, its top in the deck's top plane, plumb-cut at the fascia's face and the ridge line; the end walls' corner boards and the gables' lap cut to the rake boards. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_roofing.py pins both; services/geometry/tests/test_roofing_b7.py checks the STEP, interference, the cut list, the mass and seven more cases).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_roofing_b7.py's script() is test_siding_b7.script() (329 solids from the independent B7 scripts and the finish typed from buildings.md) with each corner board and lap layer a rake board crosses cut by it, then the roofing typed from buildings.md (32): per plane 3 courses x 4 sheets (X -7/16, 72, 168, 264, 288 7/16; the middle course -7/16, 24, 120, 216, 288 7/16), 2 fascia pieces an eave and 4 rake boards. The STEP matches the 361 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
+    "",
+    "roofing volume (analytic, roofing_volume()): deck 2 x 121.586196 x 288.875 x 7/16 = 30 734.06 in^3; fascia 2 x 288.875 x 0.75 x 9.25 = 4 008.14; rake boards 4 x 108.75 x 5.5 sqrt 1.25 x 0.75 = 2 006.18; less the 4 corner boards' triangles under the rakes (0.75 deep, to Y -0.0582 where a rake's underside crosses the plate) and the gables' lap under the rakes (5/16, Y -7/16 to the ridge, a 5.0625 in band square to the plane): 36 063.44 in^3.",
+    "",
+    "volume (analytic): b7-siding's 349 796.857 + the roofing's 36 063.441 = 385 860.298 in^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the scripts' solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582, osb 641, plywood 577, pvc 1 400, glass 2 500 and fibre_cement 1 200 kg/m^3.",
+    "",
+    "bounding_box: b7-siding's but Y -12.9457 and 204.9457 (the deck's eave edge, square to the plane, 7/16 sin(26.57 deg) past the fascia's face) and Z 162.772 (the rake boards' peak in the deck's top plane).",
+    "",
+    "topology and MESH from the scripts' B-rep, every face planar: a face of n edge-vertices on h holes meshes as n + 2h - 2 triangles. The kernel's build of model.json meets every count exactly.",
+    "",
+    "The cut list (test_roofing_b7): the deck 70 246.42 in^2 on 21 4x8 sheets; 17 bundles, 1 roll; drip edge 1 064.09 in in 14 sticks; starter 49 ft, ridge cap 25 ft; fascia 4 x 144.4375 on 14 ft; rake boards 4 on 12 ft; casing 14 8 ft sticks; the gable OSB on 4 sheets. Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly)."
+  ],
+  "tolerance": 2e-05,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), b7-siding's class: the bounds are ABSOLUTE over ~6.3e9 mm^3 summed across 361 bodies (an ULP of the sum is ~9.5e-7). The kernel differs from the script by 1.9e-06 mm^3 on the volume, -9.5e-07 mm^2 on the area, <= 5.9e-12 mm on the centroid and centre of mass, 4.7e-10 g on the mass and 0 on the bounds. 2e-5 is 10x the worst; one deck panel missed takes 2 016 in^3 (3.3e7 mm^3) and one rake board 501.5 in^3, so either fails by eleven orders.",
+  "roundtrip_tolerance": 0.05,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, measured 2026-10-30: OCCT's STEP writer rounds the sloped planes of the 24 roof-deck panels (thin 7/16 in boxes square to the 6/12 plane, each -2.9e-4 to -1.7e-3 mm^3, 2.7e-12 of the total) (a pure-build123d twin of the 24 panels drifts -1.15e-2 mm^3 the same way) over b7-siding's class (the rafters', gable panels' and lap's irrational coordinates, ~-4e-4 mm^3 for all of them). Round-trip drift: volume -1.63e-2 to -1.70e-2 mm^3 (two runs), area -7.6e-5 mm^2. 5e-2 is 2.9x the worst; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL (measured <= 4.6e-9 mm).",
+  "properties": {
+    "volume": 6323117394.562889,
+    "surface_area": 692196620.2047786,
+    "centroid": {
+      "x": 3659.8599304172326,
+      "y": 2384.031355900603,
+      "z": 1664.7181200357452
+    },
+    "mass_g": 3836290.6101396126,
+    "center_of_mass": {
+      "x": 3659.276205755196,
+      "y": 2389.0714842758575,
+      "z": 1679.0196639486765
+    },
+    "bounding_box": {
+      "min": {
+        "x": -36.512499999999996,
+        "y": -328.81966107999324,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7351.7125,
+        "y": 5205.619661079993,
+        "z": 4134.408028394942
+      }
+    }
+  },
+  "topology": {
+    "faces": 2566,
+    "edges": 5532,
+    "shells": 361
+  },
+  "mesh": {
+    "vertices": 11064,
+    "triangles": 5980
+  }
+}
