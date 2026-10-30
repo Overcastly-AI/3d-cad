@@ -783,7 +783,10 @@
               "melamine",
               "xps_foam",
               "fibre_cement",
-              "western_red_cedar"
+              "western_red_cedar",
+              "asphalt_shingle",
+              "polypropylene",
+              "aluminium_3105"
             ],
             "title": "Material",
             "type": "string"
@@ -8239,6 +8242,8 @@
               "us_1x4",
               "us_1x6",
               "us_1x8",
+              "us_1x10",
+              "us_1x12",
               "us_5_4x4",
               "us_5_4x6",
               "us_2x2",
@@ -8624,7 +8629,10 @@
               "melamine",
               "xps_foam",
               "fibre_cement",
-              "western_red_cedar"
+              "western_red_cedar",
+              "asphalt_shingle",
+              "polypropylene",
+              "aluminium_3105"
             ],
             "title": "Key",
             "type": "string"
@@ -8689,7 +8697,10 @@
                   "melamine",
                   "xps_foam",
                   "fibre_cement",
-                  "western_red_cedar"
+                  "western_red_cedar",
+                  "asphalt_shingle",
+                  "polypropylene",
+                  "aluminium_3105"
                 ],
                 "type": "string"
               },
@@ -8736,7 +8747,10 @@
                   "melamine",
                   "xps_foam",
                   "fibre_cement",
-                  "western_red_cedar"
+                  "western_red_cedar",
+                  "asphalt_shingle",
+                  "polypropylene",
+                  "aluminium_3105"
                 ],
                 "type": "string"
               },
@@ -8858,6 +8872,14 @@
               "$ref": "#/components/schemas/LumberProfile"
             },
             "title": "Profiles",
+            "type": "array"
+          },
+          "roofing_items": {
+            "description": "Roofing items (ROOFING): shingles by the bundle, underlayment by the roll, drip edge by the 10 ft stick, starter and ridge cap by the foot, keyed as a price-book profile ('drip_edge').",
+            "items": {
+              "$ref": "#/components/schemas/RoofingItem"
+            },
+            "title": "Roofing Items",
             "type": "array"
           },
           "sheet_goods": {
@@ -9008,7 +9030,10 @@
                   "melamine",
                   "xps_foam",
                   "fibre_cement",
-                  "western_red_cedar"
+                  "western_red_cedar",
+                  "asphalt_shingle",
+                  "polypropylene",
+                  "aluminium_3105"
                 ],
                 "type": "string"
               },
@@ -9060,6 +9085,17 @@
             ],
             "description": "The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.",
             "title": "Rebar"
+          },
+          "roofing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoofingTakeoff"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a roof deck panel (ROOFING): the cut list buys the shingles and underlayment over its measured net area with the roof's waste allowance, and lists the drip edge, starter and ridge cap of the edges it carries. Absent otherwise."
           },
           "sheet": {
             "anyOf": [
@@ -11539,7 +11575,10 @@
               "melamine",
               "xps_foam",
               "fibre_cement",
-              "western_red_cedar"
+              "western_red_cedar",
+              "asphalt_shingle",
+              "polypropylene",
+              "aluminium_3105"
             ],
             "title": "Material",
             "type": "string"
@@ -11559,6 +11598,8 @@
                   "us_1x4",
                   "us_1x6",
                   "us_1x8",
+                  "us_1x10",
+                  "us_1x12",
                   "us_5_4x4",
                   "us_5_4x6",
                   "us_2x2",
@@ -11635,9 +11676,19 @@
                   "cedar_bevel_1_2x8"
                 ],
                 "type": "string"
+              },
+              {
+                "enum": [
+                  "shingle_architectural",
+                  "underlayment_synthetic",
+                  "drip_edge",
+                  "shingle_starter",
+                  "ridge_cap"
+                ],
+                "type": "string"
               }
             ],
-            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', casework item, e.g. 'hinge', or siding product, e.g. 'vinyl_d4'.",
+            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', casework item, e.g. 'hinge', siding product, e.g. 'vinyl_d4', or roofing item, e.g. 'drip_edge'.",
             "title": "Profile"
           },
           "sheet": {
@@ -12577,6 +12628,154 @@
           "rollback_feature_id"
         ],
         "title": "RollbackBarMove",
+        "type": "object"
+      },
+      "RoofEdgeRun": {
+        "description": "One edge of a roof plane, listed on a deck panel (ROOFING): an eave\n(drip edge and starter), a rake (drip edge) or the ridge (ridge cap), by\nits length along the edge.",
+        "properties": {
+          "edge": {
+            "enum": [
+              "eave",
+              "rake",
+              "ridge"
+            ],
+            "title": "Edge",
+            "type": "string"
+          },
+          "length_mm": {
+            "description": "Along the edge (mm).",
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "edge",
+          "length_mm"
+        ],
+        "title": "RoofEdgeRun",
+        "type": "object"
+      },
+      "RoofingItem": {
+        "description": "One listed roofing item: what it covers and how it is priced.",
+        "properties": {
+          "coverage_in2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Roof one unit covers (in\u00b2): a bundle 1/3 square, a roll 10 squares; null for an item bought by length.",
+            "title": "Coverage In2"
+          },
+          "key": {
+            "description": "Price-book key, e.g. 'drip_edge'.",
+            "enum": [
+              "shingle_architectural",
+              "underlayment_synthetic",
+              "drip_edge",
+              "shingle_starter",
+              "ridge_cap"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "material": {
+            "description": "Library material the item is priced as.",
+            "enum": [
+              "asphalt_shingle",
+              "polypropylene",
+              "aluminium_3105"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "name": {
+            "description": "As listed, e.g. 'Drip edge'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "price_unit": {
+            "description": "How a price-book entry prices it: a bundle, a roll or a stick Each; starter and ridge cap per linear foot.",
+            "enum": [
+              "each",
+              "linear_foot"
+            ],
+            "title": "Price Unit",
+            "type": "string"
+          },
+          "sale": {
+            "description": "'area': whole units over a net area plus waste (a bundle of shingles, a roll of underlayment); 'stick': drip edge per stick, each run lapped on its own; 'foot': whole feet of the line's length.",
+            "enum": [
+              "area",
+              "stick",
+              "foot"
+            ],
+            "title": "Sale",
+            "type": "string"
+          },
+          "stock_length_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stick an Each price is for (ft): 10 for drip edge; null otherwise.",
+            "title": "Stock Length Ft"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "material",
+          "sale",
+          "price_unit"
+        ],
+        "title": "RoofingItem",
+        "type": "object"
+      },
+      "RoofingTakeoff": {
+        "description": "Set on each roof deck panel (ROOFING): the cut list buys the shingles\nand underlayment over its MEASURED net area with this allowance, and\nlists the edges it carries (one panel of each plane carries them).",
+        "properties": {
+          "edges": {
+            "description": "The plane's edges, on its first deck panel only: its eave, its rakes and (on one plane) the ridge.",
+            "items": {
+              "$ref": "#/components/schemas/RoofEdgeRun"
+            },
+            "maxItems": 16,
+            "title": "Edges",
+            "type": "array"
+          },
+          "shingles": {
+            "const": "shingle_architectural",
+            "default": "shingle_architectural",
+            "description": "The shingle product.",
+            "title": "Shingles",
+            "type": "string"
+          },
+          "underlayment": {
+            "const": "underlayment_synthetic",
+            "default": "underlayment_synthetic",
+            "description": "The underlayment.",
+            "title": "Underlayment",
+            "type": "string"
+          },
+          "waste_percent": {
+            "default": 10,
+            "description": "Ordered over the net area (percent), then rounded up to whole bundles and rolls.",
+            "maximum": 30.0,
+            "minimum": 0.0,
+            "title": "Waste Percent",
+            "type": "integer"
+          }
+        },
+        "title": "RoofingTakeoff",
         "type": "object"
       },
       "SectionViewParams": {
@@ -19272,7 +19471,7 @@
     },
     "/api/v1/materials": {
       "get": {
-        "description": "The built-in materials, lumber profiles, sheet goods, window and door\nunits, foundation items, casework items and siding products, in display\norder.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
+        "description": "The built-in materials, lumber profiles, sheet goods, window and door\nunits, foundation items, casework items, siding products and roofing\nitems, in display\norder.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
         "operationId": "list_materials_api_v1_materials_get",
         "responses": {
           "200": {

@@ -503,7 +503,10 @@
                   "melamine",
                   "xps_foam",
                   "fibre_cement",
-                  "western_red_cedar"
+                  "western_red_cedar",
+                  "asphalt_shingle",
+                  "polypropylene",
+                  "aluminium_3105"
                 ],
                 "type": "string"
               },
@@ -559,7 +562,10 @@
               "melamine",
               "xps_foam",
               "fibre_cement",
-              "western_red_cedar"
+              "western_red_cedar",
+              "asphalt_shingle",
+              "polypropylene",
+              "aluminium_3105"
             ],
             "title": "Material",
             "type": "string"
@@ -7435,7 +7441,10 @@
                   "melamine",
                   "xps_foam",
                   "fibre_cement",
-                  "western_red_cedar"
+                  "western_red_cedar",
+                  "asphalt_shingle",
+                  "polypropylene",
+                  "aluminium_3105"
                 ],
                 "type": "string"
               },

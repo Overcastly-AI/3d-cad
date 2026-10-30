@@ -885,7 +885,8 @@ export interface paths {
         /**
          * List Materials
          * @description The built-in materials, lumber profiles, sheet goods, window and door
-         *     units, foundation items, casework items and siding products, in display
+         *     units, foundation items, casework items, siding products and roofing
+         *     items, in display
          *     order.
          *
          *     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
@@ -2266,7 +2267,7 @@ export interface components {
              * @description Material for THIS body only
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar" | "asphalt_shingle" | "polypropylene" | "aluminium_3105";
         };
         /**
          * BodyName
@@ -6910,7 +6911,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
+            key: "us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_1x10" | "us_1x12" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12";
             /**
              * Name
              * @description Nominal size as sold, e.g. '2x10' or '5/4x6'.
@@ -7107,7 +7108,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar";
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar" | "asphalt_shingle" | "polypropylene" | "aluminium_3105";
             /**
              * Name
              * @description Display name, e.g. 'Aluminium 6061'
@@ -7142,7 +7143,7 @@ export interface components {
              * Default Material
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
-            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar" | "asphalt_shingle" | "polypropylene" | "aluminium_3105") | null;
         };
         /**
          * MaterialInput
@@ -7150,7 +7151,7 @@ export interface components {
          */
         MaterialInput: {
             /** Default */
-            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
+            default?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar" | "asphalt_shingle" | "polypropylene" | "aluminium_3105") | null;
             /**
              * Description
              * @description Help text under the field.
@@ -7218,6 +7219,11 @@ export interface components {
              */
             profiles: components["schemas"]["LumberProfile"][];
             /**
+             * Roofing Items
+             * @description Roofing items (ROOFING): shingles by the bundle, underlayment by the roll, drip edge by the 10 ft stick, starter and ridge cap by the foot, keyed as a price-book profile ('drip_edge').
+             */
+            roofing_items?: components["schemas"]["RoofingItem"][];
+            /**
              * Sheet Goods
              * @description Sheet products (SHEATHING): a material at a thickness, e.g. '7/16 OSB'.
              */
@@ -7265,7 +7271,7 @@ export interface components {
              * Material
              * @description Library material of the member.
              */
-            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar") | null;
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar" | "asphalt_shingle" | "polypropylene" | "aluminium_3105") | null;
             /**
              * Nominal Size
              * @description Nominal size as sold, e.g. '2x8x12'.
@@ -7281,6 +7287,8 @@ export interface components {
              * @description The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.
              */
             rebar?: components["schemas"]["RebarRun"][] | null;
+            /** @description Set on a roof deck panel (ROOFING): the cut list buys the shingles and underlayment over its measured net area with the roof's waste allowance, and lists the drip edge, starter and ridge cap of the edges it carries. Absent otherwise. */
+            roofing?: components["schemas"]["RoofingTakeoff"] | null;
             /**
              * Sheet
              * @description The sheet a sheet-good panel is cut from, as its plugin was told to hang it (GYPSUM-SHEETS: gypsum hung from 4x12s): the cut list nests every such panel on that sheet when it covers the panel. Absent: the shortest sheet its product is sold in that covers it.
@@ -8882,7 +8890,7 @@ export interface components {
              * @description Library material, e.g. 'spf_lumber'.
              * @enum {string}
              */
-            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar";
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6" | "spf_lumber" | "dfl_lumber" | "southern_pine_pt" | "white_oak" | "lvl" | "glulam_dfl" | "osb" | "plywood" | "steel_a992" | "concrete" | "pvc" | "glass" | "steel_a615" | "steel_f1554" | "gypsum" | "melamine" | "xps_foam" | "fibre_cement" | "western_red_cedar" | "asphalt_shingle" | "polypropylene" | "aluminium_3105";
             /**
              * Price Cents
              * @description Price in the book's currency's minor unit (cents), as an integer: 398 is $3.98.
@@ -8890,9 +8898,9 @@ export interface components {
             price_cents: number;
             /**
              * Profile
-             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', casework item, e.g. 'hinge', or siding product, e.g. 'vinyl_d4'.
+             * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', casework item, e.g. 'hinge', siding product, e.g. 'vinyl_d4', or roofing item, e.g. 'drip_edge'.
              */
-            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4" | "gypsum_ceiling_1_2") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24") | ("fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_1x10" | "us_1x12" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4" | "gypsum_ceiling_1_2") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24") | ("fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8") | ("shingle_architectural" | "underlayment_synthetic" | "drip_edge" | "shingle_starter" | "ridge_cap");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
@@ -9412,6 +9420,102 @@ export interface components {
             expected_tree_version: number;
             /** Rollback Feature Id */
             rollback_feature_id: string | null;
+        };
+        /**
+         * RoofEdgeRun
+         * @description One edge of a roof plane, listed on a deck panel (ROOFING): an eave
+         *     (drip edge and starter), a rake (drip edge) or the ridge (ridge cap), by
+         *     its length along the edge.
+         */
+        RoofEdgeRun: {
+            /**
+             * Edge
+             * @enum {string}
+             */
+            edge: "eave" | "rake" | "ridge";
+            /**
+             * Length Mm
+             * @description Along the edge (mm).
+             */
+            length_mm: number;
+        };
+        /**
+         * RoofingItem
+         * @description One listed roofing item: what it covers and how it is priced.
+         */
+        RoofingItem: {
+            /**
+             * Coverage In2
+             * @description Roof one unit covers (in²): a bundle 1/3 square, a roll 10 squares; null for an item bought by length.
+             */
+            coverage_in2?: number | null;
+            /**
+             * Key
+             * @description Price-book key, e.g. 'drip_edge'.
+             * @enum {string}
+             */
+            key: "shingle_architectural" | "underlayment_synthetic" | "drip_edge" | "shingle_starter" | "ridge_cap";
+            /**
+             * Material
+             * @description Library material the item is priced as.
+             * @enum {string}
+             */
+            material: "asphalt_shingle" | "polypropylene" | "aluminium_3105";
+            /**
+             * Name
+             * @description As listed, e.g. 'Drip edge'.
+             */
+            name: string;
+            /**
+             * Price Unit
+             * @description How a price-book entry prices it: a bundle, a roll or a stick Each; starter and ridge cap per linear foot.
+             * @enum {string}
+             */
+            price_unit: "each" | "linear_foot";
+            /**
+             * Sale
+             * @description 'area': whole units over a net area plus waste (a bundle of shingles, a roll of underlayment); 'stick': drip edge per stick, each run lapped on its own; 'foot': whole feet of the line's length.
+             * @enum {string}
+             */
+            sale: "area" | "stick" | "foot";
+            /**
+             * Stock Length Ft
+             * @description The stick an Each price is for (ft): 10 for drip edge; null otherwise.
+             */
+            stock_length_ft?: number | null;
+        };
+        /**
+         * RoofingTakeoff
+         * @description Set on each roof deck panel (ROOFING): the cut list buys the shingles
+         *     and underlayment over its MEASURED net area with this allowance, and
+         *     lists the edges it carries (one panel of each plane carries them).
+         */
+        RoofingTakeoff: {
+            /**
+             * Edges
+             * @description The plane's edges, on its first deck panel only: its eave, its rakes and (on one plane) the ridge.
+             */
+            edges?: components["schemas"]["RoofEdgeRun"][];
+            /**
+             * Shingles
+             * @description The shingle product.
+             * @default shingle_architectural
+             * @constant
+             */
+            shingles: "shingle_architectural";
+            /**
+             * Underlayment
+             * @description The underlayment.
+             * @default underlayment_synthetic
+             * @constant
+             */
+            underlayment: "underlayment_synthetic";
+            /**
+             * Waste Percent
+             * @description Ordered over the net area (percent), then rounded up to whole bundles and rolls.
+             * @default 10
+             */
+            waste_percent: number;
         };
         /**
          * SectionViewParams
