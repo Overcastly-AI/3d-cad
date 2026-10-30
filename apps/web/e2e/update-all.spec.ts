@@ -16,25 +16,22 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * Onshape updates a custom feature to its newest Feature Studio, every new
  * parameter at its default, so each Build release maps to its newest: the
  * floor 1.2.0 -> 1.3.0 (Joists bear on Long walls frames the same joists,
- * byte for byte), the walls 1.3.0 -> 1.5.0, which side them in fibre-cement
- * lap with corner boards and casing (SIDING-TRIM), the openings 1.1.0 ->
- * 1.5.0 and the roof 1.4.0 -> 1.8.0, which ties the gable with its 11
- * ceiling joists, frames its gable ends (GABLE-END-STUDS) and sides them.
- * The badge names what an update adds ("adds 11 ceiling joists, 22 gable
- * studs and ..."); the floor changes no member, so it wears none but rides
- * in Update all.
+ * byte for byte), the walls 1.3.0 -> 1.5.0 (Exterior finish None), the
+ * openings 1.1.0 -> 1.5.0 and the roof 1.4.0 -> 1.8.0, which ties the gable with its 11 ceiling joists
+ * and frames its gable ends (GABLE-END-STUDS). The badge names what an
+ * update adds ("adds 11 ceiling joists, 22 gable studs and ..."); the floor
+ * and the walls change no member, so they wear none but ride in Update all.
  *
  * Update from an editor holding unsaved edits asks first: dismissed, the
  * edits stay and nothing is updated; confirmed, that one feature updates as
  * stored. Then one Update all leaves nothing out of date and builds B7 as
  * drawn today: 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423 +
- * 4 268 + 4 992.0374 + 34 217.2285 + 3 565.7410 = 337 732.3571 in³ (golden
- * `b7-update-all`). Each
+ * 4 268 + 4 992.0374 = 299 949.3876 in³ (golden `b7-update-all`). Each
  * update is one Ctrl+Z.
  */
 
 const IN = 25.4;
-const AFTER = 337732.357136;
+const AFTER = 299949.387649;
 const WINDOW_1_OFFSET_MM = 228 * IN;
 
 test.describe("Update all on a saved B7", () => {
@@ -55,18 +52,15 @@ test.describe("Update all on a saved B7", () => {
       .poll(() => partVolume(page), { timeout: 120_000 })
       .toBeCloseTo(B7_SAVED_IN3, 2);
 
-    // Every Build feature is offered its newest release; the floor's changes
-    // nothing, so only the eight that add members are badged.
+    // Every Build feature is offered its newest release; the floor's and the
+    // walls' change nothing, so only the seven that add members are badged.
     for (const name of Object.keys(B7_SAVED_PINS)) {
       expect(before[name]?.plugin_update, name).toBeTruthy();
     }
     const strip = page.getByTestId("feature-update-strip");
-    await expect(strip).toContainText("8 Build features out of date");
+    await expect(strip).toContainText("7 Build features out of date");
     await expect(page.getByTestId("feature-update-badge-1")).toHaveCount(0);
-    await expect(page.getByTestId("feature-update-badge-2")).toHaveAttribute(
-      "title",
-      "Update to 1.5.0: adds 4 siding layers, 8 corner boards and 23 casing pieces",
-    );
+    await expect(page.getByTestId("feature-update-badge-2")).toHaveCount(0);
     const roofBadge = page.getByTestId("feature-update-badge-9");
     await expect(roofBadge).toHaveAttribute(
       "title",
@@ -113,7 +107,7 @@ test.describe("Update all on a saved B7", () => {
     await page.getByTestId("plugin-update").click();
     await page.getByTestId("plugin-update-confirm").click();
     await expect(editor).toBeHidden({ timeout: 60_000 });
-    await expect(strip).toContainText("7 Build features out of date", {
+    await expect(strip).toContainText("6 Build features out of date", {
       timeout: 60_000,
     });
     const oneUpdated = { ...B7_SAVED_PINS, "Window 1": "1.5.0" };
@@ -156,7 +150,7 @@ test.describe("Update all on a saved B7", () => {
 
     // One Ctrl+Z undoes the whole Update all, and only it.
     await page.keyboard.press("Control+z");
-    await expect(strip).toContainText("7 Build features out of date", {
+    await expect(strip).toContainText("6 Build features out of date", {
       timeout: 90_000,
     });
     expect(await storedPins(page, partId, account.token)).toEqual(oneUpdated);

@@ -3435,12 +3435,15 @@ and reframe it, a material per member, and a cut list that is always current.
   Materials List counts siding by area net of the openings, with corner
   boards and exterior casing as lines of their own):
   - *A wall option, drawn as its layer.* `loft.wall` 1.5.0 adds Exterior
-    finish (Lap, fibre cement 8-1/4 at 7 in, the default; Vinyl, double 4,
-    by the square; Cedar bevel 1/2 x 8 at 6-1/4 in; None) and Siding waste
-    (10 %, 0-30). With None it is 1.4.0 member for member; with a finish it
-    is 1.4.0's members, then per wall a plane on the sheathing's outer face
-    (a wall with no exterior sheathing takes none: a shed's studs stay
-    bare) and its `siding`, `corner_board` and
+    finish (None, the default; Lap, fibre cement 8-1/4 at 7 in; Vinyl,
+    double 4, by the square; Cedar bevel 1/2 x 8 at 6-1/4 in) and Siding
+    waste (10 %, 0-30). Siding is a material the user picks, as Chief's
+    wall type is, so a new wall and every wall update (1.2-1.4 -> 1.5.0)
+    take None and are 1.4.0 member for member: an update adds no siding
+    nobody asked for (VISION, 2026-10-30). With a finish it is 1.4.0's
+    members, then per wall a plane on the sheathing's outer face (a wall
+    with no exterior sheathing takes none and warns
+    `wall_finish_no_sheathing`, "turn sheathing on") and its `siding`, `corner_board` and
     `casing` members, named under the wall's line. The siding is ONE body
     per connected region of a face at the product's own thickness (5/16,
     0.044, 15/32), not course by course (VISION 2026-10-29): what is bought

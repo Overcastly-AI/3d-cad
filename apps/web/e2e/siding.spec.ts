@@ -8,8 +8,8 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * Chief Architect's wall types carry a siding layer and its Materials List
  * buys siding by the area net of the openings. B7's outline and floor are
  * seeded; Build ▾ > Wall draws its 2x6 walls with 7/16 OSB on the outline,
- * Exterior finish at its default, fibre-cement lap 8-1/4 at 7 in with 10%
- * waste. The door (3068) and five windows (3 x 3040, 2 x 2030) are seeded
+ * Exterior finish picked from its default None to fibre-cement lap 8-1/4
+ * at 7 in, with 10% waste. The door (3068) and five windows (3 x 3040, 2 x 2030) are seeded
  * with their units drawn, then the roof (6/12, 2x8 on a 2x10 ridge).
  *
  * The house is 329 bodies (golden `b7-siding`): the walls' 4 siding layers,
@@ -157,8 +157,8 @@ test.describe("Siding and trim — B7's exterior finish", () => {
     await expect(rows).toHaveCount(2);
     await expectSolved(page);
 
-    // Build ▾ > Wall on the outline and the floor: 2x6, OSB, and the
-    // Exterior finish's default, fibre-cement lap with 10% waste.
+    // Build ▾ > Wall on the outline and the floor: 2x6, OSB, and Exterior
+    // finish picked from None (a material choice) to fibre-cement lap.
     await openBuildTool(page, "loft.wall", "Wall");
     const outlineInput = page.getByTestId("plugin-input-outline");
     await expect(outlineInput).toHaveAttribute("data-armed", "true");
@@ -171,6 +171,8 @@ test.describe("Siding and trim — B7's exterior finish", () => {
     await choose(page, "stud_profile", "us_2x6");
     await choose(page, "sheathing", "osb_7_16");
     const finish = page.getByTestId("plugin-input-exterior_finish");
+    await expect(finish).toHaveValue("none");
+    await finish.selectOption("fibre_cement_lap_8_25");
     await expect(finish).toHaveValue("fibre_cement_lap_8_25");
     await expect(
       page.getByTestId("plugin-input-siding_waste_percent"),

@@ -69,8 +69,6 @@ test.describe("Sheathing — sheet goods on the Wall and the Floor", () => {
     const sheathing = page.getByTestId("plugin-input-sheathing");
     await expect(sheathing).toHaveValue("none");
     await sheathing.selectOption("osb_7_16");
-    // SIDING-TRIM: the sheathing alone (siding.spec.ts sides a house).
-    await page.getByTestId("plugin-input-exterior_finish").selectOption("none");
     await page.getByTestId("plugin-submit").click();
     await expect(editor).toBeHidden({ timeout: 30_000 });
     await expectSolved(page);

@@ -110,14 +110,16 @@ into an item are named in it and removed from Notes.
    framing. Chief Architect's wall types carry a siding layer and its
    Materials List counts siding by area net of openings, with corner
    boards and exterior casing as lines; US yards sell fibre-cement lap by
-   the 12 ft board and vinyl by the square. A wall Exterior finish: Lap
-   (fibre cement 8.25 in at 7 in exposure, default), Vinyl (by the square)
-   or Cedar bevel, over the OSB from the foundation top to the top plate;
+   the 12 ft board and vinyl by the square. A wall Exterior finish: None
+   (the default: a material the user picks; a wall update adds no siding),
+   Lap (fibre cement 8.25 in at 7 in exposure), Vinyl (by the square) or
+   Cedar bevel, over the OSB (on an unsheathed wall, a
+   `wall_finish_no_sheathing` warning) from the foundation top to the top plate;
    5/4x4 corner boards on each outside corner (one each face) and 5/4x4
    picture-frame casing round each unit; siding bought net of the cased
    openings with a 10% allowance (an input). Gables follow
    GABLE-END-STUDS: `loft.roof` 1.8.0 carries the finish up the gable OSB.
-   _Accept:_ B7 drawn today: the lap runs 939.5 in between the corner
+   _Accept:_ B7 drawn today with Lap picked: the lap runs 939.5 in between the corner
    boards on the OSB's face (not the framing's 960) from Z 0 to 108.59375,
    102 023.83 in² gross, less cased openings 3 x 43 x 55 + 2 x 31 x 43 +
    44.5 x 85.5 (the door cased on its 37.5 x 82 frame) = 13 565.75 and 22
@@ -125,7 +127,9 @@ into an item are named in it and removed from Notes.
    the gables, 99 778.90 x 1.10 / 1 008 = 108.89, **109 boards** (walls
    alone 97); 8 corner boards of 108.59375; casing 1 099.5 in (door 215.5,
    36 in windows 3 x 196, 24 in windows 2 x 148); Vinyl **8 squares**; no
-   interference; every line priced; stored walls are byte-identical.
+   interference; every line priced; stored walls are byte-identical, and
+   B7 saved at older releases is after Update all byte for byte what it
+   was before SIDING-TRIM (b7-update-all, b7-opening-update unchanged).
    (Corrected by the kernel-architect, RESEARCH §23.)
 
 ## Next

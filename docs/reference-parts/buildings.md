@@ -421,7 +421,8 @@ rafter's outside face: 2 x (5.689079 x 96.4375 + (96² - (7/16)²) / 4) =
 `b7-gable-ends`: 262 bodies, 297 000.0126 in³. At 8/12: 2d/3 - 2.416667,
 359.25 in a gable, 7 358.36 in².
 
-**Siding and trim** (SIDING-TRIM, `loft.wall` 1.5.0, `loft.roof` 1.8.0):
+**Siding and trim** (SIDING-TRIM, `loft.wall` 1.5.0, `loft.roof` 1.8.0;
+Exterior finish picked as Lap, the default being None):
 fibre-cement lap 8.25 at 7 in exposure, 5/16 thick (1 008 in² a 12 ft
 board), on the OSB's face from Z 0 (the floor's underside) to the top plate,
 between 5/4x4 corner boards (two a corner, the side wall's lapping the front
