@@ -13,7 +13,7 @@
     "",
     "Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly): the board's top meets the joists' and the top plates' undersides face to face, its edges the walls' inside faces."
   ],
-  "tolerance": 2e-05,
+  "tolerance": 2e-5,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill): b7-gable-ends class. The bounds are ABSOLUTE and the part is ~5.3e9 mm^3 summed over 270 bodies, so the double-precision sum carries round-off of a few ULPs of the sum (~9.5e-7 each): the kernel differs from the script by +6.7e-06 mm^3 on the volume, -3.0e-07 mm^2 on the area, <= 1.8e-12 mm on the centroid, <= 5.0e-12 mm on the centre of mass, 9.3e-10 g on the mass and 0 on the bounds, b7-gable-ends exactly (the 8 ceiling boxes add no drift). 2e-5 is 3x the worst and ~4e-15 relative; one panel missed takes at least 37 x 137 x 0.5 x 16 387 = 41.5e6 mm^3, and a joint 1/16 in off the joist moves a panel 0.0625 x 48 x 0.5 x 16 387 = 24 581 mm^3 of centroid moment, so either fails by eight orders or more.",
   "roundtrip_tolerance": 0.001,
   "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline class, measured 2026-10-30: OCCT STEP writer rounds the sloped rafters, the notched OSB panels, the snipped joists and the gable studs and panels irrational coordinates; the ceiling panels are boxes on binary-fraction inches and add none. Round-trip drift: volume -2.75e-4 mm^3, area -2.31e-5 mm^2, centroid <= 8.5e-11 mm (b7-gable-ends: -2.67e-4 / -2.31e-5). 1e-3 is 3.6x the worst and the b2-roof goldens bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
