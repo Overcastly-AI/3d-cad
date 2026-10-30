@@ -302,7 +302,7 @@ delegated log; reverse any there. Open for the founder:
 
 One line each. The founder triages weekly; most are closed without work.
 
-- CEILING-ORDER: a `loft.ceiling` sees only the partitions before it in the tree, so an Interior wall added after the ceiling overlaps it with no warning (Revit's ceiling re-finds its room); move the ceiling below, or warn.
+- CEILING-REORDER-NONSTRICT: a reorder that puts a `loft.ceiling` above an Interior wall keeps the wall's stale members until rebuild, which then flags them with CEILING-ORDER's refusal; the reorder itself is not refused (reorders re-expand non-strictly).
 - CEILING-STAGGER: B7's ceiling has every course's end joint on the one joist at X 145.5 (the only joint two 4x12s across 277 in can share); GA-216 staggers end joints a joist apart where the room allows.
 - CEILING-SYSTEM: ceiling board lists under Walls with the wall gypsum (one Drywall group would read better, as a quote groups it); its product is its own line.
 - CEILING-HIP: `loft.ceiling` refuses a hip, which frames no ceiling joists yet (CEILING-JOISTS-HIP).

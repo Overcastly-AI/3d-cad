@@ -1155,9 +1155,57 @@ def _face_runs(found: Partitions, p: Partition) -> tuple[float, float]:
     return stop(p.start), _r(p.spec.length - stop(p.end))
 
 
+#: The ``loft.ceiling`` plugin id (GYPSUM-SHEETS); its module imports this one.
+CEILING = "loft.ceiling"
+#: Why a partition under an earlier ceiling is refused (CEILING-ORDER).
+CEILING_OVER = (
+    "A ceiling earlier in the tree hangs over this wall; move the wall above "
+    "the ceiling in the tree."
+)
+
+
+def refuse_under_ceiling(
+    inputs: ExpandInputs, host_id: uuid.UUID, found: "Partitions"
+) -> None:
+    """Refuse *found*'s partitions (on the walls *host_id*) when a
+    ``loft.ceiling`` earlier in the tree hangs from a roof on those walls and
+    its board reaches a partition's top (CEILING-ORDER): the ceiling was
+    laid out without them and would run through their plates and boards. A
+    ceiling hangs a board only under a roof on the walls it picks, so a
+    ceiling on other walls, or one that cannot be hung, is no matter here."""
+    from loft_plugins.builtin import ceiling  # late: ceiling imports this module
+
+    tops = [_r(p.spec.elevation + p.spec.height) for p in found.layout.partitions]
+    for fid, envelope in inputs.earlier.items():
+        if (
+            not isinstance(envelope, CustomFeature)
+            or envelope.params.plugin_id != CEILING
+        ):
+            continue
+        hung = house.stored_inputs(fid, envelope, inputs.earlier, inputs.parameters)
+        try:
+            roof_ref = hung.feature("roof")
+            roof = inputs.earlier.get(roof_ref.feature_id)
+            if not isinstance(roof, CustomFeature):
+                continue
+            picks = house.stored_inputs(
+                roof_ref.feature_id, roof, inputs.earlier, inputs.parameters
+            ).features("walls")
+            if host_id not in {p.feature_id for p in picks}:
+                continue
+            board = SHEET_GOODS_BY_KEY.get(hung.choice("finish"))  # type: ignore[call-overload]
+            plate = ceiling.under(hung).plate
+        except PluginError:
+            continue
+        bottom = plate - (0.0 if board is None else board.thickness_in)
+        if any(top > bottom + _TOL for top in tops):
+            raise PluginError(PLUGIN_INPUT_UNSUPPORTED, CEILING_OVER, input="host_wall")
+
+
 def expand_interior_v1(inputs: ExpandInputs) -> Iterator[Member]:
     host = host_of(inputs.feature("host_wall"), inputs.earlier, inputs.parameters)
     found = partitions_of(inputs, host, inputs.earlier, inputs.parameters)
+    refuse_under_ceiling(inputs, host.feature_id, found)
     specs = {p.line_id: p.spec for p in found.layout.partitions}
     doors = _doors(inputs.hosted, specs)
     counts: Counter[str] = Counter()
@@ -1289,9 +1337,9 @@ def _framed_wall_v1_4(inputs: ExpandInputs) -> Iterator[Member]:
         if h.plugin_id != INTERIOR_WALL:
             continue
         try:
-            found.append(
-                (h, partitions_of(h.inputs, host, inputs.earlier, inputs.parameters))
-            )
+            mine = partitions_of(h.inputs, host, inputs.earlier, inputs.parameters)
+            refuse_under_ceiling(inputs, inputs.feature_id, mine)
+            found.append((h, mine))
         except PluginError as exc:
             raise PluginError(
                 exc.code, f"{h.name}: {exc.message}", input=exc.input

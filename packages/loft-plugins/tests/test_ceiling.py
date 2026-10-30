@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loft_plugins import REGISTRY, PluginError, canonical_inputs
+from loft_plugins import REGISTRY, ExpandInputs, Hosted, PluginError, canonical_inputs
 from loft_plugins.builtin.ceiling import sheet_runs
 from loft_wire.cut_list import CutListMember
 from loft_wire.features import (
@@ -56,6 +56,7 @@ from test_building_outline import (
     GOLDENS,
     IN,
     ROOF_ID,
+    WALLS_ID,
     boxes,
     envelope,
     expand,
@@ -67,7 +68,7 @@ from test_building_outline import (
     request_of,
 )
 from test_ceiling_joists import B7_GABLE, Rows, b7_roofed, roofed
-from test_interior_walls import b10, titles
+from test_interior_walls import INTERIOR, INTERIOR_ID, WALL_1_4, b10, titles
 
 CEILING = REGISTRY.get("loft.ceiling", "1.0.0")
 ROOF_1_5 = REGISTRY.get("loft.roof", "1.5.0")
@@ -201,6 +202,71 @@ def test_along_y_the_courses_run_along_x() -> None:
         (125.5, 173.5),
         (173.5, 210.5),
     }
+
+
+# --- Tree order (CEILING-ORDER) -------------------------------------------------------
+
+CEILING_OVER = (
+    "A ceiling earlier in the tree hangs over this wall; move the wall above "
+    "the ceiling in the tree."
+)
+
+
+def _earlier(rows: Rows) -> dict[uuid.UUID, AuthoredEnvelope]:
+    out: dict[uuid.UUID, AuthoredEnvelope] = {}
+    for fid, env, members in rows:
+        out[fid] = env
+        for m in members:
+            out[m.id] = m.feature
+    return out
+
+
+def _ceiling_first() -> Rows:
+    """B10's sketch, floor and walls, the roof and a ceiling, no partitions."""
+    return hung(roofed(b10(roof=False, partitions=False), B7_GABLE, ROOF_1_8))
+
+
+def test_partitions_after_the_ceiling_are_refused_naming_why() -> None:
+    """A ceiling laid out before the partitions runs through their plates:
+    the Interior wall after it is refused on its Exterior walls pick."""
+    with pytest.raises(PluginError) as caught:
+        expand(
+            INTERIOR,
+            INTERIOR_ID,
+            {"host_wall": ref(WALLS_ID)},
+            _earlier(_ceiling_first()),
+        )
+    assert caught.value.message == CEILING_OVER
+    assert caught.value.input == "host_wall"
+    assert caught.value.code == "plugin_input_unsupported"
+
+
+def test_walls_hosting_partitions_after_a_ceiling_are_refused() -> None:
+    """The framed-wall path: walls re-expanded after a ceiling on them (a
+    reorder) with a partition hosted refuse too, naming the partition."""
+    rows = _ceiling_first()
+    walls = next(env for fid, env, _ in rows if fid == WALLS_ID)
+    raw = dict(walls.params.inputs)  # type: ignore[union-attr]
+    interior = canonical_inputs(INTERIOR.manifest, {"host_wall": ref(WALLS_ID)})
+    hosted = Hosted(
+        INTERIOR_ID,
+        INTERIOR.manifest.id,
+        INTERIOR.manifest.version,
+        "Interior walls",
+        ExpandInputs(INTERIOR_ID, interior),
+    )
+    with pytest.raises(PluginError) as caught:
+        expand(WALL_1_4, WALLS_ID, raw, _earlier(rows), (hosted,))
+    assert caught.value.message == f"Interior walls: {CEILING_OVER}"
+    assert caught.value.input == "host_wall"
+
+
+def test_partitions_before_the_ceiling_are_fine() -> None:
+    rows = b10_hung()
+    assert any(
+        m.role == "stud" for fid, _, ms in rows if fid == INTERIOR_ID for m in ms
+    )
+    assert panels(rows)
 
 
 # --- Refusals -------------------------------------------------------------------------

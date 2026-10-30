@@ -29,6 +29,10 @@ Refused (each says what to change): a roof that is not a gable on an
 outline wall, one before 1.6.0, one with Ceiling joists None or with joists
 that could not be framed, and joists farther apart than a sheet is long.
 
+A ceiling sees only the partitions before it, so an Interior wall after it
+on the same walls is refused, naming the order (CEILING-ORDER,
+``interior_wall.refuse_under_ceiling``).
+
 The feature is new, so nothing stored gains a ceiling: no update adds one
 (PLUGIN-UPDATE-ALL), as an update adds no siding.
 """
