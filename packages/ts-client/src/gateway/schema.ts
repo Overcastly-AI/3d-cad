@@ -10195,6 +10195,11 @@ export interface components {
              * @description The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.
              */
             rebar?: components["schemas"]["RebarRun"][] | null;
+            /**
+             * Sheet
+             * @description The sheet a sheet-good panel is cut from, as its plugin was told to hang it (GYPSUM-SHEETS: gypsum hung from 4x12s): the cut list nests every such panel on that sheet when it covers the panel. Absent: the shortest sheet its product is sold in that covers it.
+             */
+            sheet?: ("4x8" | "4x9" | "4x10" | "4x12") | null;
             /** @description Set on a siding body (SIDING-TRIM): the cut list lists its measured net area and orders its product with the wall's waste allowance, in whole boards or squares. Absent otherwise. */
             siding?: components["schemas"]["SidingTakeoff"] | null;
             /** @description Set on the bodies of a bought window or door unit (OPENING-UNITS): the cut list lists the unit once, Each, on its counted body. Absent on every other member. */
@@ -12136,7 +12141,7 @@ export interface components {
              * Profile
              * @description Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', casework item, e.g. 'hinge', or siding product, e.g. 'vinyl_d4'.
              */
-            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24") | ("fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8");
+            profile: ("us_1x2" | "us_1x4" | "us_1x6" | "us_1x8" | "us_5_4x4" | "us_5_4x6" | "us_2x2" | "us_2x3" | "us_2x4" | "us_2x6" | "us_2x8" | "us_2x10" | "us_2x12" | "us_4x4" | "us_4x6" | "us_6x6" | "us_6x8" | "us_8x8" | "us_8x10" | "us_8x12" | "us_10x10" | "us_10x12" | "us_12x12") | ("osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4" | "gypsum_ceiling_1_2") | string | ("ready_mix" | "rebar_4" | "anchor_bolt_1_2" | "foundation_vent" | "crawl_access_door" | "concrete_bag_80" | "post_base_4x4" | "post_base_4x6" | "post_base_6x6") | ("edge_banding" | "hinge" | "slide_12" | "slide_14" | "slide_16" | "slide_18" | "slide_20" | "slide_22" | "slide_24") | ("fibre_cement_lap_8_25" | "vinyl_d4" | "cedar_bevel_1_2x8");
             /**
              * Sheet
              * @description The sheet a sheet product's 'each' price is for ('4x8', '4x9', '4x10', '4x12'); null for lumber.
@@ -12823,7 +12828,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4";
+            key: "osb_7_16" | "plywood_15_32" | "plywood_23_32" | "gypsum_1_2" | "gypsum_5_8" | "plywood_3_4" | "melamine_3_4" | "plywood_1_2" | "plywood_1_4" | "gypsum_ceiling_1_2";
             /**
              * Material
              * @description Library material of the panels.

@@ -56,6 +56,7 @@ from loft_wire.foundation import (
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitPart
 from loft_wire.refs import FeatureRef
+from loft_wire.sheet_goods import SheetSizeKey
 from loft_wire.siding import SidingTakeoff
 from loft_wire.twist import is_none
 
@@ -680,6 +681,14 @@ class MemberMetadata(BaseModel):
         description="Set on a siding body (SIDING-TRIM): the cut list lists "
         "its measured net area and orders its product with the wall's waste "
         "allowance, in whole boards or squares. Absent otherwise.",
+    )
+    sheet: SheetSizeKey | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="The sheet a sheet-good panel is cut from, as its plugin "
+        "was told to hang it (GYPSUM-SHEETS: gypsum hung from 4x12s): the cut "
+        "list nests every such panel on that sheet when it covers the panel. "
+        "Absent: the shortest sheet its product is sold in that covers it.",
     )
 
     @field_validator("grain")
