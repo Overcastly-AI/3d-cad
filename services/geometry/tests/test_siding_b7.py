@@ -26,7 +26,8 @@ plies and spacers, ``test_ceiling_joists_b7.joists``,
 3. the cut list: one siding line of 6 layers, their measured net area
    88 368.53125 + 2 x 5 705.185554 = 99 778.902 in², x 1.10 / 1 008 = 108.89,
    109 boards; 8 corner boards of 108.59375; 23 casing pieces, 1 099.5 in;
-   every line priced;
+   every line priced (the trim nested on stock since ROOFING: the casing on
+   14 8 ft sticks);
 4. vinyl (8 squares), cedar, 28 ft, 8/12, unsheathed (no finish: it goes
    over the OSB), an L with a hip, B7 turned, B8, B9 and B10 all build with
    no interference.
@@ -205,18 +206,23 @@ def test_the_siding_is_109_boards_of_its_measured_net_area() -> None:
 
 
 def test_the_trim_is_8_corner_boards_and_1099_5_in_of_casing() -> None:
+    """Nested on stock (ROOFING, TRIM-NESTING): the 8 corner boards on 8 10 ft
+    sticks; the casing's 23 pieces, 1 099.5 in, on 14 8 ft sticks, not 23."""
     cut_list = _cut_list()
     boards = [line for line in cut_list.lines if line.member == "Corner board"]
     assert [
-        (b.quantity, round(b.length_mm / IN, 6), b.stock_length_ft) for b in boards
-    ] == [(8, 108.59375, 10)]
-    casing = [line for line in cut_list.lines if line.member == "Casing"]
-    lengths = Counter({round(line.length_mm / IN, 6): line.quantity for line in casing})
+        (b.quantity, round(b.length_mm / IN, 6), b.stock_length_ft, b.stock_quantity)
+        for b in boards
+    ] == [(8, 108.59375, 10, 8)]
+    (casing,) = [line for line in cut_list.lines if line.member == "Casing"]
+    cuts: list[float] = casing.cuts_mm or []
+    lengths = Counter(round(c / IN, 6) for c in cuts)
     assert lengths == Counter({31.0: 4, 43.0: 10, 44.5: 1, 55.0: 6, 85.5: 2})
     assert sum(k * n for k, n in lengths.items()) == 1099.5
-    assert all(line.system == "siding" and line.profile == "5/4x4" for line in casing)
-    trim = 8 * 1498 + 23 * 1198
-    assert sum(line.extended_price_cents or 0 for line in [*boards, *casing]) == trim
+    assert (casing.system, casing.profile, casing.nested) == ("siding", "5/4x4", True)
+    assert (casing.stock_length_ft, casing.stock_quantity) == (8, 14)
+    trim = 8 * 1498 + 14 * 1198
+    assert sum(line.extended_price_cents or 0 for line in [*boards, casing]) == trim
 
 
 def test_every_line_is_priced() -> None:
