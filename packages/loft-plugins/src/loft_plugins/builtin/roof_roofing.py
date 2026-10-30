@@ -82,7 +82,7 @@ from loft_wire.roofing import (
     RoofingTakeoff,
 )
 from loft_wire.sheet_goods import SHEET_GOODS_BY_KEY, SheetGood
-from loft_wire.siding import SidingProduct
+from loft_wire.siding import TRIM_THICKNESS_IN, SidingProduct
 from loft_wire.sketch import Point2D, SketchEntity, SketchLine
 
 from loft_plugins.api import ExpandInputs, Member
@@ -439,6 +439,7 @@ class Context:
     place: GablePlace
     wall_id: uuid.UUID
     ends: Sequence[OutlineWall]  # the end walls, as the outline orders them
+    eaves: tuple[str, str]  # the eave walls' lines: the low one, the high
     sheathed: float  # the walls' sheathing thickness (0 unsheathed)
     finish: SidingProduct | None  # the walls' Exterior finish
     spacing: float
@@ -612,7 +613,7 @@ def roofing(
     rake_meta = MemberMetadata(profile=rake_p.name, material=trim)
     w = rake_p.thickness_in
     for end, at in (("start", x_lo - w), ("end", x_hi)):
-        covered = _covered(inputs, members, ctx, end)
+        covered = _covered(inputs, members, ctx, end, (start + at, start + at + w))
         for side in sides:
             section = mirrored(plane.rake(rake_p.width_in), side)
             profile = body(
@@ -648,6 +649,7 @@ def _covered(
     members: Sequence[Member],
     ctx: Context,
     end: str,
+    reach: tuple[float, float],
 ) -> list[tuple[FeatureRef, list[Poly]]]:
     """The bodies a rake board at the roof's *end* may cover, each with its
     face's loops in world (across, Z): the end wall's corner boards and
@@ -678,6 +680,27 @@ def _covered(
         loops = _earlier_loops(inputs, feature)
         if loops:
             found.append((FeatureRef(kind="feature", feature_id=feature), loops))
+    # The eave walls' corner boards: the one that laps the end wall's edge
+    # (a fitted wall's) stands under the rake board's foot. Each as its box
+    # across the eave (on the wall's sheathing, the trim's thickness out),
+    # where its sketched extent along the ridge meets the rake board's.
+    across0 = ctx.place.y0 if ctx.place.along_x else ctx.place.x0
+    for k, line_id in enumerate(ctx.eaves):
+        lo = -ctx.sheathed - TRIM_THICKNESS_IN if k == 0 else ctx.span + ctx.sheathed
+        for corner in ("start", "end"):
+            feature = member_id(
+                ctx.wall_id, "corner_board", 0, f"{line_id}/corner/{corner}"
+            )
+            loops = _earlier_loops(inputs, feature)
+            if not loops:
+                continue
+            xs = [x for loop in loops for x, _ in loop]
+            zs = [z for loop in loops for _, z in loop]
+            if min(max(xs), reach[1]) - max(min(xs), reach[0]) <= 1e-6:
+                continue
+            a0, a1 = across0 + lo, across0 + lo + TRIM_THICKNESS_IN
+            box = [(a0, min(zs)), (a1, min(zs)), (a1, max(zs)), (a0, max(zs))]
+            found.append((FeatureRef(kind="feature", feature_id=feature), [box]))
     by_name = {(m.role, m.name): m for m in members}
     siding = by_name.get(("gable_siding", f"{wall.line_id}/siding"))
     section = by_name.get(("section", f"gable_siding/{wall.line_id}/siding"))

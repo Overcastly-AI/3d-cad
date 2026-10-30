@@ -188,7 +188,7 @@ def step_solids(tmp_path_factory: pytest.TempPathFactory) -> list[Solid]:
 
 
 def test_the_roofing_numbers_are_buildings_mds() -> None:
-    assert pytest.approx(8.1059, abs=1e-4) == PLUMB and PLUMB > 7.25  # 1x10
+    assert pytest.approx(8.1057, abs=1e-4) == PLUMB and PLUMB > 7.25  # 1x10
     assert pytest.approx(121.5862, abs=1e-4) == SLOPE
     assert pytest.approx(70246.42, abs=5e-3) == 2 * SLOPE * 288.875
     assert top(EAVE) == pytest.approx(107.9079, abs=1e-4)
@@ -368,14 +368,17 @@ def _cases() -> list[dict[str, Any]]:
 
 
 #: Each case's roofing: deck panels, fascia pieces, rake boards, rake cuts.
-#: 28 ft jointed on 16 ft fascia (X 168); unsided and unsheathed, nothing to
-#: cut; turned off the origin, its ridge along Y, 288 long: as B7.
+#: 28 ft: 26 panels (the courses' ends at X 336 7/16), the fascia jointed at
+#: X 168; unsheathed, the deck flush with the framing (X 0 .. 288), so the
+#: even courses take 3 whole sheets: 20 panels, and nothing to cut, as
+#: unsided; turned off the origin, its ridge along Y, 288 long: as B7, its
+#: eave walls' corner boards (they lap the end walls') cut by the rakes.
 COUNTS = {
     "b7-8-12": (24, 4, 4, 4),
-    "b7-336": (24, 4, 4, 4),
+    "b7-336": (26, 4, 4, 4),
     "b7-vinyl": (24, 4, 4, 4),
     "b7-unsided": (24, 4, 4, 0),
-    "b7-unsheathed": (24, 4, 4, 0),
+    "b7-unsheathed": (20, 4, 4, 0),
     "b7-no-gable-ends": (24, 4, 4, 4),
     "along-y-moved": (24, 4, 4, 4),
 }

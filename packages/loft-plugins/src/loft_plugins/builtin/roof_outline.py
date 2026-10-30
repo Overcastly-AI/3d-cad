@@ -390,6 +390,7 @@ def _expand(
                 place=place,
                 wall_id=ref.feature_id,
                 ends=[w for w in walls if w.line_id not in eaves.values()],
+                eaves=(eaves[low_side], eaves[high_side]),
                 sheathed=0.0 if good is None else good.thickness_in,
                 finish=finish_product(wall_inputs),
                 spacing=inches("spacing_mm", inputs),
