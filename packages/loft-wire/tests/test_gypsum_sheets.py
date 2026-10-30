@@ -113,7 +113,7 @@ def test_b10s_partitions_buy_12_sheets_not_11_by_area() -> None:
         20,
     )
     assert line.area_mm2 == pytest.approx(48130.5 * IN**2, abs=1e-6)
-    assert 48130.5 / (96 * 48) == pytest.approx(10.4450, abs=1e-4)  # 11 by area
+    assert pytest.approx(10.4450, abs=1e-4) == 48130.5 / (96 * 48)  # 11 by area
     assert (line.sheet, line.stock_quantity) == ("4x8", 12)
     assert line.offcut_area_mm2 == pytest.approx((12 * 4608 - 48130.5) * IN**2)
 
@@ -154,9 +154,7 @@ def test_a_wall_hung_from_4x12s_is_one_line_its_ends_nested() -> None:
     37 a course, both faces. It was a 4x12 line of 4 and a 4x8 line of 4;
     hung from 4x12s it is one 4x12 line of 8 panels from 6 sheets (three 37s
     to a sheet: 3 x 37 + 2 kerfs is 111.25)."""
-    hung = [
-        _gypsum(a, COURSE, hung="4x12") for _ in range(4) for a in (144.0, 37.0)
-    ]
+    hung = [_gypsum(a, COURSE, hung="4x12") for _ in range(4) for a in (144.0, 37.0)]
     (line,) = _lines(hung)
     assert (line.quantity, line.sheet, line.stock_quantity) == (8, "4x12", 6)
     unnamed = [_gypsum(a, COURSE) for _ in range(4) for a in (144.0, 37.0)]

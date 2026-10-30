@@ -1,0 +1,56 @@
+{
+  "description": "B7'S CEILING (GYPSUM-SHEETS; docs/BACKLOG.md GYPSUM-SHEETS, docs/reference-parts/buildings.md B7; Revit's Ceiling, Chief Architect's ceiling surface, GA-216): b7-gable-ends' tree (B7's 288 x 192 outline sketch, loft.floor 1.2.0, loft.wall 1.3.0, the door and four windows at 1.1.0) with its roof at loft.roof 1.8.0 (1.7.0's members exactly: the walls carry no exterior finish) and one loft.ceiling 1.0.0 picking it, every default kept: 1/2 in sag-resistant ceiling board from 4x12 sheets, hung under the 11 ceiling joists across them in 48 in courses from the front wall, each sheet's end on a joist. model.json is EXACTLY the sketch and the expansions with their member materials; members.json is each body's member metadata with its plugin (packages/loft-plugins/tests/test_ceiling.py pins both; services/geometry/tests/test_ceiling_b7.py checks the STEP, interference, the cut list, the mass and the B10, B10 inside-gypsum, 28 ft, 8/12 and turned cases).",
+  "derivation": [
+    "INDEPENDENT of the plugins: services/geometry/tests/test_ceiling_b7.py adds 8 boxes typed from BACKLOG GYPSUM-SHEETS to test_gable_ends_b7.house() (B7's independent build123d script with its joists and gable ends, 262 solids): X 5.5..145.5 and 145.5..282.5 by Y 5.5..53.5, 53.5..101.5, 101.5..149.5 and 149.5..186.5, Z 108.09375..108.59375. The joint X 145.5 is the centre of the joist beside the common at X 144 (144.75..146.25), the farthest joist a 144 in sheet from X 5.5 reaches (149.5); 282.5 - 145.5 = 137 is one sheet. The STEP matches the 270 solids solid for solid (volume to 1e-4 in^3, bounds to 1e-5 in).",
+    "",
+    "volume (analytic, test_the_ceiling_numbers_are_the_backlogs): b7-gable-ends' 297 000.0126485 + 277 x 181 x 1/2 = 25 068.5: 322 068.5126485 in^3.",
+    "",
+    "surface_area, centroid, mass_g and center_of_mass are the script's solids summed (expected_numbers()): spf_lumber 450, southern_pine_pt 582, osb 641, plywood 577 and gypsum 846 kg/m^3.",
+    "",
+    "bounding_box: b7-gable-ends': the ceiling lies inside the walls, under the joists.",
+    "",
+    "topology and MESH from the script's B-rep: b7-gable-ends' 1 814 faces, 3 870 edges, 262 shells plus 8 boxes of 6 faces and 12 edges: 1 862 faces, 3 966 edges, 270 shells; 7 740 + 8 x 24 = 7 932 vertices and 4 112 + 8 x 12 = 4 208 triangles. The kernel's build of model.json meets every count exactly.",
+    "",
+    "Interference none (test_nothing_interferes probes every pair whose boxes overlap, exactly): the board's top meets the joists' and the top plates' undersides face to face, its edges the walls' inside faces."
+  ],
+  "tolerance": 2e-05,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill): b7-gable-ends class. The bounds are ABSOLUTE and the part is ~5.3e9 mm^3 summed over 270 bodies, so the double-precision sum carries round-off of a few ULPs of the sum (~9.5e-7 each): the kernel differs from the script by +6.7e-06 mm^3 on the volume, -3.0e-07 mm^2 on the area, <= 1.8e-12 mm on the centroid, <= 5.0e-12 mm on the centre of mass, 9.3e-10 g on the mass and 0 on the bounds, b7-gable-ends exactly (the 8 ceiling boxes add no drift). 2e-5 is 3x the worst and ~4e-15 relative; one panel missed takes at least 37 x 137 x 0.5 x 16 387 = 41.5e6 mm^3, and a joint 1/16 in off the joist moves a panel 0.0625 x 48 x 0.5 x 16 387 = 24 581 mm^3 of centroid moment, so either fails by eight orders or more.",
+  "roundtrip_tolerance": 0.001,
+  "roundtrip_tolerance_rationale": "KERNEL-LEVEL, b7-outline class, measured 2026-10-30: OCCT STEP writer rounds the sloped rafters, the notched OSB panels, the snipped joists and the gable studs and panels irrational coordinates; the ceiling panels are boxes on binary-fraction inches and add none. Round-trip drift: volume -2.75e-4 mm^3, area -2.31e-5 mm^2, centroid <= 8.5e-11 mm (b7-gable-ends: -2.67e-4 / -2.31e-5). 1e-3 is 3.6x the worst and the b2-roof goldens bound; it applies to volume and area only, the centroid and bounds keep ROUNDTRIP_TOL.",
+  "properties": {
+    "volume": 5277757329.157652,
+    "surface_area": 492931366.45010734,
+    "centroid": {
+      "x": 3660.3075525531935,
+      "y": 2433.222156149438,
+      "z": 1571.0880609802482
+    },
+    "mass_g": 2782566.8046542993,
+    "center_of_mass": {
+      "x": 3659.9109642465887,
+      "y": 2440.4573970386277,
+      "z": 1591.7809364082102
+    },
+    "bounding_box": {
+      "min": {
+        "x": -11.112499999999999,
+        "y": -304.79999999999995,
+        "z": 0.0
+      },
+      "max": {
+        "x": 7326.3125,
+        "y": 5181.599999999999,
+        "z": 4121.983875694959
+      }
+    }
+  },
+  "topology": {
+    "faces": 1862,
+    "edges": 3966,
+    "shells": 270
+  },
+  "mesh": {
+    "vertices": 7932,
+    "triangles": 4208
+  }
+}

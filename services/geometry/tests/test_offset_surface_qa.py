@@ -194,6 +194,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B7 sided and trimmed (SIDING-TRIM): b7-outline's class, measured
     # -4.08e-4 mm^3 (area -2.16e-5 mm^2).
     "b7-siding": 1e-3,
+    # B7 with its ceiling (GYPSUM-SHEETS): b7-outline class, measured
+    # -2.75e-4 mm^3 (area -2.31e-5 mm^2); the ceiling panels are boxes.
+    "b7-ceiling": 1e-3,
     # Casework (CASEWORK): summation drift, 1.0e-7 to 3.6e-7 mm^3 measured;
     # C1 turned 30 deg, OCCT's turned-plane STEP drift, 1.05e-4 mm^3.
     "c1-b27-frameless-casework": 5e-7,

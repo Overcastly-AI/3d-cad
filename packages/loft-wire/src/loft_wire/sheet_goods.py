@@ -175,7 +175,9 @@ def covering_sheet(
     that sheet when it covers the panel (GYPSUM-SHEETS: a 37 in end piece of
     a wall hung from 4x12s is cut from a 4x12, not bought as a 4x8)."""
     long, short = max(length_mm, width_mm), min(length_mm, width_mm)
-    keys = SHEET_SIZES_FOR["osb" if good is None else good.material]
+    keys: tuple[SheetSizeKey, ...] = SHEET_SIZES_FOR[
+        "osb" if good is None else good.material
+    ]
     if hung is not None and hung in keys:
         keys = (hung, *(key for key in keys if key != hung))
     for size in (SHEET_SIZES_BY_KEY[key] for key in keys):

@@ -214,7 +214,9 @@ def _refused(rows: Rows) -> str:
 
 def test_a_hip_none_and_an_old_roof_are_refused() -> None:
     walls = house(rectangle(288, 192), [], B7_STUDS, B7_FLOOR, None)
-    assert "gable" in _refused(roofed(walls, {**B7_ROOF, "style": "hip", "hip_profile": "us_2x10"}, ROOF_1_8))
+    assert "gable" in _refused(
+        roofed(walls, {**B7_ROOF, "style": "hip", "hip_profile": "us_2x10"}, ROOF_1_8)
+    )
     none = {**B7_GABLE, "ceiling_joists": "none"}
     assert "Beside each common" in _refused(roofed(walls, none, ROOF_1_8))
     assert "1.6.0" in _refused(roofed(walls, B7_GABLE, ROOF_1_5))
@@ -225,7 +227,11 @@ def test_the_manifest() -> None:
     values = canonical_inputs(m, {"roof": ref(ROOF_ID)})
     assert values["finish"] == "gypsum_ceiling_1_2"
     assert values["finish_sheet"] == "sheet_4x12"
-    assert [r.role for r in m.members] == ["ceiling_level", "ceiling_section", "ceiling"]
+    assert [r.role for r in m.members] == [
+        "ceiling_level",
+        "ceiling_section",
+        "ceiling",
+    ]
 
 
 # --- No overlaps ----------------------------------------------------------------------
@@ -253,7 +259,7 @@ def test_no_panel_box_meets_another_body(case: str) -> None:
     ] == []
 
 
-# --- The golden and the kernel's cases --------------------------------------------------
+# --- The golden and the kernel's cases ------------------------------------------------
 
 
 def metadata_of(rows: Rows) -> list[CutListMember]:
@@ -298,7 +304,9 @@ def cases() -> str:
         "b10": b10_hung(),
         "b10-inside-gypsum": b10_hung({"finish": "gypsum_1_2"}),
         "b7-336": b7(336),
-        "b7-8-12": hung(b7_roofed(raw={**B7_GABLE, "pitch": "rise_8"}, plugin=ROOF_1_8)),
+        "b7-8-12": hung(
+            b7_roofed(raw={**B7_GABLE, "pitch": "rise_8"}, plugin=ROOF_1_8)
+        ),
         "along-y-moved": along_y(),
     }
     out = [

@@ -109,7 +109,7 @@ def _refuse(message: str, name: str = "roof") -> PluginError:
     return PluginError(PLUGIN_INPUT_UNSUPPORTED, message, input=name)
 
 
-# --- The layout (pure, inches) ---------------------------------------------------------
+# --- The layout (pure, inches) --------------------------------------------------------
 
 #: A rectangle ``(a0, a1, b0, b1)``: ``a`` along the ridge (across the
 #: joists), ``b`` along the joists.
@@ -160,7 +160,7 @@ def ceiling_regions(
     return out
 
 
-# --- Reading the roof, the walls and the partitions ------------------------------------
+# --- Reading the roof, the walls and the partitions -----------------------------------
 
 
 @dataclass(frozen=True)
@@ -322,7 +322,7 @@ def under(inputs: ExpandInputs) -> Under:
     return Under(plate, room, centres, along_x, partitions)
 
 
-# --- loft.ceiling 1.0.0 -----------------------------------------------------------------
+# --- loft.ceiling 1.0.0 ---------------------------------------------------------------
 
 
 def _good(inputs: ExpandInputs) -> SheetGood:
@@ -338,7 +338,9 @@ def _sheet(inputs: ExpandInputs) -> SheetSizeKey:
     key = inputs.choice("finish_sheet").removeprefix("sheet_")
     if key not in ("4x8", "4x12"):
         raise PluginError(
-            PLUGIN_INPUT_INVALID, f"{key!r} is not a gypsum sheet.", input="finish_sheet"
+            PLUGIN_INPUT_INVALID,
+            f"{key!r} is not a gypsum sheet.",
+            input="finish_sheet",
         )
     return key  # type: ignore[return-value]
 
@@ -425,7 +427,8 @@ MANIFEST_V1 = PluginManifest(
             "joists (GA-216); 5/8 in Type X where a rating asks for it.",
             options=[
                 ChoiceOption(
-                    value="gypsum_ceiling_1_2", label="1/2 ceiling gypsum (sag-resistant)"
+                    value="gypsum_ceiling_1_2",
+                    label="1/2 ceiling gypsum (sag-resistant)",
                 ),
                 ChoiceOption(value="gypsum_5_8", label="5/8 gypsum (Type X)"),
             ],
