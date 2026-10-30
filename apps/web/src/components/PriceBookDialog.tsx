@@ -9,7 +9,9 @@
  * foundation item (SLAB), ready-mix per cubic yard, #4 rebar Each per 20 ft
  * stick, an anchor bolt Each, a casework item (CASEWORK), edge banding per
  * foot and hinges and slide pairs Each, or siding (SIDING-TRIM), a 12 ft
- * board Each or vinyl per square. The profile list files each kind under its own heading.
+ * board Each or vinyl per square, or roofing (ROOFING), shingles by the
+ * bundle, underlayment by the roll, drip edge by the 10 ft stick and starter
+ * and ridge cap by the foot. The profile list files each kind under its own heading.
  *
  * The book is saved whole (`PUT` replaces it), so the dialog edits a draft and
  * Save sends every row; Cancel or Escape drops the draft. Opened from a blank
@@ -167,6 +169,16 @@ function pricedItems(library: MaterialLibrary | undefined): {
       price_unit: i.price_unit as PriceUnit,
       stock_length_ft: i.stock_length_ft ?? null,
       group: "Siding",
+    })),
+    // Roofing (ROOFING): a bundle or roll Each, drip edge Each per 10 ft
+    // stick, starter and ridge cap per foot.
+    ...(library?.roofing_items ?? []).map((i) => ({
+      key: i.key as PriceProfileKey,
+      name: i.name,
+      material: i.material as MaterialKey,
+      price_unit: i.price_unit as PriceUnit,
+      stock_length_ft: i.stock_length_ft ?? null,
+      group: "Roofing",
     })),
   ];
 }
