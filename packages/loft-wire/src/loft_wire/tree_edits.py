@@ -17,10 +17,12 @@ from loft_wire.twist import is_none
 #: Ceiling on the features of ONE evaluate/export/measure/overlay/drawing tree
 #: request (re-exported by :mod:`loft_wire.features`). Every feature is at
 #: least one kernel operation (usually a boolean); real parts run
-#: tens-to-low-hundreds of features, so 1000 is far above legitimate use while
+#: tens-to-low-hundreds of features, so 1000 was far above legitimate use while
 #: bounding the per-request kernel work + the buffered JSON body (audit G2
-#: hole 4).
-MAX_TREE_FEATURES = 1000
+#: hole 4). A house counts its framing by member (a sketch and an extrude a
+#: body): B7 with a second storey sends 1 078 (SECOND-FLOOR), so the bound is
+#: 2000, still a bound on the work.
+MAX_TREE_FEATURES = 2000
 
 
 #: Most nouns an update offer names in ``adds`` (a feature adds a few kinds).
