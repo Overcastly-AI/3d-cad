@@ -113,7 +113,6 @@ This module is pure (no I/O, no kernel): the gateway assembles the cut list
 with it, and the B1 acceptance test calls it on geometry's measurements.
 """
 
-import math
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
