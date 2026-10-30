@@ -1118,22 +1118,13 @@ def plugin_warnings(
         )
         if w is not None
     ]
-    out += _roofing_warnings(row.id, envelope, earlier, values)
+    if "roofing" in envelope.params.inputs:  # 1.9.0: roof_roofing_no_overhang
+        out += _noted(roofing_notes(stored_inputs(row.id, envelope, earlier, values)))
     return out or None
 
 
-def _roofing_warnings(
-    feature_id: uuid.UUID,
-    envelope: CustomFeature,
-    earlier: Mapping[uuid.UUID, AuthoredEnvelope],
-    values: Mapping[str, Quantity],
-) -> list[PluginWarning]:
-    """A 1.9.0 gable's ``roof_roofing_no_overhang`` (ROOFING): Roofing picked
-    on eaves with no overhang, so it builds unroofed. Advice, never a
-    refusal, as a wall's ``wall_finish_no_sheathing``."""
-    if "roofing" not in envelope.params.inputs:
-        return []
-    inputs = stored_inputs(feature_id, envelope, earlier, values)
+def _noted(notes: Sequence[tuple[str, str]]) -> list[PluginWarning]:
+    """Input advice, (code, message) notes, as warnings: no overlap, no fix."""
     return [
         PluginWarning(
             code=code,  # pyright: ignore[reportArgumentType]
@@ -1142,7 +1133,7 @@ def _roofing_warnings(
             pairs=0,
             update_to=None,
         )
-        for code, message in roofing_notes(inputs)
+        for code, message in notes
     ]
 
 
@@ -1236,17 +1227,7 @@ def _input_warnings(
         parameters=values,
     )
     inputs = stored_inputs(row.id, envelope, earlier, values)
-    notes = _NOTES[envelope.params.plugin_id](inputs)
-    return [
-        PluginWarning(
-            code=code,  # pyright: ignore[reportArgumentType]
-            message=message,
-            overlap_in3=0.0,
-            pairs=0,
-            update_to=None,
-        )
-        for code, message in notes
-    ] or None
+    return _noted(_NOTES[envelope.params.plugin_id](inputs)) or None
 
 
 def declared_update(row: db.Feature) -> PluginUpdate | None:
