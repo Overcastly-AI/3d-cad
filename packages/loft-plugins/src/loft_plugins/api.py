@@ -261,9 +261,19 @@ class Plugin:
 
     ``settle`` (optional) turns a write-time choice into the value stored, so
     a stored feature's meaning never depends on where its context later
-    moves (:func:`loft_plugins.registry.settle_inputs`)."""
+    moves (:func:`loft_plugins.registry.settle_inputs`).
+
+    ``offers_inputs_to`` (optional) names an optional feature input whose
+    pick receives this feature's inputs as :attr:`ExpandInputs.hosted`, as a
+    manifest ``host`` input's does, without the pick being required: a
+    stair offers its inputs to the deck it picks, and ``loft.deck`` 1.3.0
+    opens its guard there (DECK-GUARD-OPENING). Only inputs cross, so the
+    stair (which reads the deck's inputs) and the deck (which reads the
+    stair's) cannot cycle. A picked release that reads none ignores them.
+    It is not part of the manifest, so adding it changes no release."""
 
     manifest: PluginManifest
     expand: Expander
     renumbered_roles: frozenset[str] = frozenset()
     settle: Settler | None = None
+    offers_inputs_to: str | None = None

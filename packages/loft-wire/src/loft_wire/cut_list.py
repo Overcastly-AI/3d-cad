@@ -91,6 +91,10 @@ line's total volume instead of 1/4 yd³ a delivery, priced Each per bag, and a
 footing under a post adds its post base, Each. Every pour and item sits under
 Foundation, the list's first system, whichever plugin poured it.
 
+**Siding** (SIDING-TRIM, :mod:`loft_wire.cut_list_siding`): a layer, by net
+area, one line a product ordering whole boards or squares plus waste; corner
+boards and casing are 5/4x4 lumber, all under Siding and trim.
+
 **Casework** (CASEWORK): a ``loft.cabinets`` panel is a sheet good under
 Casework, cut to size (no panel gap) with its grain kept along the sheet;
 its banding and hardware are lines of their own
@@ -159,6 +163,7 @@ from loft_wire.sheet_goods import (
     sheet_good_for,
 )
 from loft_wire.sheet_nesting import SHEET_GAP_MM, sheets_to_cut
+from loft_wire.siding import SidingProductKey
 from loft_wire.stock import MAX_SPLICE_PIECES as MAX_SPLICE_PIECES
 from loft_wire.stock import (
     _covers,  # pyright: ignore[reportPrivateUsage]
@@ -252,6 +257,7 @@ CutListSystem = Literal[
     "walls",
     "roof",
     "sheathing",
+    "siding",
     "deck",
     "stairs",
     "frame",
@@ -266,6 +272,7 @@ SYSTEM_ORDER: Final[tuple[CutListSystem, ...]] = (
     "walls",
     "roof",
     "sheathing",
+    "siding",
     "deck",
     "stairs",
     "frame",
@@ -280,6 +287,7 @@ SYSTEM_LABELS: Final[Mapping[CutListSystem, str]] = {
     "walls": "Walls",
     "roof": "Roof",
     "sheathing": "Sheathing",
+    "siding": "Siding and trim",
     "deck": "Deck",
     "stairs": "Stairs",
     "frame": "Frame",
@@ -316,6 +324,26 @@ CUT_TO_SIZE_PLUGINS: Final[frozenset[str]] = frozenset({"loft.window", "loft.doo
 def system_for_plugin(plugin_id: str | None) -> CutListSystem:
     """The system a plugin's members are listed under (:data:`PLUGIN_SYSTEMS`)."""
     return "other" if plugin_id is None else PLUGIN_SYSTEMS.get(plugin_id, "other")
+
+
+#: Members listed under their role's system, not their plugin's: the exterior
+#: finish, as Chief Architect keeps Siding and Trim apart (SIDING-TRIM).
+ROLE_SYSTEMS: Final[Mapping[tuple[str, str], CutListSystem]] = {
+    ("loft.wall", "siding"): "siding",
+    ("loft.wall", "corner_board"): "siding",
+    ("loft.wall", "casing"): "siding",
+    ("loft.roof", "gable_siding"): "siding",
+}
+
+
+def system_for_member(member: "CutListMember") -> CutListSystem:
+    """The system *member* is listed under: its role's (:data:`ROLE_SYSTEMS`),
+    else its plugin's."""
+    if member.plugin_id is not None:
+        found = ROLE_SYSTEMS.get((member.plugin_id, member.role))
+        if found is not None:
+            return found
+    return system_for_plugin(member.plugin_id)
 
 
 def _is_false(value: object) -> bool:
@@ -583,6 +611,15 @@ class CutListLine(BaseModel):
         "'hinge' or a 'slide_<n>' pair (Each, quantity pieces). Its price-book "
         "key; absent on every other line.",
     )
+    siding: SidingProductKey | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="A siding line (SIDING-TRIM): its product's price-book "
+        "key. Its bodies' measured net area is area_mm2, and stock_quantity "
+        "orders it with waste_percent over in whole boards of "
+        "stock_length_ft (length_mm a board's) or, with no stock length, "
+        "squares of 100 ft². Absent on every other line.",
+    )
 
 
 class CutListMissing(BaseModel):
@@ -713,6 +750,9 @@ class CutListPiece:
     #: A casework item (banding or hardware, CASEWORK): its key, and a
     #: banding piece's length in ``length_mm``; ``None`` for a body.
     casework: CaseworkItemKey | None = None
+    #: A siding body's product (SIDING-TRIM), its allowance in
+    #: ``waste_percent``; ``None`` otherwise.
+    siding: SidingProductKey | None = None
 
     @property
     def panel(self) -> bool:
@@ -783,6 +823,11 @@ def classify_body(
             unit=unit,
             system=system_for_plugin(member.plugin_id),
         )
+    if member is not None and member.metadata.siding is not None:
+        # A siding layer: by its measured net area (SIDING-TRIM).
+        from loft_wire.cut_list_siding import siding_piece
+
+        return siding_piece(body, member, material, count)
     if member is not None and member.metadata.concrete is not None:
         # A pour: listed by its measured volume under Foundation, a deck's
         # footings with the slab's pours (module docstring).
@@ -852,7 +897,7 @@ def classify_body(
             length_mm=length,
             section_mm=section,
             count=count,
-            system=system_for_plugin(member.plugin_id),
+            system=system_for_member(member),
             one_piece=member.role in ONE_PIECE_ROLES,
         )
     if _is_prism(body):
@@ -1054,6 +1099,13 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     pours: dict[tuple[object, ...], list[CutListPiece]] = {}
     items: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
+        if piece.siding is not None:
+            siding_key: tuple[object, ...] = ("siding", piece.system)
+            siding_key += (piece.siding, piece.material, piece.waste_percent)
+            panels.setdefault(siding_key, []).append(piece)
+            first, count = groups.get(siding_key, (piece, 0))
+            groups[siding_key] = (first, count + piece.count)
+            continue
         if piece.casework is not None:
             casework_key: tuple[object, ...] = (
                 "casework",
@@ -1127,6 +1179,11 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
         groups[key] = (first, count + piece.count)
     lines: list[CutListLine] = []
     for group_key, (piece, quantity) in groups.items():
+        if piece.siding is not None:
+            from loft_wire.cut_list_siding import siding_line
+
+            lines.append(siding_line(panels[group_key], quantity))
+            continue
         if piece.casework is not None:
             from loft_wire.cut_list_casework import casework_line
 
@@ -1318,7 +1375,13 @@ def price_lines(
         unit_price: int | None = None
         unit: PriceUnit | None = None
         update: dict[str, object] = {}
-        if line.casework is not None:
+        if line.siding is not None:
+            from loft_wire.cut_list_siding import siding_price
+
+            found_siding = siding_price(line, entries)
+            if found_siding is not None:
+                unit_price, unit = found_siding
+        elif line.casework is not None:
             kind = CASEWORK_ITEMS_BY_KEY[line.casework]
             entry = None
             if line.material is not None:

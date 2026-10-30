@@ -10,7 +10,8 @@ explicit map (``loft_plugins.updates``). Checked by hand against
   1/2 in gap of a filled header (two in 2x6, one in 2x4), none in a 2x8's
   1-3/8 in gaps, and an insulated header's foam;
 * ``b7-outline`` (walls 1.3.0, door and windows 1.1.0, roof 1.4.0) updated:
-  the walls (1.4.0) and the roof (1.5.0) expand to exactly what they did, and
+  the walls (1.5.0, Exterior finish None) and the roof expand to exactly
+  what they did, and
   the six openings at 1.5.0 give 18 plies (the face plies keep their ids)
   and 12 spacers, 2 x 41, 6 x 39.5 and 4 x 27.5 (429 in, 2 359.5 in²,
   1 179.75 in³), 264 852.3789 + 1 769.625 + 1 179.75 = 267 801.7539 in³,
@@ -87,15 +88,18 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
             for plugin in ("loft.window", "loft.door")
             for version in ("1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0")
         ),
-        ("loft.wall", "1.2.0", "1.4.0"),
-        ("loft.wall", "1.3.0", "1.4.0"),
-        ("loft.roof", "1.2.0", "1.7.0"),
-        ("loft.roof", "1.3.0", "1.7.0"),
-        ("loft.roof", "1.4.0", "1.7.0"),
-        ("loft.roof", "1.5.0", "1.7.0"),
-        ("loft.roof", "1.6.0", "1.7.0"),
+        ("loft.wall", "1.2.0", "1.5.0"),
+        ("loft.wall", "1.3.0", "1.5.0"),
+        ("loft.wall", "1.4.0", "1.5.0"),
+        ("loft.roof", "1.2.0", "1.8.0"),
+        ("loft.roof", "1.3.0", "1.8.0"),
+        ("loft.roof", "1.4.0", "1.8.0"),
+        ("loft.roof", "1.5.0", "1.8.0"),
+        ("loft.roof", "1.6.0", "1.8.0"),
+        ("loft.roof", "1.7.0", "1.8.0"),
         ("loft.floor", "1.2.0", "1.3.0"),
-        ("loft.deck", "1.1.0", "1.2.0"),
+        ("loft.deck", "1.1.0", "1.3.0"),
+        ("loft.deck", "1.2.0", "1.3.0"),
         ("loft.foundation", "1.0.0", "1.1.0"),
         ("loft.cabinets", "1.0.0", "1.1.0"),
     }
@@ -104,10 +108,10 @@ def test_every_update_names_two_released_versions_newer_last() -> None:
 def test_the_latest_and_the_unmapped_releases_are_offered_none() -> None:
     for plugin, version in (
         ("loft.window", "1.5.0"),
-        ("loft.wall", "1.4.0"),
-        ("loft.roof", "1.7.0"),
+        ("loft.wall", "1.5.0"),
+        ("loft.roof", "1.8.0"),
         ("loft.floor", "1.3.0"),
-        ("loft.deck", "1.2.0"),
+        ("loft.deck", "1.3.0"),
         ("loft.foundation", "1.1.0"),
         ("loft.cabinets", "1.1.0"),
         ("loft.wall", "1.0.0"),  # ordinal ids 1.1.0 renamed
@@ -300,7 +304,8 @@ def test_the_stored_b7_rebuilds_as_its_golden() -> None:
 
 def test_a_typed_wall_1_2_0_updates_to_the_same_members() -> None:
     """B2's front wall typed at 1.2.0 with its OSB and a 1.0.0 door: at
-    1.4.0, same inputs, it frames the same members under the same ids."""
+    1.5.0, same inputs (Exterior finish None), it frames the same members
+    under the same ids."""
     wall_id = uuid.UUID("00000000-0000-0000-0000-0000000002f0")
     door_id = uuid.UUID("00000000-0000-0000-0000-0000000002f1")
     raw = {
@@ -329,9 +334,9 @@ def test_a_typed_wall_1_2_0_updates_to_the_same_members() -> None:
         ),
     )
     update = update_for("loft.wall", "1.2.0", REGISTRY)
-    assert update is not None and update.to_version == "1.4.0"
+    assert update is not None and update.to_version == "1.5.0"
     old = REGISTRY.get("loft.wall", "1.2.0")
-    new = REGISTRY.get("loft.wall", "1.4.0")
+    new = REGISTRY.get("loft.wall", "1.5.0")
     stored = canonical_inputs(old.manifest, raw)
     moved = canonical_inputs(new.manifest, updated_inputs(update, stored))
     before = expand(old, wall_id, stored, {}, hosted=hosted)
@@ -342,10 +347,10 @@ def test_a_typed_wall_1_2_0_updates_to_the_same_members() -> None:
 def test_update_all_moves_every_pin_to_the_newest() -> None:
     assert pins(update_all(b7())) == [
         ("loft.floor", "1.3.0"),
-        ("loft.wall", "1.4.0"),
+        ("loft.wall", "1.5.0"),
         *[("loft.door", "1.5.0")],
         *[("loft.window", "1.5.0")] * 5,
-        ("loft.roof", "1.7.0"),
+        ("loft.roof", "1.8.0"),
     ]
 
 
@@ -358,7 +363,7 @@ def test_with_the_openings_and_walls_updated_floor_and_roof_are_as_they_were() -
 
 
 def test_the_walls_frame_what_they_framed_and_the_middle_plies() -> None:
-    """Wall 1.4.0 frames 1.3.0's members exactly, every id kept; the six
+    """Wall 1.5.0 frames 1.3.0's members exactly, every id kept; the six
     filled headers add one middle ply each (and its section)."""
     stored, updated = b7(), update_all(b7())
     walls = [fid for fid, env, _ in stored if isinstance(env, CustomFeature)][1]

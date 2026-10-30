@@ -263,9 +263,9 @@ STORED = {
 }
 UPDATED = {
     "Floor": "1.3.0",
-    "Walls": "1.4.0",
+    "Walls": "1.5.0",
     **{name: "1.5.0" for name in OPENING_NAMES},
-    "Roof": "1.7.0",
+    "Roof": "1.8.0",
 }
 
 
@@ -275,13 +275,14 @@ def test_each_out_of_date_feature_offers_its_update(client: TestClient) -> None:
     offers = {name: row.get("plugin_update") for name, row in rows.items()}
     assert offers["Outline"] is None
     # The floor and the walls change no member: no badge, but Update all.
-    for name, version in (("Floor", "1.3.0"), ("Walls", "1.4.0")):
+    # The walls' update leaves Exterior finish at None (SIDING-TRIM).
+    for name, version in (("Floor", "1.3.0"), ("Walls", "1.5.0")):
         offer = offers[name]
         assert offer is not None and offer["to_version"] == version
         assert (offer["adds"], offer["quiet"]) == ([], True)
         assert (offer["relays"], offer["separate"]) == ([], False)
     roof = offers["Roof"]
-    assert roof is not None and roof["to_version"] == "1.7.0"
+    assert roof is not None and roof["to_version"] == "1.8.0"
     adds = ["11 ceiling joists", "22 gable studs", "12 gable sheathing panels"]
     assert (roof["adds"], roof["quiet"]) == (adds, False)
     assert roof["summary"].startswith(
@@ -410,7 +411,7 @@ def test_the_evaluation_sends_the_spacers_with_their_material(
 
 
 def _bad_roof_map(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The roof's update refused: its map gives a pitch 1.7.0 has not."""
+    """The roof's update refused: its map gives a pitch 1.8.0 has not."""
 
     def bad_pitch(inputs: Any, _context: Any) -> dict[str, Any]:
         return {**inputs, "pitch": "rise_99"}
@@ -520,7 +521,7 @@ def test_an_update_that_re_lays_a_floor_is_left_for_its_own_decision(
     assert skipped["message"].endswith("Update it on its own.")
     assert _pins({f["name"]: f for f in body["features"]}) == {
         "Floor": "1.2.0",
-        "Deck": "1.2.0",
+        "Deck": "1.3.0",
     }
     # On its own it updates, re-laid as it said.
     alone = part.update([rows["Floor"]["id"]])
@@ -544,7 +545,7 @@ def test_b1_at_deck_1_1_0_gains_its_footings_and_post_bases(
 ) -> None:
     part = _deck(client, "1.1.0")
     offer = part.rows()["Deck"]["plugin_update"]
-    assert offer is not None and offer["to_version"] == "1.2.0"
+    assert offer is not None and offer["to_version"] == "1.3.0"
     assert offer["adds"] == ["3 pier footings", "3 post bases"]
     assert offer["summary"].startswith("Adds 3 pier footings and 3 post bases. ")
     before = part.rows()["Deck"]["feature"]["params"]["expansion"]
@@ -627,5 +628,5 @@ def test_an_update_it_cannot_preview_is_left_for_its_own_decision(
     assert (skipped["name"], skipped["reason"]) == ("Floor", "separate")
     assert _pins({f["name"]: f for f in body["features"]}) == {
         "Floor": "1.2.0",
-        "Deck": "1.2.0",
+        "Deck": "1.3.0",
     }

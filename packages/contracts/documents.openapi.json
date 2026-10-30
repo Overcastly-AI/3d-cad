@@ -781,7 +781,9 @@
               "steel_f1554",
               "gypsum",
               "melamine",
-              "xps_foam"
+              "xps_foam",
+              "fibre_cement",
+              "western_red_cedar"
             ],
             "title": "Material",
             "type": "string"
@@ -5186,7 +5188,7 @@
                 "type": "null"
               }
             ],
-            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, `stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, `stair_deck_guard`). Omitted when there are none.",
+            "description": "Wrong geometry the feature's pinned plugin release builds (`roof_through_sheathing`), each with the release that fixes it, or a warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, `stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, `stair_deck_guard`, `wall_finish_no_sheathing`). Omitted when there are none.",
             "title": "Plugin Warnings"
           },
           "rolled_back": {
@@ -8237,6 +8239,7 @@
               "us_1x4",
               "us_1x6",
               "us_1x8",
+              "us_5_4x4",
               "us_5_4x6",
               "us_2x2",
               "us_2x3",
@@ -8619,7 +8622,9 @@
               "steel_f1554",
               "gypsum",
               "melamine",
-              "xps_foam"
+              "xps_foam",
+              "fibre_cement",
+              "western_red_cedar"
             ],
             "title": "Key",
             "type": "string"
@@ -8682,7 +8687,9 @@
                   "steel_f1554",
                   "gypsum",
                   "melamine",
-                  "xps_foam"
+                  "xps_foam",
+                  "fibre_cement",
+                  "western_red_cedar"
                 ],
                 "type": "string"
               },
@@ -8727,7 +8734,9 @@
                   "steel_f1554",
                   "gypsum",
                   "melamine",
-                  "xps_foam"
+                  "xps_foam",
+                  "fibre_cement",
+                  "western_red_cedar"
                 ],
                 "type": "string"
               },
@@ -8866,6 +8875,14 @@
             },
             "title": "Sheet Sizes",
             "type": "array"
+          },
+          "siding_products": {
+            "description": "Siding products (SIDING-TRIM): what a siding price is keyed by ('vinyl_d4'), its material, how it is sold (a 12 ft board Each, or vinyl per square) and what one covers.",
+            "items": {
+              "$ref": "#/components/schemas/SidingProduct"
+            },
+            "title": "Siding Products",
+            "type": "array"
           }
         },
         "required": [
@@ -8989,7 +9006,9 @@
                   "steel_f1554",
                   "gypsum",
                   "melamine",
-                  "xps_foam"
+                  "xps_foam",
+                  "fibre_cement",
+                  "western_red_cedar"
                 ],
                 "type": "string"
               },
@@ -9041,6 +9060,17 @@
             ],
             "description": "The bars a pour carries, listed, not drawn (SLAB): each by its centreline length, bought in 20 ft sticks lapped 24 in. Absent on every other member.",
             "title": "Rebar"
+          },
+          "siding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SidingTakeoff"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a siding body (SIDING-TRIM): the cut list lists its measured net area and orders its product with the wall's waste allowance, in whole boards or squares. Absent otherwise."
           },
           "unit": {
             "anyOf": [
@@ -11209,7 +11239,7 @@
         "description": "One stored custom feature's geometry warning, with its fix if any.",
         "properties": {
           "code": {
-            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them; 'stair_throat_thin': a stair's cut stringers keep under AWC DCA6's 5 in throat; 'stair_stringer_span': a stair's cut stringers span more than DCA6's 6'-0\" horizontally between supports; 'stair_guard_required': a stair's top tread is over 30 in up and its open sides have no guard (IRC R312.1.1); 'stair_deck_guard': the deck's guard runs across the stair's head",
+            "description": "'roof_through_sheathing': the roof's tails pass through wall sheathing, so the two share volume; 'crawl_height_low': a foundation's crawl height is under the 18 in of IRC R317.1; 'ceiling_joists_omitted': a gable's chosen ceiling joist would pass its ridge board, so the roof is built without them; 'stair_throat_thin': a stair's cut stringers keep under AWC DCA6's 5 in throat; 'stair_stringer_span': a stair's cut stringers span more than DCA6's 6'-0\" horizontally between supports; 'stair_guard_required': a stair's top tread is over 30 in up and its open sides have no guard (IRC R312.1.1); 'stair_deck_guard': the deck's guard runs across the stair's head; 'wall_finish_no_sheathing': a wall has an Exterior finish but no sheathing, so it is built without siding",
             "enum": [
               "roof_through_sheathing",
               "crawl_height_low",
@@ -11217,7 +11247,8 @@
               "stair_throat_thin",
               "stair_stringer_span",
               "stair_guard_required",
-              "stair_deck_guard"
+              "stair_deck_guard",
+              "wall_finish_no_sheathing"
             ],
             "title": "Code",
             "type": "string"
@@ -11488,7 +11519,9 @@
               "steel_f1554",
               "gypsum",
               "melamine",
-              "xps_foam"
+              "xps_foam",
+              "fibre_cement",
+              "western_red_cedar"
             ],
             "title": "Material",
             "type": "string"
@@ -11508,6 +11541,7 @@
                   "us_1x4",
                   "us_1x6",
                   "us_1x8",
+                  "us_5_4x4",
                   "us_5_4x6",
                   "us_2x2",
                   "us_2x3",
@@ -11574,9 +11608,17 @@
                   "slide_24"
                 ],
                 "type": "string"
+              },
+              {
+                "enum": [
+                  "fibre_cement_lap_8_25",
+                  "vinyl_d4",
+                  "cedar_bevel_1_2x8"
+                ],
+                "type": "string"
               }
             ],
-            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', or casework item, e.g. 'hinge'.",
+            "description": "Lumber profile, e.g. 'us_2x4', sheet product, e.g. 'osb_7_16', window or door unit, e.g. 'window_3040', foundation item, e.g. 'ready_mix', casework item, e.g. 'hinge', or siding product, e.g. 'vinyl_d4'.",
             "title": "Profile"
           },
           "sheet": {
@@ -11610,12 +11652,13 @@
             "title": "Stock Length Ft"
           },
           "unit": {
-            "description": "'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only), or 'cubic_yard' (ready-mix concrete only, per yd\u00b3 ordered).",
+            "description": "'each' (one stock piece of `stock_length_ft`, one sheet of `sheet`, one unit or one anchor bolt), 'linear_foot' or 'board_foot' (any stock length; lumber only, and a siding board per foot), 'cubic_yard' (ready-mix concrete only, per yd\u00b3 ordered), or 'square' (vinyl siding only, per 100 ft\u00b2 of wall).",
             "enum": [
               "each",
               "linear_foot",
               "board_foot",
-              "cubic_yard"
+              "cubic_yard",
+              "square"
             ],
             "title": "Unit",
             "type": "string"
@@ -13702,6 +13745,148 @@
           "faces"
         ],
         "title": "ShellParamsV1",
+        "type": "object"
+      },
+      "SidingProduct": {
+        "description": "One siding product: how it is drawn, what it covers and how it is sold.",
+        "properties": {
+          "coverage_in2": {
+            "description": "Wall area one board (exposure x length) or one square covers (in\u00b2).",
+            "exclusiveMinimum": 0.0,
+            "title": "Coverage In2",
+            "type": "number"
+          },
+          "exposure_in": {
+            "description": "What a course shows (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Exposure In",
+            "type": "number"
+          },
+          "key": {
+            "description": "Price-book key, e.g. 'vinyl_d4'.",
+            "enum": [
+              "fibre_cement_lap_8_25",
+              "vinyl_d4",
+              "cedar_bevel_1_2x8"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "description": "As the Exterior finish offers it.",
+            "title": "Label",
+            "type": "string"
+          },
+          "material": {
+            "description": "Library material the product is drawn, weighed and priced as.",
+            "enum": [
+              "fibre_cement",
+              "pvc",
+              "western_red_cedar"
+            ],
+            "title": "Material",
+            "type": "string"
+          },
+          "name": {
+            "description": "As listed, e.g. 'Fibre-cement lap 8-1/4'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "price_unit": {
+            "description": "How a price-book entry prices it: a board Each at its stock length (or per linear foot), vinyl per square.",
+            "enum": [
+              "each",
+              "square"
+            ],
+            "title": "Price Unit",
+            "type": "string"
+          },
+          "sale": {
+            "description": "Sold by the board or by the square.",
+            "enum": [
+              "board",
+              "square"
+            ],
+            "title": "Sale",
+            "type": "string"
+          },
+          "stock_length_ft": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A board's stock length (ft), what an 'each' price is for; null for a product sold by the square.",
+            "title": "Stock Length Ft"
+          },
+          "thickness_in": {
+            "description": "The drawn layer's thickness (in): one board's.",
+            "exclusiveMinimum": 0.0,
+            "title": "Thickness In",
+            "type": "number"
+          },
+          "trim_material": {
+            "description": "The library material of its 5/4x4 corner boards and casing.",
+            "enum": [
+              "fibre_cement",
+              "pvc",
+              "western_red_cedar"
+            ],
+            "title": "Trim Material",
+            "type": "string"
+          },
+          "width_in": {
+            "description": "A board's (or course's) face (in).",
+            "exclusiveMinimum": 0.0,
+            "title": "Width In",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "label",
+          "material",
+          "trim_material",
+          "thickness_in",
+          "width_in",
+          "exposure_in",
+          "sale",
+          "coverage_in2",
+          "price_unit"
+        ],
+        "title": "SidingProduct",
+        "type": "object"
+      },
+      "SidingTakeoff": {
+        "description": "Set on a siding body (SIDING-TRIM): the cut list lists its MEASURED net\narea and orders its product with this allowance, in whole boards or\nsquares.",
+        "properties": {
+          "product": {
+            "description": "The siding product.",
+            "enum": [
+              "fibre_cement_lap_8_25",
+              "vinyl_d4",
+              "cedar_bevel_1_2x8"
+            ],
+            "title": "Product",
+            "type": "string"
+          },
+          "waste_percent": {
+            "default": 10,
+            "description": "Ordered over the net area (percent), then rounded up to whole boards or squares.",
+            "maximum": 30.0,
+            "minimum": 0.0,
+            "title": "Waste Percent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "product"
+        ],
+        "title": "SidingTakeoff",
         "type": "object"
       },
       "SingleBodyImportResult": {
@@ -19067,7 +19252,7 @@
     },
     "/api/v1/materials": {
       "get": {
-        "description": "The built-in materials, lumber profiles, sheet goods, window and door\nunits, foundation items and casework items, in display order.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
+        "description": "The built-in materials, lumber profiles, sheet goods, window and door\nunits, foundation items, casework items and siding products, in display\norder.\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
         "operationId": "list_materials_api_v1_materials_get",
         "responses": {
           "200": {

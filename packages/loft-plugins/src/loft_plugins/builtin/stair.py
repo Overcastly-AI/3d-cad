@@ -6,8 +6,8 @@ order: count the risers from the total rise and a maximum riser height
 (``ceil(rise / max)``, every riser equal), lay one tread fewer than risers at
 the tread depth, and frame it (Chief's Build Framing cuts the stringers). A
 stair is HOSTED on a deck edge (it picks an earlier ``loft.deck`` and reads
-the deck's stored inputs; the deck is never changed) or FREE, at a typed
-total rise, top nosing point and direction (an interior stair).
+the deck's stored inputs, never its members; deck 1.3.0 opens its guard at it) or
+FREE, at a typed total rise, top nosing point and direction (an interior stair).
 
 This is a FRAMING MODEL with a cut list, not a structural design; the IRC
 R311.7 layout rules (riser, tread, nosing, width, handrail, headroom, open
@@ -68,8 +68,10 @@ always); R311.7.8 no handrail on 4 or more risers, R311.7.8.1 a handrail
 outside 34..38 in; R311.7.2 headroom under 6 ft 8 in below a typed stairwell
 opening. **Warnings** (:func:`stair_notes`, documents' ``plugin_warnings``):
 a throat under DCA6's 5 in, open sides more than 30 in up without a guard
-(R312.1.1), and a deck whose guard runs across the stair's head (the deck's
-guard opening is a later deck release; this stair never changes the deck).
+(R312.1.1), and a deck before 1.3.0 whose guard runs across the stair's head.
+``loft.deck`` 1.3.0 opens its guard at the stair (DECK-GUARD-OPENING): the
+stair offers its inputs to the deck it picks (``Plugin.offers_inputs_to``)
+and never reads the deck's members, so neither expansion reads the other.
 
 Inputs are millimetres on the wire, inches inside, each rounded to 1e-9 in.
 """
@@ -110,6 +112,7 @@ from loft_wire.plugins import (
     MemberMetadata,
     PluginManifest,
     PluginMemberRole,
+    semver_key,
 )
 from loft_wire.sketch import Point2D, SketchLine
 
@@ -409,7 +412,8 @@ class Site:
     overhang: float | None
     #: The decking's thickness (the stringers' head is cut level under it).
     decking: float
-    #: The edge carries the deck's guard.
+    #: The edge carries the deck's guard, and it runs across the stair's
+    #: head: a deck before 1.3.0 never opens it (DECK-GUARD-OPENING).
     guarded: bool
     #: A free stair's stairwell opening and the floor's depth (headroom).
     opening: float
@@ -507,7 +511,13 @@ class DeckEdge:
     framed: bool  # a rim or end joist the stringers hang on
     height: float
     decking: float
+    #: The edge's guard runs across the stair's head: the deck has a guard
+    #: and is older than 1.3.0, which opens it at the stair.
     guarded: bool
+
+
+#: The first deck release whose guard opens at a stair (DECK-GUARD-OPENING).
+GUARD_OPENS: Final = (1, 3, 0)
 
 
 def deck_edge(deck: CustomFeature, edge: Edge) -> DeckEdge:
@@ -524,7 +534,10 @@ def deck_edge(deck: CustomFeature, edge: Edge) -> DeckEdge:
     board = values.lumber("decking_profile")
     gap = _inches("decking_gap_mm", values)
     overhang = _inches("decking_overhang_mm", values)
-    guarded = values.choice("guard") == "open_sides"
+    guarded = (
+        values.choice("guard") == "open_sides"
+        and semver_key(deck.params.plugin_version) < GUARD_OPENS
+    )
     w = board.width_in
     if along_house:
         # Boards run along Y in rows across X from X 0 (deck.py's b axis).
@@ -1200,9 +1213,9 @@ def stair_notes(inputs: ExpandInputs) -> list[tuple[str, str]]:
             (
                 STAIR_DECK_GUARD,
                 "The deck's guard runs along this edge, across the head of "
-                "the stair: a guard opening at the stair is a later deck "
-                "release, and this stair never changes the deck. Turn the "
-                "deck's guard off or leave the opening to the build.",
+                "the stair: this deck's release never opens it. Update the "
+                "deck (1.3.0 opens its guard at the stair), turn its guard "
+                "off, or leave the opening to the build.",
             )
         )
     return notes
@@ -1210,6 +1223,11 @@ def stair_notes(inputs: ExpandInputs) -> list[tuple[str, str]]:
 
 #: Stringers and handrail posts are shared out across the width and along
 #: the run: a write that moves a referenced one is refused.
+#: The stair offers its inputs to the deck it picks (``loft.deck`` 1.3.0
+#: opens its guard at it, DECK-GUARD-OPENING); its manifest is unchanged.
 STAIR_V1 = Plugin(
-    MANIFEST_V1, expand, renumbered_roles=frozenset({"stringer", "handrail_post"})
+    MANIFEST_V1,
+    expand,
+    renumbered_roles=frozenset({"stringer", "handrail_post"}),
+    offers_inputs_to="deck",
 )

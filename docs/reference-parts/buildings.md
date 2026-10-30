@@ -421,12 +421,20 @@ rafter's outside face: 2 x (5.689079 x 96.4375 + (96² - (7/16)²) / 4) =
 `b7-gable-ends`: 262 bodies, 297 000.0126 in³. At 8/12: 2d/3 - 2.416667,
 359.25 in a gable, 7 358.36 in².
 
-**Siding and trim** (SIDING-TRIM): fibre-cement lap 8.25 at 7 in exposure
-(1 008 in² a 12 ft board) from Z 0 to the top plate: 960 x 108.59375 =
-104 250 in², less cased openings 13 351.5 (5/4x4 picture frame: 43 x 55,
-31 x 43, door 43 x 83.5), 90 898.5 in² x 1.10 / 1 008 = 99.19, **100
-boards**; 8 corner boards 5/4x4 x 108.59375; casing 1 094 in. Vinyl:
-6.94, **7 squares**.
+**Siding and trim** (SIDING-TRIM, `loft.wall` 1.5.0, `loft.roof` 1.8.0;
+Exterior finish picked as Lap, the default being None):
+fibre-cement lap 8.25 at 7 in exposure, 5/16 thick (1 008 in² a 12 ft
+board), on the OSB's face from Z 0 (the floor's underside) to the top plate,
+between 5/4x4 corner boards (two a corner, the side wall's lapping the front
+or back wall's 1 in edge: the front and back sided X 3 1/16 .. 284 15/16,
+the sides Y 2 1/16 .. 189 15/16): 939.5 x 108.59375 = 102 023.83 in², less
+the cased openings 13 565.75 (5/4x4 picture frame on each unit: 3040 43 x
+55, 2030 31 x 43, the 3068's 37.5 x 82 frame 44.5 x 85.5) and the 22 inner
+rafter tails' notches (4.0703 in² each): 88 368.53 in² on the walls; the
+gables' lap over the gable OSB 2 x 5 705.19: 99 778.90 x 1.10 / 1 008 =
+108.89, **109 boards**; 8 corner boards 5/4x4 x 108.59375; casing 1 099.5
+in. Vinyl: 7.62, **8 squares**; cedar bevel (900 in² a board) 122. Golden
+`b7-siding`: 329 bodies, 349 796.857 in³.
 
 **Drawings** (HOUSE-DRAWINGS): plan cut 48 in above the subfloor, 24'-0" x
 16'-0" overall; front string 5'-0", 7'-0", 7'-0", 5'-0", back 12'-0" +

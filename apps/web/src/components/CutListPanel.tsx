@@ -112,6 +112,7 @@ export const SYSTEM_LABEL: Record<CutListLine["system"], string> = {
   walls: "Walls",
   roof: "Roof",
   sheathing: "Sheathing",
+  siding: "Siding and trim",
   deck: "Deck",
   stairs: "Stairs",
   frame: "Frame",
@@ -171,9 +172,11 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   }
   if (
     (line.item !== null && line.item !== undefined) ||
-    (line.casework !== null && line.casework !== undefined)
+    (line.casework !== null && line.casework !== undefined) ||
+    (line.siding !== null && line.siding !== undefined)
   ) {
-    // A foundation or casework item: the book resolves its name to its key.
+    // A foundation, casework or siding item: the book resolves its name to
+    // its key.
     return {
       material: line.material,
       profile: line.profile,
@@ -240,6 +243,19 @@ function splice(line: CutListLine): readonly number[] | null {
 /** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, a "3040
  * window", or a dash. */
 function stockLabel(line: CutListLine): string {
+  if (line.siding !== null && line.siding !== undefined) {
+    // Bought by its net area plus waste (SIDING-TRIM).
+    const n = line.stock_quantity ?? 0;
+    const noun =
+      line.stock_length_ft === null || line.stock_length_ft === undefined
+        ? n === 1
+          ? "square"
+          : "squares"
+        : n === 1
+          ? "board"
+          : "boards";
+    return `${formatCount(n)} ${noun}`;
+  }
   if (line.casework !== null && line.casework !== undefined) {
     // Banding is bought in whole feet; hardware by the piece.
     return line.casework === "edge_banding"
@@ -290,6 +306,12 @@ function sheetsTitle(
 /** How the line's unit price was reached, for its tooltip. */
 function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
+  if (line.siding !== null && line.siding !== undefined) {
+    if (line.price_unit === "square") return "Per square, 100 ft² of wall";
+    return line.price_unit === "each"
+      ? `Each, per ${line.stock_length_ft ?? 12} ft board`
+      : `Per ft, ${line.stock_length_ft ?? 12} ft a board`;
+  }
   if (line.item === "concrete") {
     return line.bags !== null && line.bags !== undefined
       ? "Each, per 80 lb bag"
@@ -676,14 +698,21 @@ export function CutListPanel({
                               ? "in 80 lb bags of 0.60 ft³, rounded up to whole bags"
                               : "rounded up to 1/4 yd³"
                           }`
-                        : line.item === "rebar"
-                          ? "20 ft sticks, lapped 24 in at each joint"
-                          : sheet !== null
-                            ? sheetsTitle(line, sheet, unit, unitLabel)
-                            : line.waste_mm === null
-                              ? // Why a joist past 24 ft has no stock (NO-SPLICE-SPANS).
-                                (line.stock_note ?? undefined)
-                              : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
+                        : line.siding !== null && line.siding !== undefined
+                          ? `${formatArea(area ?? 0, unit)} ${unitLabel}² net + ${line.waste_percent ?? 0}% waste, rounded up to whole ${
+                              line.stock_length_ft === null ||
+                              line.stock_length_ft === undefined
+                                ? "squares"
+                                : `${line.stock_length_ft} ft boards`
+                            }`
+                          : line.item === "rebar"
+                            ? "20 ft sticks, lapped 24 in at each joint"
+                            : sheet !== null
+                              ? sheetsTitle(line, sheet, unit, unitLabel)
+                              : line.waste_mm === null
+                                ? // Why a joist past 24 ft has no stock (NO-SPLICE-SPANS).
+                                  (line.stock_note ?? undefined)
+                                : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
                     }
                   >
                     {stockLabel(line)}

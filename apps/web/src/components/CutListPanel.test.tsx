@@ -159,6 +159,36 @@ vi.mock("../api/materials", () => ({
         { key: "4x8", width_in: 48, length_in: 96 },
         { key: "4x9", width_in: 48, length_in: 108 },
       ],
+      siding_products: [
+        {
+          key: "fibre_cement_lap_8_25",
+          name: "Fibre-cement lap 8-1/4",
+          label: "Lap, fibre cement 8-1/4 in at 7 in",
+          material: "fibre_cement",
+          trim_material: "fibre_cement",
+          thickness_in: 0.3125,
+          width_in: 8.25,
+          exposure_in: 7,
+          sale: "board",
+          stock_length_ft: 12,
+          coverage_in2: 1008,
+          price_unit: "each",
+        },
+        {
+          key: "vinyl_d4",
+          name: "Vinyl siding, double 4",
+          label: "Vinyl, double 4 in",
+          material: "pvc",
+          trim_material: "pvc",
+          thickness_in: 0.044,
+          width_in: 8,
+          exposure_in: 8,
+          sale: "square",
+          stock_length_ft: null,
+          coverage_in2: 14400,
+          price_unit: "square",
+        },
+      ],
       foundation_items: [
         {
           key: "ready_mix",
@@ -736,6 +766,90 @@ describe("CutListPanel", () => {
     expect(seeded).toHaveAttribute("data-profile", "post_base_6x6");
     expect(seeded).toHaveAttribute("data-kind", "item");
     expect(seeded).toHaveAttribute("data-unit", "each");
+  });
+
+  it("lists B7's siding by its net area in whole boards, and vinyl in squares", async () => {
+    // SIDING-TRIM: 6 layers, 99 778.902 in² net, x 1.10 / 1 008 = 108.89, so
+    // 109 boards at $13.98; vinyl 8 squares, unpriced.
+    const none = { stock_pieces_ft: null, waste_mm: null };
+    const lines: CutListLine[] = [
+      {
+        ...none,
+        system: "siding",
+        member: "Siding",
+        profile: "Fibre-cement lap 8-1/4",
+        material: "fibre_cement",
+        classification: "member",
+        quantity: 6,
+        length_mm: 144 * IN,
+        total_length_mm: 109 * 144 * IN,
+        section_mm: [0.3125 * IN, 8.25 * IN],
+        area_mm2: 99778.902 * IN ** 2,
+        stock_length_ft: 12,
+        stock_quantity: 109,
+        unit_price_cents: 1398,
+        price_unit: "each",
+        extended_price_cents: 109 * 1398,
+        waste_percent: 10,
+        siding: "fibre_cement_lap_8_25",
+      },
+      {
+        ...none,
+        system: "siding",
+        member: "Siding",
+        profile: "Vinyl siding, double 4",
+        material: "pvc",
+        classification: "member",
+        quantity: 6,
+        length_mm: 0,
+        total_length_mm: 0,
+        section_mm: [0.044 * IN, 8 * IN],
+        area_mm2: 99781 * IN ** 2,
+        stock_length_ft: null,
+        stock_quantity: 8,
+        unit_price_cents: null,
+        price_unit: null,
+        extended_price_cents: null,
+        waste_percent: 10,
+        siding: "vinyl_d4",
+      },
+    ];
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 12,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: 109 * 1398,
+      unpriced_lines: 1,
+      lines,
+    });
+    renderPanel();
+    const [lap, vinyl] = await screen.findAllByTestId("cut-list-row");
+    const row = within(lap!);
+    expect(row.getByTestId("cut-list-area")).toHaveTextContent(
+      "99,778.902 in²",
+    );
+    expect(row.getByTestId("cut-list-stock")).toHaveTextContent("109 boards");
+    expect(row.getByTestId("cut-list-stock")).toHaveAttribute(
+      "title",
+      "99,778.902 in² net + 10% waste, rounded up to whole 12 ft boards",
+    );
+    expect(row.getByTestId("cut-list-unit-price")).toHaveAttribute(
+      "title",
+      "Each, per 12 ft board",
+    );
+    expect(row.getByTestId("cut-list-ext-price")).toHaveTextContent(
+      "$1,523.82",
+    );
+    expect(within(vinyl!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "8 squares",
+    );
+    // Vinyl's blank opens the book on its key, per square.
+    fireEvent.click(within(vinyl!).getByTestId("cut-list-price-blank"));
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "vinyl_d4");
+    expect(seeded).toHaveAttribute("data-kind", "item");
+    expect(seeded).toHaveAttribute("data-unit", "square");
   });
 
   it("shows a long member's splice and prices it per member", async () => {

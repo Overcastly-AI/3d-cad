@@ -26,9 +26,15 @@ taken by Update all, which lists it as needing its own decision.
   through 1.2.0 nothing was). Header build becomes Fill the wall (1.4.0's
   default, three plies in a 2x6 wall). A 1.4.0 opening keeps its own Header
   build.
-* ``loft.wall`` 1.2.0 and 1.3.0 -> 1.4.0, every input as it is: 1.4.0 is
+* ``loft.wall`` 1.2.0 and 1.3.0 -> 1.5.0, every input as it is: 1.4.0 is
   1.3.0 member for member (and a typed wall 1.2.0's), plus the backing of
-  partitions that meet it and an inside gypsum left at None.
+  partitions that meet it and an inside gypsum left at None; 1.5.0 adds the
+  Exterior finish below, at None.
+* ``loft.wall`` 1.4.0 -> 1.5.0 (SIDING-TRIM), every input as it is, so
+  Exterior finish takes 1.5.0's default, None: the update adds no member
+  (1.4.0's member for member), so it wears no badge and rides in Update
+  all. Siding is a material the user picks, as Chief's wall type is, so an
+  update never adds siding nobody asked for (VISION, 2026-10-30).
 * ``loft.roof`` 1.2.0-1.5.0 -> 1.6.0, every input as it is, so Ceiling
   joists takes 1.6.0's default, Beside each common: a gable on an outline or
   on picked walls gains its ceiling joists (B7's 11), as a new roof frames
@@ -42,7 +48,12 @@ taken by Update all, which lists it as needing its own decision.
   gable studs on each end wall's plate and the end walls' sheathing carried
   up to the roof (B7's 22 and 12). A ceiling joist that would lie on an end
   wall's plate is no longer framed (the end wall carries the ceiling there),
-  which is a re-lay, so that update is offered on its own.
+  which is a re-lay, so that update is offered on its own. Since 1.8.0
+  (SIDING-TRIM) every roof 1.2.0-1.6.0 goes straight to 1.8.0.
+* ``loft.roof`` 1.7.0 -> 1.8.0, every input as it is: a gable on outline
+  walls with an Exterior finish (``loft.wall`` 1.5.0) carries the finish up
+  each gable over the sheathing (2 gable siding layers on B7 sided); on
+  walls with none, as every updated wall is, it is 1.7.0 member for member.
 * ``loft.floor`` 1.2.0 -> 1.3.0: Joist direction becomes the Joists bear on
   (Long walls first, then Front and back, then Left and right) whose
   expansion frames 1.2.0's joists, rims and sills member for member. 1.2.0
@@ -51,8 +62,15 @@ taken by Update all, which lists it as needing its own decision.
   spacing does not divide the floor, no choice reproduces them: the map
   keeps the span 1.2.0 framed and the update re-lays the framing (B7's own
   drawing is byte for byte).
-* ``loft.deck`` 1.1.0 -> 1.2.0, every input as it is: each post gains its
-  round pier footing and post base (1.2.0's defaults; B1's 3 piers).
+* ``loft.deck`` 1.1.0 -> 1.3.0, every input as it is: each post gains its
+  round pier footing and post base (1.2.0's defaults; B1's 3 piers), and
+  the guard opens at each stair that picks the deck (1.3.0).
+* ``loft.deck`` 1.2.0 -> 1.3.0, every input as it is: a guarded deck opens
+  its guard where a stair lands on its edge, the side's runs either side of
+  the stair laid out again with a post at each side (DECK-GUARD-OPENING).
+  That re-lays the side's guard posts, rails and balusters, so the update is
+  offered on its own; a deck with no stair, or no guard, is 1.2.0 member for
+  member and its update is quiet.
 * ``loft.foundation`` 1.0.0 -> 1.1.0, every input as it is: the stem lists
   the vents and the access door it cuts (B9's 5 and 1), priced Each.
 * ``loft.cabinets`` 1.0.0 -> 1.1.0: 1.1.0 stands a run on the wall's
@@ -246,13 +264,19 @@ _OPENING_INFILL = (
     "foam), so the cut list and price book carry them."
 )
 _WALL = (
-    "Frames the backing of partitions that meet it and can take an inside "
-    "gypsum finish; its framing is unchanged."
+    "Frames the backing of partitions that meet it, can take an inside "
+    "gypsum finish, and offers an Exterior finish (None until you pick "
+    "siding); its framing is unchanged."
+)
+_WALL_1_4 = (
+    "Offers an Exterior finish, None until you pick Lap, Vinyl or Cedar to "
+    "side the walls with corner boards and casing; nothing is rebuilt."
 )
 _GABLE_ENDS = (
     "frames its end walls up to the roof with gable studs on their layout and "
-    "carries their sheathing up the gables"
+    "carries their sheathing (and any siding) up the gables"
 )
+_ROOF_1_7 = "A gable on its walls carries their exterior finish up the gables."
 _ROOF = (
     "Notches the wall sheathing round the rafter tails, as framers do, ties a "
     "gable with a ceiling joist beside each common (one that cannot fit under "
@@ -270,9 +294,15 @@ _FLOOR = (
     "Joists bear on replaces Joist direction, set to the span this floor "
     "frames; 1.3.0 lays an outline's floor from its lowest corner."
 )
+_GUARD_OPENS = (
+    "opens the guard where a stair lands on the deck, with a post at each side"
+)
 _DECK = (
     "Stands each post on a round pier footing with its post base, the "
-    "concrete bought in 80 lb bags."
+    f"concrete bought in 80 lb bags, and {_GUARD_OPENS}."
+)
+_DECK_1_2 = (
+    f"{_GUARD_OPENS[0].upper()}{_GUARD_OPENS[1:]}; a deck with no stair is unchanged."
 )
 _FOUNDATION = (
     "Lists the foundation vents and the access door set in the stem wall, priced Each."
@@ -281,6 +311,9 @@ _CABINETS = (
     "Stands the run on the wall's finished face, its Back gap and Distance "
     "taken from the gypsum, so the run keeps its place."
 )
+
+#: Why a deck update re-lays its guard.
+_AT_THE_STAIR = " to open the guard at the stair"
 
 # --- The table ----------------------------------------------------------------------
 
@@ -305,10 +338,12 @@ _TABLE: tuple[tuple[str, tuple[str, ...], str, str, InputMap, str], ...] = (
         "",
     ),
     ("loft.door", ("1.4.0",), "1.5.0", _OPENING_INFILL, _opening_to_1_5, ""),
-    ("loft.wall", ("1.2.0", "1.3.0"), "1.4.0", _WALL, _same, ""),
-    ("loft.roof", ("1.2.0", "1.3.0", "1.4.0"), "1.7.0", _ROOF, _same, ""),
-    ("loft.roof", ("1.5.0",), "1.7.0", _ROOF_1_5, _same, ""),
-    ("loft.roof", ("1.6.0",), "1.7.0", _ROOF_1_6, _same, ""),
+    ("loft.wall", ("1.2.0", "1.3.0"), "1.5.0", _WALL, _same, ""),
+    ("loft.wall", ("1.4.0",), "1.5.0", _WALL_1_4, _same, ""),
+    ("loft.roof", ("1.2.0", "1.3.0", "1.4.0"), "1.8.0", _ROOF, _same, ""),
+    ("loft.roof", ("1.5.0",), "1.8.0", _ROOF_1_5, _same, ""),
+    ("loft.roof", ("1.6.0",), "1.8.0", _ROOF_1_6, _same, ""),
+    ("loft.roof", ("1.7.0",), "1.8.0", _ROOF_1_7, _same, ""),
     (
         "loft.floor",
         ("1.2.0",),
@@ -317,7 +352,8 @@ _TABLE: tuple[tuple[str, tuple[str, ...], str, str, InputMap, str], ...] = (
         _floor_to_1_3,
         " from the outline's lowest corner",
     ),
-    ("loft.deck", ("1.1.0",), "1.2.0", _DECK, _same, ""),
+    ("loft.deck", ("1.1.0",), "1.3.0", _DECK, _same, _AT_THE_STAIR),
+    ("loft.deck", ("1.2.0",), "1.3.0", _DECK_1_2, _same, _AT_THE_STAIR),
     ("loft.foundation", ("1.0.0",), "1.1.0", _FOUNDATION, _same, ""),
     (
         "loft.cabinets",
@@ -424,6 +460,9 @@ _NOUNS: Mapping[tuple[str, str], str] = {
     ("loft.floor", "subfloor"): "subfloor panel",
     ("loft.cabinets", "drawer_end"): "drawer end",
     ("loft.roof", "gable_sheathing"): "gable sheathing panel",
+    ("loft.wall", "siding"): "siding layer",
+    ("loft.wall", "casing"): "casing piece",
+    ("loft.roof", "gable_siding"): "gable siding layer",
 }
 
 #: What a long list of re-laid nouns is summed as, by plugin ("75 panels").

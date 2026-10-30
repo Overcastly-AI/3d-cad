@@ -10,7 +10,8 @@ mapping every input it can and taking the defaults of new parameters
   1.3.0, the door and five windows 1.1.0, the roof 1.4.0): one Update all
   leaves no release out of date and is B7 built fresh today, member for
   member: the floor 1.3.0 on Long walls (byte for byte 1.2.0's), the walls
-  1.4.0, the openings 1.5.0 (18 plies, 12 spacers) and the roof 1.7.0 with
+  1.5.0 (Exterior finish None), the openings 1.5.0 (18 plies, 12 spacers)
+  and the roof 1.8.0 (no siding on unsided walls) with
   its 11 ceiling joists and its gable ends (22 gable studs, 2 134 in³ a
   gable, and 12 gable OSB panels, 2 496.018680 in³ a gable:
   GABLE-END-STUDS): 264 852.3789 + 1 769.625 + 1 179.75 + 22 887.596423 +
@@ -144,10 +145,10 @@ def test_one_update_all_leaves_nothing_out_of_date() -> None:
     assert still_offered(updated) == []
     assert pins(updated) == [
         ("loft.floor", "1.3.0"),
-        ("loft.wall", "1.4.0"),
+        ("loft.wall", "1.5.0"),
         ("loft.door", "1.5.0"),
         *[("loft.window", "1.5.0")] * 5,
-        ("loft.roof", "1.7.0"),
+        ("loft.roof", "1.8.0"),
     ]
 
 
@@ -395,12 +396,12 @@ B1 = deck.GOLDEN_INPUTS["plugin-deck-v1.2-b1-footings-16ft"]
 def _deck_update() -> tuple[list[ExpandedMember], list[ExpandedMember]]:
     old = REGISTRY.get("loft.deck", "1.1.0")
     update = update_for("loft.deck", "1.1.0", REGISTRY)
-    assert update is not None and update.to_version == "1.2.0"
+    assert update is not None and update.to_version == "1.3.0"
     stored = canonical_inputs(old.manifest, B1)
     moved = canonical_inputs(
         newest("loft.deck").manifest, updated_inputs(update, stored)
     )
-    return deck.members(B1, "1.1.0"), deck.members(moved, "1.2.0")
+    return deck.members(B1, "1.1.0"), deck.members(moved, "1.3.0")
 
 
 def test_b1_gains_three_footings_eight_bags_and_three_post_bases() -> None:

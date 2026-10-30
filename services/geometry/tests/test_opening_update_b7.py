@@ -3,7 +3,8 @@
 ``goldens/b7-opening-update`` is ``b7-outline`` after "Update all": its
 walls at ``loft.wall`` 1.4.0, the door and the five windows at
 ``loft.door``/``loft.window`` 1.5.0 and the roof at ``loft.roof`` 1.5.0
-(the floor, 1.2.0, is offered no update). ``model.json`` and
+(the floor, 1.2.0, is offered no update; today the walls update to 1.5.0,
+byte for byte the same: Exterior finish None, SIDING-TRIM). ``model.json`` and
 ``members.json`` are pinned to the plugins by
 ``packages/loft-plugins/tests/test_opening_update.py``. Geometry never
 learns plugins exist, so this module imports nothing from them.

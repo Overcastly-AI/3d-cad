@@ -501,7 +501,9 @@
                   "steel_f1554",
                   "gypsum",
                   "melamine",
-                  "xps_foam"
+                  "xps_foam",
+                  "fibre_cement",
+                  "western_red_cedar"
                 ],
                 "type": "string"
               },
@@ -555,7 +557,9 @@
               "steel_f1554",
               "gypsum",
               "melamine",
-              "xps_foam"
+              "xps_foam",
+              "fibre_cement",
+              "western_red_cedar"
             ],
             "title": "Material",
             "type": "string"
@@ -7429,7 +7433,9 @@
                   "steel_f1554",
                   "gypsum",
                   "melamine",
-                  "xps_foam"
+                  "xps_foam",
+                  "fibre_cement",
+                  "western_red_cedar"
                 ],
                 "type": "string"
               },

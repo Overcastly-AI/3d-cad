@@ -4,7 +4,9 @@ one step, on STEP.
 ``goldens/b7-update-all`` is ``b7-outline`` after one "Update all": the
 floor at ``loft.floor`` 1.3.0 (Joists bear on Long walls, byte for byte
 1.2.0's floor), the walls 1.4.0, the door and five windows 1.5.0 and the
-roof 1.7.0 with its default ceiling joists and gable ends. ``model.json`` and
+roof 1.7.0 with its default ceiling joists and gable ends (today the walls
+update to 1.5.0 and the roof to 1.8.0, byte for byte the same: the update
+leaves Exterior finish at None, SIDING-TRIM). ``model.json`` and
 ``members.json`` are pinned to the plugins by
 ``packages/loft-plugins/tests/test_update_all.py``, which also shows it is
 B7 built fresh today. Geometry never learns plugins exist, so this module

@@ -26,6 +26,7 @@ edge is materialised to the custom feature's row.
 import uuid
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 from fastapi import APIRouter
@@ -52,6 +53,7 @@ from loft_plugins.builtin.roof_ceiling import CEILING_BESIDE
 from loft_plugins.builtin.roof_outline import ceiling_joist_note
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
 from loft_plugins.builtin.stair import STAIR, stair_notes
+from loft_plugins.builtin.wall_finish import finish_notes
 from loft_plugins.updates import UpdateEffect, update_effect
 from loft_wire.expr import Quantity
 from loft_wire.feature_input import PARAMETER_VALUE_INVALID
@@ -606,17 +608,16 @@ def prepare_custom_write(
 
 
 def host_id(envelope: AuthoredEnvelope) -> uuid.UUID | None:
-    """The feature *envelope* names as its host (a window's wall), or ``None``
-    (not hosted, or its plugin is not on this server)."""
+    """The feature *envelope* names as its host (a window's wall, or the
+    deck a stair offers its inputs to), or ``None`` (not hosted, or its
+    plugin is not on this server)."""
     if not isinstance(envelope, CustomFeature):
         return None
     try:
-        manifest = PLUGINS.get(
-            envelope.params.plugin_id, envelope.params.plugin_version
-        ).manifest
+        plugin = PLUGINS.get(envelope.params.plugin_id, envelope.params.plugin_version)
     except PluginError:
         return None
-    return host_of(manifest, envelope.params.inputs)
+    return host_of(plugin.manifest, envelope.params.inputs, plugin)
 
 
 def stored_host_id(row: db.Feature) -> uuid.UUID | None:
@@ -1096,8 +1097,8 @@ def plugin_warnings(
         "loft.foundation"
     ):
         return _crawl_height_warning(envelope)
-    if isinstance(envelope, CustomFeature) and envelope.params.plugin_id == STAIR:
-        return _stair_warnings(part, row, envelope, rows)
+    if isinstance(envelope, CustomFeature) and envelope.params.plugin_id in _NOTES:
+        return _input_warnings(part, row, envelope, rows)
     if (
         not isinstance(envelope, CustomFeature)
         or envelope.params.plugin_id != "loft.roof"
@@ -1193,19 +1194,24 @@ def _ceiling_joists_warning(
     )
 
 
-def _stair_warnings(
+#: The plugins whose stored inputs carry advice, as (code, message) notes.
+_NOTES = {STAIR: stair_notes, "loft.wall": finish_notes}
+
+
+def _input_warnings(
     part: db.Part, row: db.Feature, envelope: CustomFeature, rows: Sequence[db.Feature]
 ) -> list[PluginWarning] | None:
-    """A stair's advice (STAIRS, :func:`stair_notes`), or None: a cut
-    stringer's throat under DCA6's 5 in, open sides over 30 in up with no
-    guard (IRC R312.1.1), or a deck guard across its head. Never a refusal:
-    a layout that breaks R311.7 is refused when it is written."""
+    """A stair's advice (STAIRS, :func:`stair_notes`: a cut stringer's
+    throat under DCA6's 5 in, open sides over 30 in up with no guard, a deck
+    guard across its head) or a wall's ``wall_finish_no_sheathing``
+    (SIDING-TRIM), or None. Never a refusal: the feature builds."""
     values = parameter_values(part.parameters)
     earlier = _earlier_from_rows(
         [r for r in rows if r.order_index < row.order_index and not r.suppressed],
         parameters=values,
     )
-    notes = stair_notes(stored_inputs(row.id, envelope, earlier, values))
+    inputs = stored_inputs(row.id, envelope, earlier, values)
+    notes = _NOTES[envelope.params.plugin_id](inputs)
     return [
         PluginWarning(
             code=code,  # pyright: ignore[reportArgumentType]
@@ -1232,29 +1238,48 @@ def declared_update(row: db.Feature) -> PluginUpdate | None:
     return update_for(plugin_id, version, PLUGINS)
 
 
-#: What each out-of-date row's update would do, by (part, tree version,
-#: row): a dry run re-expands the row and its host, so the tree's every read
-#: does not repeat it. Every write bumps the tree version, so an entry can
-#: never outlive the tree it was read from.
-_EFFECTS: OrderedDict[tuple[uuid.UUID, int, uuid.UUID], UpdateEffect | None] = (
-    OrderedDict()
-)
-_EFFECTS_MAX = 2048
-
 #: The summary of an update whose effect cannot be read (PLUGIN-UPDATE-ALL).
 CANNOT_PREVIEW = (
     "Can't preview this update (suppressed or refused); update it on its own."
 )
 
 
+@dataclass(frozen=True)
+class _Refused:
+    """An update's dry run refused, with the refusal's message: the offer
+    says why it cannot preview (two stairs too close for the guard's posts)."""
+
+    reason: str
+
+
+#: What each out-of-date row's update would do, by (part, tree version,
+#: row): a dry run re-expands the row and its host, so the tree's every read
+#: does not repeat it. Every write bumps the tree version, so an entry can
+#: never outlive the tree it was read from.
+_EFFECTS: OrderedDict[
+    tuple[uuid.UUID, int, uuid.UUID], UpdateEffect | _Refused | None
+] = OrderedDict()
+_EFFECTS_MAX = 2048
+
+
+def _cannot_preview(refused: _Refused | None) -> str:
+    """:data:`CANNOT_PREVIEW`, or with the dry run's refusal as its reason."""
+    if refused is None:
+        return CANNOT_PREVIEW
+    reason = refused.reason.strip()
+    if reason and reason[-1] not in ".!?":
+        reason += "."
+    return f"Can't preview this update: {reason[:600]} Update it on its own."
+
+
 def _update_effect(
     part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
-) -> UpdateEffect | None:
+) -> UpdateEffect | _Refused | None:
     """What updating *row* would add and whether it changes any member, read
     by a dry run on the tree as stored: the row re-expanded at its update's
     release, and a hosted row's host (a door's wall) with it. None when the
-    row is suppressed (it builds nothing) or the dry run is refused: the
-    update itself reports why."""
+    row is suppressed (it builds nothing); :class:`_Refused`, with the
+    refusal's message, when the dry run is refused."""
     key = (part.id, part.tree_version, row.id)
     if key in _EFFECTS:
         _EFFECTS.move_to_end(key)
@@ -1268,7 +1293,7 @@ def _update_effect(
 
 def _dry_run(
     part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
-) -> UpdateEffect | None:
+) -> UpdateEffect | _Refused:
     parameters = parameter_values(part.parameters)
     try:
         envelope = updated_envelope(part, row, rows)
@@ -1309,8 +1334,10 @@ def _dry_run(
                     reframed.params.expansion or [],
                 )
             )
-    except (PluginError, FeatureExpressionError, ValidationApiError, ValidationError):
-        return None
+    except (PluginError, FeatureExpressionError, ValidationApiError) as exc:
+        return _Refused(exc.message)
+    except ValidationError as exc:
+        return _Refused(str(exc.errors()[0]["msg"]))
     update = declared_update(row)
     reason = "" if update is None else update.relay_reason
     return update_effect(changed, PLUGINS, reason)
@@ -1330,12 +1357,12 @@ def plugin_update_of(
     if update is None:
         return None
     effect = _update_effect(part, row, rows)
-    if effect is None:
-        # Suppressed, or its dry run refused: what it would move is unknown,
-        # so it is never taken by Update all unseen.
+    if effect is None or isinstance(effect, _Refused):
+        # Suppressed, or its dry run refused (saying why): what it would
+        # move is unknown, so it is never taken by Update all unseen.
         return PluginUpdateOffer(
             to_version=update.to_version,
-            summary=f"{CANNOT_PREVIEW} {update.summary}",
+            summary=f"{_cannot_preview(effect)} {update.summary}",
             separate=True,
         )
     return PluginUpdateOffer(

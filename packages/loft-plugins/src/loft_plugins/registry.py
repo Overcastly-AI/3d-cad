@@ -348,11 +348,19 @@ def settle_inputs(
 
 
 def host_of(
-    manifest: PluginManifest, inputs: Mapping[str, CustomInputValue]
+    manifest: PluginManifest,
+    inputs: Mapping[str, CustomInputValue],
+    plugin: Plugin | None = None,
 ) -> uuid.UUID | None:
-    """The feature *inputs* name as host (a window's wall), or ``None``."""
+    """The feature *inputs* name as host (a window's wall), or ``None``.
+    With *plugin*, a release with no host input but an input it offers its
+    inputs to (``Plugin.offers_inputs_to``: a stair's deck) names that
+    input's pick, when one is made."""
     item = manifest.host_input()
-    value = None if item is None else inputs.get(item.name)
+    name = item.name if item is not None else None
+    if name is None and plugin is not None:
+        name = plugin.offers_inputs_to
+    value = None if name is None else inputs.get(name)
     return value.feature_id if isinstance(value, FeatureRef) else None
 
 

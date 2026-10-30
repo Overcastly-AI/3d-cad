@@ -3286,7 +3286,7 @@ and reframe it, a material per member, and a cut list that is always current.
     sides over 30 in up with no guard, whose
     openings would stop a 4-3/8 in sphere (R312.1.1, R312.1.3:
     `stair_guard_required`), and a deck guard across its head
-    (`stair_deck_guard`: the guard opening is a later deck release). The
+    (`stair_deck_guard`, on a deck before 1.3.0: DECK-GUARD-OPENING). The
     riser variance (3/8 in) is zero by construction; 4-3/8 in is the stair
     guard's sphere, not a variance (the brief had them crossed).
   - *Treads, risers, handrail.* Treads are whole boards the stair's width;
@@ -3308,6 +3308,63 @@ and reframe it, a material per member, and a cut list that is always current.
     `free-stair-107`, matched solid for solid to an independent build123d
     script on STEP, the throat measured on every exported stringer, no pair
     interfering (the deck's members among them), probed exactly.
+- **Decided while opening the deck's guard at its stair**
+  (DECK-GUARD-OPENING, 2026-10-29; Chief Architect's deck railing breaks
+  where a stair lands on the deck's edge, newels each side):
+  - *How the deck learns where the stair is: it reads its dependents'
+    inputs.* The stair picks the deck, so the stair is the later feature
+    and the dependency graph already runs deck -> stair. A deck that read
+    the stair's MEMBERS (its stringers) would close a cycle, and one that
+    owned an opening input would need a second, hand-kept copy of the
+    stair's place. Instead the stair offers its INPUTS to the deck it
+    picks, through the hosting channel a window uses in its wall
+    (`ExpandInputs.hosted`): `Plugin.offers_inputs_to = "deck"` on
+    `loft.stair` 1.0.0, a registry attribute outside the manifest, so no
+    released manifest changes and the pick stays optional (a free stair
+    offers nothing). The deck's expansion reads the stair's edge,
+    position and width, the stair's reads the deck's stored inputs, and
+    neither reads an expansion, so there is no cycle and each rebuild is
+    a pure function of the two rows' inputs, in tree order. Documents
+    re-expands the deck when the stair is written, moved, suppressed or
+    deleted (`reexpand_hosts`) and the stair when the deck is written
+    (`reexpand_pickers`), in the same write. Decks 1.0.0-1.2.0 receive the
+    stair too and ignore it: frozen, byte for byte.
+  - *The opening.* `loft.deck` 1.3.0 breaks the guarded side a stair lands
+    on (front, left or right) between the stair's outer stringer faces,
+    its position less and plus half its width (the stair's width is
+    across those faces). Each run either side is laid out as a whole side
+    is: posts at both ends, so one each side of the stair with its face on
+    the stringer's, equally spaced at most 6 ft apart, rails and
+    balusters filling the bays. A side keeps its corner posts' names
+    (`front/0`, `front/end`); the rest are named by run (`front/run/1/0`).
+    A run from a corner under two posts (7 in, a stair flush with the
+    corner included) is the corner post alone, which is then the
+    opening's post on that side; a bay no wider than 4 in (IRC R312.1.3's
+    sphere) is closed by its posts and takes no rail, so no sliver rail is
+    cut (Chief's own rule could not be checked from this sandbox; the
+    sphere is the code's). A run between two stairs under two posts is
+    refused, naming both: on the stair's write a 422, as a window past its
+    wall's end is. An update whose dry run is refused says why ("Can't
+    preview this update: <the refusal>"). Golden `b1-stair-30-guard-corner`
+    (stair at X 18: 9 posts, rails 818 in, 72 balusters). With no stair
+    1.3.0 is 1.2.0 member for member, and the stair stops warning
+    `stair_deck_guard` on 1.3.0.
+  - *The update.* `loft.deck` 1.2.0 -> 1.3.0 (and 1.1.0 -> 1.3.0) carry
+    every input. With no stair, or no guard, nothing changes and the
+    update is quiet. A guarded deck with a stair gains posts and rails at
+    the opening and its front's posts, rails and balusters move, which
+    `updates.relaid` counts as re-laid, so the update is `separate` and
+    its badge says so (B1: "Re-lays 2 guard posts, 6 rails and 33
+    balusters to open the guard at the stair. Adds 2 guard posts and 2
+    rails.").
+  - *Numbers.* B1 guarded, stair at X 96: posts at X 1.75, 39, 76.25 and
+    115.75, 153, 190.25 on the front (faces at X 78 and 114), 10 in all
+    (8 closed); rails 8 x 66.75 and 8 x 33.75, a course 402 in against
+    445 (the front's 192 - 36 - 6 x 3.5 = 135 against 192 - 4 x 3.5 =
+    178), 86 in less over both courses; balusters 72 (81). Golden
+    `b1-stair-30-guard-opening`, 159 solids, matched solid for solid to an
+    independent build123d script on STEP, 88 560.870607 in³ by hand, no
+    pair interfering, probed exactly.
 - **Decided while closing the gables** (GABLE-END-STUDS, 2026-10-29;
   Chief Architect's Build Framing frames a gable wall up to the roof with
   its studs in line with the wall below and carries the wall's layers up
@@ -3373,6 +3430,84 @@ and reframe it, a material per member, and a cut list that is always current.
     script on STEP; nothing interferes, in B7, at 28 ft, at 8/12, in B10,
     at 291, on a 171 span (a ridge post each gable) and turned off the
     origin, probed exactly.
+- **Decided while siding the house** (SIDING-TRIM, 2026-10-29; Chief
+  Architect's wall types carry a siding layer outside the sheathing, and its
+  Materials List counts siding by area net of the openings, with corner
+  boards and exterior casing as lines of their own):
+  - *A wall option, drawn as its layer.* `loft.wall` 1.5.0 adds Exterior
+    finish (None, the default; Lap, fibre cement 8-1/4 at 7 in; Vinyl,
+    double 4, by the square; Cedar bevel 1/2 x 8 at 6-1/4 in) and Siding
+    waste (10 %, 0-30). Siding is a material the user picks, as Chief's
+    wall type is, so a new wall and every wall update (1.2-1.4 -> 1.5.0)
+    take None and are 1.4.0 member for member: an update adds no siding
+    nobody asked for (VISION, 2026-10-30). With a finish it is 1.4.0's
+    members, then per wall a plane on the sheathing's outer face (a wall
+    with no exterior sheathing takes none and warns
+    `wall_finish_no_sheathing`, "turn sheathing on") and its `siding`, `corner_board` and
+    `casing` members, named under the wall's line. The siding is ONE body
+    per connected region of a face at the product's own thickness (5/16,
+    0.044, 15/32), not course by course (VISION 2026-10-29): what is bought
+    is its measured area, and a lap course's geometry would multiply the
+    bodies by 15 for no quantity a builder uses.
+  - *Foundation top to plate top.* On a floor the siding starts at the
+    floor's underside (its sills' bearing, Z 0 on B7), so it covers the rim;
+    on a slab or no floor at the wall's base. The floor's rim has no OSB
+    (SHEATHING-WALL-BASE), so over it the lap stands 7/16 in proud of the
+    rim (BACKLOG note).
+  - *Corners and casing are 5/4x4, 1 x 3.5, standing on the sheathing.* The
+    siding butts them, as fibre-cement and cedar are installed: cut out
+    round each casing's outer edge and stopped at each corner board's inner
+    edge, so nothing overlaps. An outside corner is two identical boards,
+    the fitted wall's lapping the through wall's 1 in edge (its sheathing's
+    convention), so the faces show 3.5 and 4.5 in. Casing is a picture
+    frame mitred at the corners, its inner edge on the UNIT: a window's
+    frame (36 x 48 for a 3040), a door's prehung frame (37.5 x 82 for a
+    3068, the slab's 36 x 80 plus its jambs and threshold), its legs on the
+    sill. Inside corners get no trim; the through wall's siding runs to the
+    other's OSB face and the fitted wall's starts at the through wall's
+    siding face. A typed line wall is sided end to end with no boards
+    (BACKLOG note). Refused, naming the opening: a casing on a corner board,
+    past the siding into an inside corner, below the siding, or on another
+    casing.
+  - *The roof notches what it crosses.* The eave walls' siding and corner
+    boards run to the plate under the rafter tails, so the tail notch every
+    roof from 1.4.0 makes in the OSB now also cuts the siding and corner
+    boards it crosses (listed after the OSB in its Objects To Cut). A wall
+    before 1.5.0 has neither, so every stored roof expands byte for byte;
+    the generic hip notch reads them the same way.
+  - *Gables follow the gable ends: the roof's.* Chief's gable wall is one
+    wall to the roof plane and carries its wall type's siding up; here the
+    roof frames and sheathes the gable (GABLE-END-STUDS), and the wall
+    cannot see the later roof's plane, so `loft.roof` 1.8.0 carries the end
+    walls' finish up over the gable OSB (`gable_siding`, one body a gable,
+    the wall's product and allowance). With no finish 1.8.0 is 1.7.0
+    exactly (VISION delegated log).
+  - *Bought by measured net area, once a line.* Siding bodies of one
+    product, material and allowance are one cut-list line under a new
+    system, Siding and trim (after Sheathing; the trim lumber with them),
+    ordering ceil(net x (1 + waste) / coverage) boards (1 008 in^2 a 12 ft
+    lap board, 900 a cedar one) or squares over the line's total. A board
+    is priced Each at 12 ft or per foot, vinyl per square (a new price unit,
+    migration 0031). Fibre cement weighs 75 pcf (HardiePlank's 2.3 lb/ft^2
+    of wall), western red cedar 388 kg/m^3 (NDS Western Cedars, G 0.36).
+  - *The PM's numbers, re-derived.* The siding drawn runs 939.5 in round B7
+    between its corner boards on the OSB's face, not the framing's 960
+    (which runs under the boards and ignores the OSB's 7/16 outset):
+    102 023.83 in^2 gross; the cased openings are 13 565.75 (the door cased
+    on its frame, 44.5 x 85.5, not 43 x 83.5); the 22 inner tails notch
+    89.55 more: 88 368.53 in^2 on the walls, 97 boards. With the gables
+    (2 x 5 705.19) 99 778.90 in^2: 109 boards, 8 squares of vinyl, 122
+    cedar boards; 8 corner boards of 108.59375; casing 1 099.5 in (the
+    PM's 1 094). Golden `b7-siding` (B7 drawn today, units drawn): 329
+    bodies, 349 796.857 in^3, solid for solid against an independent
+    build123d script on STEP, nothing interfering, probed exactly, in B7,
+    vinyl, cedar, 28 ft, 8/12, unsheathed, an L on a hip, turned, B8, B9
+    and B10.
+  - *A kernel fault found on the way.* A profile's hole test used
+    build123d's `Face.is_inside`, OCCT's 3D solid classifier on a bare face,
+    which calls every point outside once the face's plane is about 300 in
+    from the origin: B7 at 28 ft could not draw its right wall's window
+    unit. The test now uses `BRepClass_FaceClassifier` (2D, any distance).
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against

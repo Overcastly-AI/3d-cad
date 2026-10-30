@@ -47,6 +47,7 @@ from loft_wire.plugins import (
     SegmentsInput,
     member_id,
 )
+from loft_wire.siding import TRIM_THICKNESS_IN
 from loft_wire.sketch import SketchLine
 
 from loft_plugins.api import ExpandInputs, Member, Plugin, PluginError
@@ -80,6 +81,7 @@ from loft_plugins.builtin.roof_footprint import MIN_PLATE_IN, Footprint
 from loft_plugins.builtin.roof_gable import (
     GABLE_INPUTS,
     GABLE_ROLES,
+    GABLE_SIDING_ROLE,
     GABLE_STUDS,
     GableSection,
     clear_of_gables,
@@ -88,6 +90,7 @@ from loft_plugins.builtin.roof_gable import (
 from loft_plugins.builtin.roof_sheathing import notches
 from loft_plugins.builtin.roof_valley import MANIFEST_V1_3, expand_v1_3, hip_roof
 from loft_plugins.builtin.sheathing import sheet_good
+from loft_plugins.builtin.wall_finish import finish_product, waste_percent
 
 _DIGITS = 9
 #: The typed bearing that picked walls replace.
@@ -170,6 +173,16 @@ def expand_v1_7(inputs: ExpandInputs) -> Iterable[Member]:
     return _expand(inputs, notch_hips=True, ceiling=True, gables=True)
 
 
+def expand_v1_8(inputs: ExpandInputs) -> Iterable[Member]:
+    """1.8.0: 1.7.0's members, a gable's end walls' exterior finish (a
+    ``loft.wall`` 1.5.0's) carried up each gable over its sheathing
+    (SIDING-TRIM). Walls with no finish, a typed bearing, a hip and Gable
+    ends None are 1.7.0's exactly."""
+    return _expand(
+        inputs, notch_hips=True, ceiling=True, gables=True, gable_siding=True
+    )
+
+
 def ceiling_joist_note(inputs: ExpandInputs) -> str | None:
     """Why a 1.6.0 roof asked for ceiling joists frames none (its chosen
     joist would pass the ridge board), or ``None``: the stored roof's
@@ -191,6 +204,7 @@ def _expand(
     ceiling: bool = False,
     notes: list[str] | None = None,
     gables: bool = False,
+    gable_siding: bool = False,
 ) -> list[Member]:
     picks = inputs.features("walls")
     outlines = [p for p in picks if is_outline_wall(inputs.resolve(p))]
@@ -336,8 +350,10 @@ def _expand(
             rafter.top_at_ridge - ridge.width_in,
         )
         good = sheet_good(wall_inputs, "sheathing")
+        product = finish_product(wall_inputs) if gable_siding else None
+        finish = None if product is None else (product, waste_percent(wall_inputs))
         members += gable_ends(
-            inputs, members, ref.feature_id, ends, good, section, place
+            inputs, members, ref.feature_id, ends, good, section, place, finish
         )
     return members
 
@@ -381,34 +397,59 @@ def _tail_notches(
     it. Each notch is a cut of the rafter's own side profile, its thickness,
     from exactly the panels it crosses (Objects To Cut): the panel then meets
     the rafter face to face, with no shared volume. None without sheathing
-    or a tail (overhang 0)."""
+    or a tail (overhang 0).
+
+    A ``loft.wall`` 1.5.0's exterior finish lies outside the sheathing under
+    the same tails, so each tail is notched out of the siding and the corner
+    boards it crosses too (SIDING-TRIM), listed after the sheathing: a wall
+    before 1.5.0 has none, so a stored roof's notches are as they were."""
     good = sheet_good(wall_inputs, "sheathing")
-    if good is None or rafter.overhang == 0.0:
+    finish = finish_product(wall_inputs)
+    if (good is None and finish is None) or rafter.overhang == 0.0:
         return []
-    s = good.thickness_in
-    # The tail's underside where it leaves the sheathing's outside face: the
-    # panel material above it is the rafter's.
-    low = rafter.bottom(-s)
+    s = 0.0 if good is None else good.thickness_in
+    # The tail's underside where it leaves each layer's outside face: the
+    # layer's material above it is the rafter's.
+    siding = 0.0 if finish is None else finish.thickness_in
+    outside = {
+        "sheathing": s,
+        "siding": s + siding,
+        "corner_board": s + TRIM_THICKNESS_IN,
+    }
     t = inputs.lumber("rafter_profile").thickness_in
     spacing = inches("spacing_mm", inputs)
     centres = joist_centres(length, spacing, t)
     slots = layout_slots(len(centres))
     start = place.x0 if place.along_x else place.y0
     direction: Literal["normal", "reverse"] = "normal" if place.along_x else "reverse"
-    panels: dict[str, list[tuple[uuid.UUID, tuple[float, float, float]]]] = {}
+    panels: dict[str, list[tuple[uuid.UUID, tuple[float, float, float], float]]] = {}
     for side, line_id in eaves.items():
-        found: list[tuple[uuid.UUID, tuple[float, float, float]]] = []
-        names = [f"{line_id}/corner/start", f"{line_id}/corner/end"]
+        found: list[tuple[uuid.UUID, tuple[float, float, float], float]] = []
+        names = [
+            ("sheathing", f"{line_id}/corner/start"),
+            ("sheathing", f"{line_id}/corner/end"),
+        ]
         names += [
-            f"{line_id}/exterior/{col}/{row}"
+            ("sheathing", f"{line_id}/exterior/{col}/{row}")
             for col in range(math.ceil(length / 48.0) + 2)
             for row in range(4)
         ]
-        for name in names:
-            panel = member_id(wall_id, "sheathing", 0, name)
+        if finish is not None:
+            k = 0
+            while member_id(wall_id, "siding", 0, f"{line_id}/siding/{k}") in (
+                inputs.earlier
+            ):
+                names.append(("siding", f"{line_id}/siding/{k}"))
+                k += 1
+            names += [
+                ("corner_board", f"{line_id}/corner/start"),
+                ("corner_board", f"{line_id}/corner/end"),
+            ]
+        for role, name in names:
+            panel = member_id(wall_id, role, 0, name)
             extent = _panel_span(inputs, panel)
             if extent is not None:
-                found.append((panel, extent))
+                found.append((panel, extent, rafter.bottom(-outside[role])))
         panels[side] = found
     out: list[Member] = []
     for centre, slot in zip(centres, slots, strict=True):
@@ -417,7 +458,7 @@ def _tail_notches(
         for side in eaves:
             hit = [
                 FeatureRef(kind="feature", feature_id=panel)
-                for panel, (a, b, top) in panels[side]
+                for panel, (a, b, top), low in panels[side]
                 if min(b, at + t) - max(a, at) > 1e-9 and top > low + 1e-9
             ]
             if not hit:
@@ -510,3 +551,20 @@ MANIFEST_V1_7 = MANIFEST_V1_6.model_copy(
 )
 
 ROOF_V1_7 = Plugin(MANIFEST_V1_7, expand_v1_7)
+
+
+MANIFEST_V1_8 = MANIFEST_V1_7.model_copy(
+    update={
+        "version": "1.8.0",
+        "description": "A gable or hip roof on its walls, each wall defining the "
+        "slope or not: rafters with a birdsmouth on each wall, ridges, hips, "
+        "valleys and jacks, the tails notched out of the walls' sheathing and "
+        "siding, with a cut list (Revit Roof by Footprint, Chief Architect). A "
+        "gable on its walls ties each inner common pair with a ceiling joist "
+        "and frames its end walls up to the roof: gable studs on their "
+        "layout, their sheathing and siding carried up.",
+        "members": [*MANIFEST_V1_7.members, GABLE_SIDING_ROLE],
+    }
+)
+
+ROOF_V1_8 = Plugin(MANIFEST_V1_8, expand_v1_8)

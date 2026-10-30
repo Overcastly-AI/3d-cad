@@ -221,6 +221,6 @@ test.describe("Slab — B8 on its slab", () => {
     ).features;
     expect(features[1]?.feature.params.plugin_version).toBe("1.0.0");
     expect(features[1]?.feature.params.inputs?.waste_percent).toBe(5);
-    expect(features[2]?.feature.params.plugin_version).toBe("1.4.0");
+    expect(features[2]?.feature.params.plugin_version).toBe("1.5.0");
   });
 });

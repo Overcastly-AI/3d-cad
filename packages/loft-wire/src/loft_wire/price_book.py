@@ -28,6 +28,12 @@ Foundation items (SLAB, :mod:`loft_wire.foundation`): ready-mix concrete
 bolt (``anchor_bolt_1_2``), an 80 lb bag of concrete (``concrete_bag_80``)
 and a post base (``post_base_6x6``, DECK-FOOTINGS) ``each`` with no stock
 length or sheet.
+Siding (SIDING-TRIM, :mod:`loft_wire.siding`) is priced as it is sold: a
+board product (fibre-cement lap ``fibre_cement_lap_8_25``, cedar bevel
+``cedar_bevel_1_2x8``) ``each`` at its 12 ft stock length or per linear
+foot, vinyl (``vinyl_d4``) per ``square`` (100 ft² of wall), in its library
+material, with no sheet. Its corner boards and casing are 5/4x4 lumber
+(``us_5_4x4``), priced as lumber.
 Casework items (CASEWORK, :mod:`loft_wire.casework`) are priced in the one
 unit their item names: edge banding per linear foot in its material
 (``edge_banding`` in ``pvc``), a hinge or a pair of slides Each
@@ -65,12 +71,13 @@ from loft_wire.sheet_goods import (
     SheetGoodKey,
     SheetSizeKey,
 )
+from loft_wire.siding import SIDING_PRODUCTS_BY_KEY, SidingProductKey
 
 #: The currencies a book may be kept in (ISO 4217). USD only for now.
 Currency = Literal["USD"]
 
 #: The unit an entry's price is per.
-PriceUnit = Literal["each", "linear_foot", "board_foot", "cubic_yard"]
+PriceUnit = Literal["each", "linear_foot", "board_foot", "cubic_yard", "square"]
 
 #: Most entries one book holds (a lumber yard's dimensional list is ~200).
 MAX_PRICE_BOOK_ENTRIES: Final = 500
@@ -126,16 +133,19 @@ class PriceBookEntry(BaseModel):
         | OpeningUnitKey
         | FoundationItemKey
         | CaseworkItemKey
+        | SidingProductKey
     ) = Field(
         description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
         "'osb_7_16', window or door unit, e.g. 'window_3040', foundation "
-        "item, e.g. 'ready_mix', or casework item, e.g. 'hinge'."
+        "item, e.g. 'ready_mix', casework item, e.g. 'hinge', or siding "
+        "product, e.g. 'vinyl_d4'."
     )
     unit: PriceUnit = Field(
         description="'each' (one stock piece of `stock_length_ft`, one sheet "
         "of `sheet`, one unit or one anchor bolt), 'linear_foot' or "
-        "'board_foot' (any stock length; lumber only), or 'cubic_yard' "
-        "(ready-mix concrete only, per yd³ ordered)."
+        "'board_foot' (any stock length; lumber only, and a siding board per "
+        "foot), 'cubic_yard' (ready-mix concrete only, per yd³ ordered), or "
+        "'square' (vinyl siding only, per 100 ft² of wall)."
     )
     stock_length_ft: int | None = Field(
         default=None,
@@ -174,6 +184,36 @@ class PriceBookEntry(BaseModel):
             return self
         if self.unit == "cubic_yard":
             raise ValueError("Only ready-mix concrete is priced per cubic yard.")
+        product = SIDING_PRODUCTS_BY_KEY.get(self.profile)
+        if product is not None:
+            if self.material != product.material:
+                raise ValueError(
+                    f"{product.name} is {product.material}, not {self.material}."
+                )
+            if self.sheet is not None:
+                raise ValueError(f"{product.name} has no sheet size.")
+            if product.sale == "square":
+                if self.unit != "square" or self.stock_length_ft is not None:
+                    raise ValueError(
+                        f"{product.name} is priced per square, with no stock length."
+                    )
+                return self
+            board = product.stock_length_ft
+            if self.unit == "each" and self.stock_length_ft != board:
+                raise ValueError(
+                    f"{product.name} is priced Each per {board} ft board, or "
+                    "per linear foot."
+                )
+            if self.unit == "linear_foot" and self.stock_length_ft is not None:
+                raise ValueError("A per-foot price has no stock length.")
+            if self.unit not in ("each", "linear_foot"):
+                raise ValueError(
+                    f"{product.name} is priced Each per {board} ft board, or "
+                    "per linear foot."
+                )
+            return self
+        if self.unit == "square":
+            raise ValueError("Only vinyl siding is priced per square.")
         if _is_unit_key(self.profile):
             if (
                 self.unit != "each"

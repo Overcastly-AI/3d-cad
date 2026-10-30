@@ -26,7 +26,7 @@ from loft_wire.materials import (
 from loft_wire.plugins import ChoiceOption
 
 #: key -> (nominal name, actual thickness in, actual width in), PS 20-20:
-#: boards 1 -> 3/4, decking 5/4 -> 1, dimension 2 -> 1-1/2, 3 -> 2-1/2,
+#: boards 1 -> 3/4, 5/4 -> 1 (trim), decking 5/4 -> 1, dimension 2 -> 1-1/2, 3 -> 2-1/2,
 #: 4 -> 3-1/2, 6 -> 5-1/2, 8 -> 7-1/4, 10 -> 9-1/4, 12 -> 11-1/4 (dry);
 #: timbers 6 -> 5-1/2, 8 -> 7-1/2, 10 -> 9-1/2, 12 -> 11-1/2 (green, S4S).
 EXPECTED_PROFILES: dict[str, tuple[str, float, float]] = {
@@ -34,6 +34,7 @@ EXPECTED_PROFILES: dict[str, tuple[str, float, float]] = {
     "us_1x4": ("1x4", 0.75, 3.5),
     "us_1x6": ("1x6", 0.75, 5.5),
     "us_1x8": ("1x8", 0.75, 7.25),
+    "us_5_4x4": ("5/4x4", 1.0, 3.5),
     "us_5_4x6": ("5/4x6", 1.0, 5.5),
     "us_2x2": ("2x2", 1.5, 1.5),
     "us_2x3": ("2x3", 1.5, 2.5),
@@ -81,6 +82,8 @@ EXPECTED_DENSITIES: dict[str, float] = {
     "gypsum": 846.0,
     "melamine": 721.0,
     "xps_foam": 23.2,
+    "fibre_cement": 1200.0,
+    "western_red_cedar": 388.0,
 }
 
 KG_M3_PER_PCF = 16.018463373960138  # 0.45359237 kg / 0.3048^3 m^3
@@ -131,6 +134,7 @@ def test_every_density_is_pinned_and_sourced() -> None:
         ("dfl_lumber", 0.50),
         ("southern_pine_pt", 0.55),
         ("white_oak", 0.73),
+        ("western_red_cedar", 0.36),
     ],
 )
 def test_wood_density_follows_from_nds_specific_gravity(
@@ -159,6 +163,7 @@ def test_wood_density_follows_from_nds_specific_gravity(
         ("concrete", 150),
         ("melamine", 45),
         ("xps_foam", 1.45),
+        ("fibre_cement", 75),
     ],
 )
 def test_unit_weight_densities(key: str, pcf: float) -> None:

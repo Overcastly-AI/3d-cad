@@ -7,8 +7,9 @@
  * window or door unit (OPENING-UNITS), priced Each by its call size
  * ('window_3040') and frame material; or an item priced its one way: a
  * foundation item (SLAB), ready-mix per cubic yard, #4 rebar Each per 20 ft
- * stick, an anchor bolt Each, or a casework item (CASEWORK), edge banding per
- * foot and hinges and slide pairs Each. The profile list files each kind under its own heading.
+ * stick, an anchor bolt Each, a casework item (CASEWORK), edge banding per
+ * foot and hinges and slide pairs Each, or siding (SIDING-TRIM), a 12 ft
+ * board Each or vinyl per square. The profile list files each kind under its own heading.
  *
  * The book is saved whole (`PUT` replaces it), so the dialog edits a draft and
  * Save sends every row; Cancel or Escape drops the draft. Opened from a blank
@@ -126,7 +127,7 @@ function kindOf(
   if (entry === undefined)
     return profile.startsWith("us_") ? "lumber" : "sheet";
   if (entry.sheet !== null && entry.sheet !== undefined) return "sheet";
-  if (entry.unit === "cubic_yard") return "item";
+  if (entry.unit === "cubic_yard" || entry.unit === "square") return "item";
   if (entry.unit !== "each" || entry.stock_length_ft != null) return "lumber";
   return "unit";
 }
@@ -157,6 +158,15 @@ function pricedItems(library: MaterialLibrary | undefined): {
       price_unit: i.unit as PriceUnit,
       stock_length_ft: null,
       group: "Casework",
+    })),
+    // Siding (SIDING-TRIM): a 12 ft board Each, vinyl per square.
+    ...(library?.siding_products ?? []).map((i) => ({
+      key: i.key as PriceProfileKey,
+      name: i.name,
+      material: i.material as MaterialKey,
+      price_unit: i.price_unit as PriceUnit,
+      stock_length_ft: i.stock_length_ft ?? null,
+      group: "Siding",
     })),
   ];
 }

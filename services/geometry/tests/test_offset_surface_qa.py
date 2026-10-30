@@ -191,6 +191,9 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     # B7's gables framed and sheathed (GABLE-END-STUDS): b7-outline's class,
     # measured 2.7e-4 mm^3 (the twin 3.3e-4).
     "b7-gable-ends": 1e-3,
+    # B7 sided and trimmed (SIDING-TRIM): b7-outline's class, measured
+    # -4.08e-4 mm^3 (area -2.16e-5 mm^2).
+    "b7-siding": 1e-3,
     # Casework (CASEWORK): summation drift, 1.0e-7 to 3.6e-7 mm^3 measured;
     # C1 turned 30 deg, OCCT's turned-plane STEP drift, 1.05e-4 mm^3.
     "c1-b27-frameless-casework": 5e-7,
@@ -213,6 +216,11 @@ REVIEWED_OVERRIDE: dict[str, float] = {
     "b1-stair-30": 1e-4,
     "b1-stair-30-closed": 1e-4,
     "b1-stair-36": 1e-4,
+    # B1's guard opened at its stair (DECK-GUARD-OPENING): the same class,
+    # measured 3.8e-6 mm^3 (the twin 3.1e-5); the guard adds boxes only.
+    "b1-stair-30-guard-opening": 1e-4,
+    # Its stair flush with the deck's corner: 1.4e-5 measured (twin 3.1e-5).
+    "b1-stair-30-guard-corner": 1e-4,
     # The free 14-riser stair: 5.1e-4 mm^3 measured (the twin 1.2e-4).
     "free-stair-107": 1e-3,
 }

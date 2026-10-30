@@ -94,6 +94,7 @@ PRICE_UNIT_LABELS: Final[Mapping[PriceUnit, str]] = {
     "linear_foot": "Per ft",
     "board_foot": "Per BF",
     "cubic_yard": "Per yd3",
+    "square": "Per square",
 }
 
 
@@ -136,6 +137,13 @@ def format_yd3(value: float) -> str:
 
 
 def _stock(line: CutListLine) -> str:
+    if line.siding is not None:
+        what = (
+            "squares"
+            if line.stock_length_ft is None
+            else f"{line.stock_length_ft} ft boards"
+        )
+        return f"{what} + {line.waste_percent or 0}% waste"
     if line.casework == "edge_banding":
         return f"{line.stock_quantity} ft"
     if line.casework is not None:
