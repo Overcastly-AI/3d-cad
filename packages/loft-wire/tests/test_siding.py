@@ -313,7 +313,8 @@ def test_the_siding_is_one_line_of_109_boards_under_siding_and_trim() -> None:
 
 def test_the_trim_is_lumber_under_siding_and_trim() -> None:
     """8 corner boards of 108.59375 (10 ft stock), the door's 2 legs of
-    85.5 and its 44.5 head (8 ft), priced per foot of stock bought."""
+    85.5 and its 44.5 head, one nested line (ROOFING: no two of them share
+    an 8 ft stick, so 3), priced per foot of stock bought."""
     cut_list = _cut_list()
     trim = [line for line in cut_list.lines if line.siding is None]
     assert [
@@ -328,13 +329,14 @@ def test_the_trim_is_lumber_under_siding_and_trim() -> None:
         for line in trim
     ] == [
         ("siding", "Corner board", "5/4x4", 8, 108.59375, 10),
-        ("siding", "Casing", "5/4x4", 1, 44.5, 8),
-        ("siding", "Casing", "5/4x4", 2, 85.5, 8),
+        ("siding", "Casing", "5/4x4", 3, 85.5, 8),
     ]
+    assert all(line.nested for line in trim)
+    assert [line.stock_quantity for line in trim] == [8, 3]
+    assert [round(c / IN, 6) for c in trim[1].cuts_mm or []] == [85.5, 85.5, 44.5]
     assert [line.extended_price_cents for line in trim] == [
         8 * 10 * 145,
-        8 * 145,
-        2 * 8 * 145,
+        3 * 8 * 145,
     ]
     assert cut_list.unpriced_lines == 0
     assert cut_list.total_price_cents == 109 * 1398 + 8 * 10 * 145 + 3 * 8 * 145

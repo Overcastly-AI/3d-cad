@@ -117,7 +117,6 @@ import math
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from fractions import Fraction
 from itertools import permutations
 from typing import Any, Final, Literal
 
@@ -125,7 +124,6 @@ from pydantic import BaseModel, Field
 
 from loft_wire.assemblies import RefDocumentKind
 from loft_wire.casework import (
-    CASEWORK_ITEMS_BY_KEY,
     CaseworkItemKey,
     grain_face,
 )
@@ -134,11 +132,8 @@ from loft_wire.foundation import EACH_ITEMS as EACH_ITEMS
 from loft_wire.foundation import (
     FOUNDATION_ITEMS_BY_KEY,
     FoundationItemKind,
-    foundation_item_for,
 )
 from loft_wire.lumber import (
-    COMMON_MAX_STOCK_FT,
-    COMMON_STOCK_LENGTHS_FT,
     LUMBER_PROFILES,
     MM_PER_INCH,
     LumberProfile,
@@ -153,11 +148,10 @@ from loft_wire.plugins import MemberMetadata, PluginId
 from loft_wire.price_book import (
     EMPTY_PRICE_BOOK,
     Currency,
-    PriceBookEntry,
     PriceBookResponse,
-    PriceKey,
     PriceUnit,
 )
+from loft_wire.roofing import RoofingItemKey
 from loft_wire.sheet_goods import (
     SheetMaterialKey,
     SheetSize,
@@ -168,10 +162,6 @@ from loft_wire.sheet_goods import (
 from loft_wire.sheet_nesting import SHEET_GAP_MM, sheets_to_cut
 from loft_wire.siding import SidingProductKey
 from loft_wire.stock import MAX_SPLICE_PIECES as MAX_SPLICE_PIECES
-from loft_wire.stock import (
-    _covers,  # pyright: ignore[reportPrivateUsage]
-    _splice_tiers,  # pyright: ignore[reportPrivateUsage]
-)
 from loft_wire.stock import no_stock_note as no_stock_note
 from loft_wire.stock import splice_label as splice_label
 from loft_wire.stock import stock_length_ft as stock_length_ft
@@ -337,7 +327,22 @@ ROLE_SYSTEMS: Final[Mapping[tuple[str, str], CutListSystem]] = {
     ("loft.wall", "corner_board"): "siding",
     ("loft.wall", "casing"): "siding",
     ("loft.roof", "gable_siding"): "siding",
+    # A roof's deck is listed with its roof, as Chief keeps roof sheathing
+    # apart from the walls' (ROOFING).
+    ("loft.roof", "deck"): "roof",
 }
+
+#: Trim nested on stock (ROOFING, TRIM-NESTING): a line of these roles buys
+#: the sticks its pieces are cut from, not one stick a piece
+#: (:mod:`loft_wire.cut_list_roofing`).
+NESTED_ROLES: Final[frozenset[tuple[str, str]]] = frozenset(
+    {
+        ("loft.wall", "casing"),
+        ("loft.wall", "corner_board"),
+        ("loft.roof", "fascia"),
+        ("loft.roof", "rake_board"),
+    }
+)
 
 
 def system_for_member(member: "CutListMember") -> CutListSystem:
@@ -624,6 +629,34 @@ class CutListLine(BaseModel):
         "stock_length_ft (length_mm a board's) or, with no stock length, "
         "squares of 100 ft². Absent on every other line.",
     )
+    roofing: RoofingItemKey | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="A roofing line (ROOFING): its item's price-book key. "
+        "Shingles and underlayment list the deck's measured net area in "
+        "area_mm2 and order stock_quantity bundles or rolls with "
+        "waste_percent over; drip edge lists its runs' total_length_mm in "
+        "10 ft sticks (stock_length_ft), each run lapped 2 in; starter and "
+        "ridge cap their total_length_mm in whole feet (stock_quantity). "
+        "Absent on every other line.",
+    )
+    nested: bool = Field(
+        default=False,
+        exclude_if=_is_false,
+        json_schema_extra=_drop_schema_default,
+        description="True for trim nested on stock (ROOFING: casing, corner "
+        "boards, fascia, rake boards): the line's pieces (cuts_mm) are cut "
+        "from stock_quantity sticks of stock_length_ft, a 1/8 in kerf at each "
+        "cut, longest first; length_mm is its longest piece, total_length_mm "
+        "their sum and waste_mm the sticks' offcut. Omitted when false.",
+    )
+    cuts_mm: list[float] | None = Field(
+        default=None,
+        exclude_if=is_none,
+        max_length=2000,
+        description="A nested line's pieces (mm), longest first; absent on "
+        "every other line.",
+    )
 
 
 class CutListMissing(BaseModel):
@@ -757,6 +790,13 @@ class CutListPiece:
     #: A siding body's product (SIDING-TRIM), its allowance in
     #: ``waste_percent``; ``None`` otherwise.
     siding: SidingProductKey | None = None
+    #: A listed roofing item (ROOFING): its key, an area item's net area in
+    #: ``roof_area_mm2`` and its allowance in ``waste_percent``, a run's
+    #: length in ``length_mm``; ``None`` for a body.
+    roofing: RoofingItemKey | None = None
+    roof_area_mm2: float | None = None
+    #: Trim cut from sticks with its line's other pieces (:data:`NESTED_ROLES`).
+    nested: bool = False
 
     @property
     def panel(self) -> bool:
@@ -879,7 +919,8 @@ def classify_body(
                 system=(
                     system_for_plugin(member.plugin_id)
                     if cut
-                    else sheet_system(good.material)
+                    else ROLE_SYSTEMS.get((member.plugin_id or "", member.role))
+                    or sheet_system(good.material)
                 ),
                 keep_grain=keep,
                 grain_mm=(
@@ -905,6 +946,7 @@ def classify_body(
             count=count,
             system=system_for_member(member),
             one_piece=member.role in ONE_PIECE_ROLES,
+            nested=(member.plugin_id or "", member.role) in NESTED_ROLES,
         )
     if _is_prism(body):
         for lumber in LUMBER_PROFILES:
@@ -938,8 +980,9 @@ def listed_pieces(
     """The items *member*'s body carries but does not draw
     (:func:`loft_wire.cut_list_foundation.listed_pieces`)."""
     from loft_wire.cut_list_foundation import listed_pieces as foundation_pieces
+    from loft_wire.cut_list_roofing import roofing_pieces
 
-    return foundation_pieces(piece, member)
+    return [*foundation_pieces(piece, member), *roofing_pieces(piece, member)]
 
 
 def part_pieces(
@@ -1007,7 +1050,7 @@ def _sheet_line(pieces: Sequence[CutListPiece], quantity: int) -> CutListLine:
         # Walls (CUT_TO_SIZE_PLUGINS), as their pieces say; else the product's.
         system=(
             first.system
-            if first.system in ("casework", "walls")
+            if first.system in ("casework", "walls", "roof")
             else "sheathing"
             if good is None
             else sheet_system(good.material)
@@ -1100,6 +1143,14 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     pours: dict[tuple[object, ...], list[CutListPiece]] = {}
     items: dict[tuple[object, ...], list[CutListPiece]] = {}
     for piece in pieces:
+        if piece.roofing is not None or piece.nested:
+            from loft_wire.cut_list_roofing import roofing_key
+
+            special = roofing_key(piece)
+            panels.setdefault(special, []).append(piece)
+            first, count = groups.get(special, (piece, 0))
+            groups[special] = (first, count + piece.count)
+            continue
         if piece.siding is not None:
             siding_key: tuple[object, ...] = ("siding", piece.system)
             siding_key += (piece.siding, piece.material, piece.waste_percent)
@@ -1180,6 +1231,11 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
         groups[key] = (first, count + piece.count)
     lines: list[CutListLine] = []
     for group_key, (piece, quantity) in groups.items():
+        if piece.roofing is not None or piece.nested:
+            from loft_wire.cut_list_roofing import roofing_line
+
+            lines.append(roofing_line(panels[group_key], quantity))
+            continue
         if piece.siding is not None:
             from loft_wire.cut_list_siding import siding_line
 
@@ -1252,216 +1308,6 @@ def group_pieces(pieces: Iterable[CutListPiece]) -> list[CutListLine]:
     return order_lines(lines)
 
 
-# --- prices (PRICE-BOOK) ------------------------------------------------------------
-
-
-def nominal_size_in(profile: LumberProfile) -> tuple[Fraction, Fraction]:
-    """A profile's NOMINAL thickness and width (in), exactly, from its name as
-    sold: ``2x4`` is (2, 4), ``5/4x6`` is (5/4, 6). Board feet are counted on
-    the nominal size, as yards sell them."""
-    thickness, width = profile.name.split("x")
-    return Fraction(thickness), Fraction(width)
-
-
-def _round_half_up(value: Fraction) -> int:
-    """*value* (cents, non-negative) to a whole cent, half up, as an invoice."""
-    return math.floor(value + Fraction(1, 2))
-
-
-def stock_piece_price(
-    entry: PriceBookEntry, profile: LumberProfile, stock_length_ft: int
-) -> int:
-    """The price (cents) of ONE stock piece of *stock_length_ft* under *entry*,
-    rounded once per piece: per foot x feet, or per board foot x nominal
-    thickness x width x feet / 12."""
-    if entry.unit == "each":
-        return entry.price_cents
-    if entry.unit == "linear_foot":
-        return entry.price_cents * stock_length_ft
-    thickness, width = nominal_size_in(profile)
-    board_feet = thickness * width * stock_length_ft / 12
-    return _round_half_up(board_feet * entry.price_cents)
-
-
-#: Which unit wins when the book prices a line more than one way (lumber).
-PRICE_PRECEDENCE: Final[tuple[PriceUnit, ...]] = ("each", "linear_foot", "board_foot")
-
-
-def _price_stock(
-    entries: Mapping[PriceKey, PriceBookEntry],
-    material: MaterialKey,
-    lumber: LumberProfile,
-    options: Sequence[tuple[int, ...]],
-) -> tuple[int, PriceUnit, tuple[int, ...]] | None:
-    """The price (cents) of one member's stock, the unit that priced it and
-    the stock it prices, from the equally good *options* (one stock length,
-    or the tied splices, best first). Each prices a splice whose every piece
-    has an 'each' entry, the cheapest such (ties: the first); else a per-foot
-    entry prices the feet bought, else a per-board-foot entry, both on the
-    first option. One unit per line; each piece rounded once."""
-
-    def entry(unit: PriceUnit, feet: int | None) -> PriceBookEntry | None:
-        return entries.get((material, lumber.key, unit, feet, None))
-
-    best: tuple[int, int] | None = None
-    for index, stock in enumerate(options):
-        found = [entry("each", feet) for feet in stock]
-        if all(e is not None for e in found):
-            cents = sum(e.price_cents for e in found if e is not None)
-            if best is None or (cents, index) < best:
-                best = (cents, index)
-    if best is not None:
-        return best[0], "each", options[best[1]]
-    for unit in PRICE_PRECEDENCE[1:]:
-        found_entry = entry(unit, None)
-        if found_entry is not None:
-            stock = options[0]
-            cents = sum(stock_piece_price(found_entry, lumber, ft) for ft in stock)
-            return cents, unit, stock
-    return None
-
-
-def _stock_tiers(
-    line: CutListLine, lengths: Sequence[int]
-) -> tuple[tuple[tuple[int, ...], ...], ...]:
-    """The stock a yard may sell one member of *line* as, in tiers of equally
-    good options, the line's own choice first. A length not every yard
-    stocks (18, 22 or 24 ft) falls to the next longer, up to the first that
-    every yard does (:data:`~loft_wire.lumber.COMMON_STOCK_LENGTHS_FT`): a
-    yard with no 18 ft quotes 20 ft, what Loft bought before it listed
-    18 ft. A common length stands alone, so a 12 ft line the book does not
-    price stays blank (its blank asks for the price) rather than buy 16 ft.
-    Then, for a member that may splice and is longer than the
-    :data:`~loft_wire.lumber.COMMON_MAX_STOCK_FT` every yard stocks, every
-    splice tier (:func:`stock_splice_tiers`), so a 24 ft plate is 16 + 8 at
-    a yard with no 24 ft. A one-piece member is never spliced."""
-    tiers: list[tuple[tuple[int, ...], ...]] = []
-    for feet in lengths:
-        if _covers(line.length_mm, feet):
-            tiers.append(((feet,),))
-            if feet in COMMON_STOCK_LENGTHS_FT:
-                break
-    if not line.one_piece and not _covers(line.length_mm, COMMON_MAX_STOCK_FT):
-        tiers.extend(_splice_tiers(line.length_mm, tuple(lengths)))
-    return tuple(tiers)
-
-
-def price_lines(
-    lines: Sequence[CutListLine], book: PriceBookResponse
-) -> list[CutListLine]:
-    """*lines* priced from *book*, on the stock pieces bought: each line's
-    unit price is an 'each' entry for its stock length (for a spliced line,
-    for every piece of a splice, :func:`_price_stock`), from the first tier
-    of :func:`_stock_tiers` (its own stock, past 18, 22 or 24 ft a longer
-    single length, then for a member that may splice, the fewest pieces,
-    then least waste) the book
-    prices, its offcut recomputed, else a per-foot entry
-    on the feet bought, else a per-board-foot entry (for its material and
-    profile), and its extended price is that times its stock quantity (one
-    per piece, a splice set counting once), so the offcut is paid for. A
-    sheet line is priced by the 'each' entry for its product and sheet,
-    times its sheets, and a unit line by the 'each' entry for its unit key
-    and material, times its units. A foundation line (SLAB) is priced by its
-    item's entry: ready-mix per cubic yard times the yards ordered, bagged
-    concrete Each per bag times its bags, a rebar line Each per 20 ft stick
-    times its sticks, anchor bolts and post bases Each. A line
-    with no stock or no entry stays unpriced (null)."""
-    entries = {entry.key: entry for entry in book.entries}
-    priced: list[CutListLine] = []
-    for line in lines:
-        lumber = lumber_for(line.profile)
-        good = sheet_good_for(line.profile)
-        stock = line.stock_pieces_ft
-        quantity = line.stock_quantity
-        unit_price: int | None = None
-        unit: PriceUnit | None = None
-        update: dict[str, object] = {}
-        if line.siding is not None:
-            from loft_wire.cut_list_siding import siding_price
-
-            found_siding = siding_price(line, entries)
-            if found_siding is not None:
-                unit_price, unit = found_siding
-        elif line.casework is not None:
-            kind = CASEWORK_ITEMS_BY_KEY[line.casework]
-            entry = None
-            if line.material is not None:
-                entry = entries.get((line.material, kind.key, kind.unit, None, None))
-            if entry is not None:
-                unit_price, unit = entry.price_cents, entry.unit
-        elif (
-            item := foundation_item_for(line.profile) if line.item is not None else None
-        ) is not None:
-            if line.material is not None:
-                key = (line.material, item.key, item.price_unit)
-                entry = entries.get((*key, item.stock_length_ft, None))
-                if entry is not None:
-                    unit_price, unit = entry.price_cents, entry.unit
-        elif line.unit is not None:
-            if line.unit_key is not None and line.material is not None:
-                entry = entries.get((line.material, line.unit_key, "each", None, None))
-                if entry is not None:
-                    unit_price, unit = entry.price_cents, "each"
-        elif (
-            good is not None
-            and line.sheet is not None
-            and line.material is not None
-            and quantity is not None
-        ):
-            entry = entries.get((line.material, good.key, "each", None, line.sheet))
-            if entry is not None:
-                unit_price, unit = entry.price_cents, "each"
-        elif (
-            lumber is not None
-            and line.material is not None
-            and stock
-            and quantity is not None
-        ):
-            tiers = _stock_tiers(line, stock_lengths_ft(lumber))
-            if not tiers or tuple(stock) not in tiers[0]:
-                tiers = ((tuple(stock),),)
-            found = None
-            for options in tiers:
-                found = _price_stock(entries, line.material, lumber, options)
-                if found is not None:
-                    break
-            if found is not None:
-                unit_price, unit, bought = found
-                update["stock_pieces_ft"] = list(bought)
-                # The stock shown is the stock bought: an 18 ft line priced
-                # at 20 ft reads 20 ft, a 24 ft line spliced 16 + 8 none.
-                update["stock_length_ft"] = bought[0] if len(bought) == 1 else None
-                update["waste_mm"] = max(
-                    0.0, round(sum(bought) * MM_PER_FOOT - line.length_mm, 6)
-                )
-        priced.append(
-            line.model_copy(
-                update={
-                    **update,
-                    "unit_price_cents": unit_price,
-                    "price_unit": unit,
-                    "extended_price_cents": _extended(line, unit_price, quantity),
-                }
-            )
-        )
-    return priced
-
-
-def _extended(
-    line: CutListLine, unit_price: int | None, quantity: int | None
-) -> int | None:
-    """Unit price x stock quantity (a bagged pour's bags); for ready-mix, x
-    the cubic yards ORDERED (a multiple of 1/4, so exact), rounded once,
-    half up."""
-    if unit_price is None:
-        return None
-    if line.item == "concrete" and line.bags is None:
-        if line.order_yd3 is None:
-            return None
-        return _round_half_up(Fraction(line.order_yd3) * unit_price)
-    return None if quantity is None else unit_price * quantity
-
-
 def cut_list_response(
     *,
     document_id: uuid.UUID,
@@ -1498,3 +1344,13 @@ def cut_list_response(
         total_price_cents=sum(extended) if extended else None,
         unpriced_lines=len(lines) - len(extended),
     )
+
+
+# Pricing lives in its own module (FILE-SIZE-RATCHET); it reads this one's
+# types, so it is imported last and its names re-exported here.
+from loft_wire.cut_list_prices import PRICE_PRECEDENCE as PRICE_PRECEDENCE  # noqa: E402
+from loft_wire.cut_list_prices import nominal_size_in as nominal_size_in  # noqa: E402
+from loft_wire.cut_list_prices import price_lines as price_lines  # noqa: E402
+from loft_wire.cut_list_prices import (  # noqa: E402
+    stock_piece_price as stock_piece_price,
+)

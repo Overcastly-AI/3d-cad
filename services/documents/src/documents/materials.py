@@ -17,6 +17,7 @@ from loft_wire.foundation import FOUNDATION_ITEMS
 from loft_wire.lumber import LUMBER_PROFILES
 from loft_wire.materials import MATERIALS, MaterialLibraryResponse
 from loft_wire.opening_units import OPENING_UNITS
+from loft_wire.roofing import ROOFING_ITEMS
 from loft_wire.sheet_goods import SHEET_GOODS, SHEET_SIZES
 from loft_wire.siding import SIDING_PRODUCTS
 
@@ -26,7 +27,8 @@ router = APIRouter(prefix="/api/v1/materials", tags=["materials"])
 @router.get("")
 async def list_materials() -> MaterialLibraryResponse:
     """The built-in materials, lumber profiles, sheet goods, window and door
-    units, foundation items, casework items and siding products, in display
+    units, foundation items, casework items, siding products and roofing
+    items, in display
     order.
 
     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
@@ -43,4 +45,5 @@ async def list_materials() -> MaterialLibraryResponse:
         foundation_items=list(FOUNDATION_ITEMS),
         casework_items=list(CASEWORK_ITEMS),
         siding_products=list(SIDING_PRODUCTS),
+        roofing_items=list(ROOFING_ITEMS),
     )

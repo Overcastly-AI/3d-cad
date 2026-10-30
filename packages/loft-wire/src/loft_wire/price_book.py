@@ -34,6 +34,13 @@ board product (fibre-cement lap ``fibre_cement_lap_8_25``, cedar bevel
 foot, vinyl (``vinyl_d4``) per ``square`` (100 ft² of wall), in its library
 material, with no sheet. Its corner boards and casing are 5/4x4 lumber
 (``us_5_4x4``), priced as lumber.
+Roofing (ROOFING, :mod:`loft_wire.roofing`) is priced as it is sold, in
+its library material: architectural shingles (``shingle_architectural``)
+Each per bundle and synthetic underlayment (``underlayment_synthetic``)
+Each per roll, with no stock length or sheet; drip edge (``drip_edge``)
+Each per 10 ft stick (stock length 10); starter (``shingle_starter``) and
+ridge cap (``ridge_cap``) per linear foot. The fascia (1x10 or 1x12) and
+rake boards (1x6) are lumber.
 Casework items (CASEWORK, :mod:`loft_wire.casework`) are priced in the one
 unit their item names: edge banding per linear foot in its material
 (``edge_banding`` in ``pvc``), a hinge or a pair of slides Each
@@ -64,6 +71,7 @@ from loft_wire.foundation import (
 from loft_wire.lumber import STOCK_LENGTHS_FT, LumberProfileKey
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitKey
+from loft_wire.roofing import ROOFING_ITEMS_BY_KEY, RoofingItemKey
 from loft_wire.sheet_goods import (
     SHEET_GOODS,
     SHEET_GOODS_BY_KEY,
@@ -134,11 +142,12 @@ class PriceBookEntry(BaseModel):
         | FoundationItemKey
         | CaseworkItemKey
         | SidingProductKey
+        | RoofingItemKey
     ) = Field(
         description="Lumber profile, e.g. 'us_2x4', sheet product, e.g. "
         "'osb_7_16', window or door unit, e.g. 'window_3040', foundation "
-        "item, e.g. 'ready_mix', casework item, e.g. 'hinge', or siding "
-        "product, e.g. 'vinyl_d4'."
+        "item, e.g. 'ready_mix', casework item, e.g. 'hinge', siding "
+        "product, e.g. 'vinyl_d4', or roofing item, e.g. 'drip_edge'."
     )
     unit: PriceUnit = Field(
         description="'each' (one stock piece of `stock_length_ft`, one sheet "
@@ -184,6 +193,24 @@ class PriceBookEntry(BaseModel):
             return self
         if self.unit == "cubic_yard":
             raise ValueError("Only ready-mix concrete is priced per cubic yard.")
+        roofing = ROOFING_ITEMS_BY_KEY.get(self.profile)
+        if roofing is not None:
+            if self.material != roofing.material:
+                raise ValueError(
+                    f"{roofing.name} is {roofing.material}, not {self.material}."
+                )
+            if (
+                self.unit != roofing.price_unit
+                or self.stock_length_ft != roofing.stock_length_ft
+                or self.sheet is not None
+            ):
+                how = {
+                    "area": "Each, per bundle or roll, with no stock length",
+                    "stick": f"Each per {roofing.stock_length_ft} ft stick",
+                    "foot": "per linear foot, with no stock length",
+                }[roofing.sale]
+                raise ValueError(f"{roofing.name} is priced {how}.")
+            return self
         product = SIDING_PRODUCTS_BY_KEY.get(self.profile)
         if product is not None:
             if self.material != product.material:

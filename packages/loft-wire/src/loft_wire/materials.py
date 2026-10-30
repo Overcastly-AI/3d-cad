@@ -29,6 +29,7 @@ from loft_wire.casework import CaseworkItem
 from loft_wire.foundation import FoundationItem
 from loft_wire.lumber import LumberProfile
 from loft_wire.opening_units import OpeningUnitSize
+from loft_wire.roofing import RoofingItem
 from loft_wire.sheet_goods import SheetGood, SheetSize
 from loft_wire.siding import SidingProduct
 
@@ -64,6 +65,9 @@ MaterialKey = Literal[
     "xps_foam",
     "fibre_cement",
     "western_red_cedar",
+    "asphalt_shingle",
+    "polypropylene",
+    "aluminium_3105",
 ]
 
 
@@ -287,6 +291,29 @@ _LIBRARY: tuple[Material, ...] = (
         source="AWC NDS 2018 Table 12.3.3A Western Cedars G = 0.36; Wood "
         "Handbook ch. 4, at 12% moisture content",
     ),
+    # Roofing (ROOFING, RESEARCH §23): listed, not drawn (loft_wire.roofing),
+    # so they carry no mass; the key is what a bundle, roll or stick is
+    # priced as. Asphalt shingles by their binder, the asphaltum ASCE 7
+    # tabulates; synthetic underlayment is woven polypropylene; drip edge
+    # is roll-formed 3105 aluminium coil.
+    Material(
+        key="asphalt_shingle",
+        name="Asphalt shingle",
+        density_kg_m3=1300.0,
+        source=f"ASCE 7-16 Table C3.1-2, asphaltum, 81 {_PCF}",
+    ),
+    Material(
+        key="polypropylene",
+        name="Polypropylene",
+        density_kg_m3=905.0,
+        source="Polypropylene homopolymer datasheet, typical (ISO 1183)",
+    ),
+    Material(
+        key="aluminium_3105",
+        name="Aluminium 3105",
+        density_kg_m3=2720.0,
+        source="Aluminum Association, Aluminum Standards and Data: 3105, 2.72 g/cm^3",
+    ),
 )
 
 #: The library in display order (metals, polymers, wood, then structural steel
@@ -344,6 +371,12 @@ class MaterialLibraryResponse(BaseModel):
         description="Siding products (SIDING-TRIM): what a siding price is "
         "keyed by ('vinyl_d4'), its material, how it is sold (a 12 ft board "
         "Each, or vinyl per square) and what one covers.",
+    )
+    roofing_items: list[RoofingItem] = Field(
+        default_factory=list[RoofingItem],
+        description="Roofing items (ROOFING): shingles by the bundle, "
+        "underlayment by the roll, drip edge by the 10 ft stick, starter and "
+        "ridge cap by the foot, keyed as a price-book profile ('drip_edge').",
     )
 
 

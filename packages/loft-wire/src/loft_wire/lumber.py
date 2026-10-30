@@ -47,6 +47,8 @@ LumberProfileKey = Literal[
     "us_1x4",
     "us_1x6",
     "us_1x8",
+    "us_1x10",
+    "us_1x12",
     "us_5_4x4",
     "us_5_4x6",
     "us_2x2",
@@ -123,6 +125,9 @@ LUMBER_PROFILES: tuple[LumberProfile, ...] = (
     _profile("us_1x6", "1x6", "board", 0.75, 5.5),
     # A closed stair's riser boards (STAIRS), ripped to the riser.
     _profile("us_1x8", "1x8", "board", 0.75, 7.25),
+    # A roof's fascia (ROOFING): one board deeper than the tails' plumb cut.
+    _profile("us_1x10", "1x10", "board", 0.75, 9.25),
+    _profile("us_1x12", "1x12", "board", 0.75, 11.25),
     # Exterior trim (SIDING-TRIM): a 5/4 board, 1 in dry, as corner boards
     # and casing are sold in fibre cement, PVC and cedar.
     _profile("us_5_4x4", "5/4x4", "board", 1.0, 3.5),
