@@ -15,9 +15,15 @@ over the two. The sides keep their 2 bays of 66.75 a course. Balusters in a
 33.75 bay: ceil((33.75 - 4) / 5.5) = 6 (1.2.0's 59.3333 bay held 11), so the
 front's 33 become 24, the whole guard's 81 become 72; its posts 8 become 10.
 
-The geometry golden ``b1-stair-30-guard-opening`` is the two expansions
-(``model.json`` with the member materials, ``members.json`` each member's
-metadata); the first test pins it, so
+A stair flush with the deck's corner (X 18, so X 0..36) ends the front's
+guard on the corner post: a run from a corner too short for two posts is
+the corner post alone, and a bay no wider than 4 in (IRC R312.1.3's sphere)
+takes no rail.
+
+The geometry goldens ``b1-stair-30-guard-opening`` and
+``b1-stair-30-guard-corner`` are the two expansions (``model.json`` with
+the member materials, ``members.json`` each member's metadata); the first
+test pins them, so
 ``services/geometry/tests/test_deck_guard_opening_b1.py`` reads files that
 cannot drift. Regenerate after a deliberate change (a NEW plugin version)
 with ``uv run python packages/loft-plugins/tests/test_deck_guard_opening.py``.
@@ -57,7 +63,12 @@ IN = 25.4
 DECK = REGISTRY.get("loft.deck", "1.3.0")
 STAIR = REGISTRY.get("loft.stair", "1.0.0")
 GOLDENS = Path(__file__).resolve().parents[3] / "services" / "geometry" / "goldens"
-GOLDEN = "b1-stair-30-guard-opening"
+#: golden name -> the stair's raw inputs on B1 guarded: centred at X 96,
+#: and flush with the deck's left corner at X 18 (X 0..36).
+GOLDEN_STAIRS: dict[str, dict[str, Any]] = {
+    "b1-stair-30-guard-opening": {},
+    "b1-stair-30-guard-corner": {"position_mm": 18 * IN},
+}
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 DECK_ID = uuid.UUID("00000000-0000-0000-0000-00000000dec1")
 STAIR_ID = uuid.UUID("00000000-0000-0000-0000-0000000057a1")
@@ -151,10 +162,11 @@ def front(found: dict[str, tuple[float, ...]]) -> list[tuple[float, ...]]:
 # --- The golden ---------------------------------------------------------------------
 
 
-def golden() -> tuple[EvaluateTreeRequest, list[CutListMember]]:
+def golden(name: str) -> tuple[EvaluateTreeRequest, list[CutListMember]]:
     """B1 guarded with its stair: the deck's members (opened at the stair),
     then the stair's, with their materials, and their cut-list metadata."""
-    plugins = [(DECK, deck(GUARD, [hosted({})])), (STAIR, stair(GUARD))]
+    raw = GOLDEN_STAIRS[name]
+    plugins = [(DECK, deck(GUARD, [hosted(raw)])), (STAIR, stair(GUARD, raw))]
     every = [m for _, expansion in plugins for m in expansion]
     request = EvaluateTreeRequest(
         part_id=PART_ID,
@@ -187,13 +199,14 @@ def _members_json(items: list[CutListMember]) -> str:
     return json.dumps([m.model_dump(mode="json") for m in items], indent=2) + "\n"
 
 
-def test_the_golden_is_the_plugins_expansion() -> None:
-    request, metadata = golden()
+@pytest.mark.parametrize("name", sorted(GOLDEN_STAIRS))
+def test_the_goldens_are_the_plugins_expansion(name: str) -> None:
+    request, metadata = golden(name)
     committed = EvaluateTreeRequest.model_validate_json(
-        (GOLDENS / GOLDEN / "model.json").read_text()
+        (GOLDENS / name / "model.json").read_text()
     )
     assert committed.model_dump(mode="json") == request.model_dump(mode="json")
-    assert (GOLDENS / GOLDEN / "members.json").read_text() == _members_json(metadata)
+    assert (GOLDENS / name / "members.json").read_text() == _members_json(metadata)
 
 
 # --- 1.3.0 with no stair is 1.2.0; the frozen releases ignore stairs ----------------
@@ -348,30 +361,102 @@ def test_two_stairs_open_two_gaps() -> None:
     assert [p[0] for p in posts] == [0.0, 26.5, 66.0, 122.5, 162.0, 188.5]
 
 
-def test_a_run_too_short_for_its_posts_is_refused() -> None:
-    for raw in (
-        {"position_mm": 18 * IN},  # flush with the corner: no run
-        {"position_mm": 24 * IN},  # 6 in to the corner, under two posts
-    ):
-        with pytest.raises(PluginError) as caught:
-            deck(GUARD, [hosted(raw)])
-        assert caught.value.code == PLUGIN_INPUT_UNSUPPORTED
-        assert "to the deck's corner" in caught.value.message
-        assert caught.value.message.startswith("Stair 1: only ")
-    # 7 in to the corner: two posts face to face, and no rail between them.
-    members = deck(GUARD, [hosted({"position_mm": 25 * IN})])
-    assert front(boxes(members, "guard_post"))[:2] == [
-        (0.0, 3.5, *POST_Y, *GUARD_Z),
-        (3.5, 7.0, *POST_Y, *GUARD_Z),
+#: (edge -> its side's length): the front's posts stand on Y 140.5..144 and
+#: run along X; the left side's on X 0..3.5, along Y.
+EDGES: dict[str, float] = {"front": 192.0, "left": 144.0}
+
+
+def along(edge: str, b: tuple[float, ...]) -> tuple[float, float] | None:
+    """A guard member box's span along *edge*'s side, or None when off it."""
+    if edge == "front":
+        on = b[2] >= 140.5 - 1e-6 and b[3] <= 144 + 1e-6
+        return (b[0], b[1]) if on else None
+    return (b[2], b[3]) if b[0] >= -1e-6 and b[1] <= 3.5 + 1e-6 else None
+
+
+def _near(
+    members: list[ExpandedMember],
+    roles: tuple[str, ...],
+    edge: str,
+    end: str,
+    gap: float,
+) -> list[tuple[float, float]]:
+    """*roles*' spans on *edge* between its *end* corner and the stair, as
+    spans measured from that corner."""
+    length = EDGES[edge]
+    reach = max(gap, 3.5)  # the corner post stands whatever the gap
+    out: list[tuple[float, float]] = []
+    for role in roles:
+        for b in boxes(members, role).values():
+            a = along(edge, b)
+            if a is None:
+                continue
+            if end == "low" and a[1] <= reach + 1e-6:
+                out.append(a)
+            elif end == "high" and a[0] >= length - reach - 1e-6:
+                out.append((round(length - a[1], 6), round(length - a[0], 6)))
+    return sorted(out)
+
+
+@pytest.mark.parametrize("edge", ["front", "left"])
+@pytest.mark.parametrize("end", ["low", "high"])
+@pytest.mark.parametrize(
+    ("gap", "posts"),
+    [
+        # The stair's face *gap* in from the corner -> the posts there.
+        (0.0, [(0.0, 3.5)]),  # flush: the corner post alone stays
+        (3.0, [(0.0, 3.5)]),  # under two posts: the corner post alone
+        (7.0, [(0.0, 3.5), (3.5, 7.0)]),  # two posts face to face
+        (7.01, [(0.0, 3.5), (3.51, 7.01)]),  # 0.01 in apart: no sliver rail
+        (11.0, [(0.0, 3.5), (7.5, 11.0)]),  # 4 in apart: the posts close it
+        (11.5, [(0.0, 3.5), (8.0, 11.5)]),  # 4.5 in: two rails, a baluster
+    ],
+)
+def test_a_stair_at_a_corner_ends_the_guard_on_the_corner_post(
+    edge: str, end: str, gap: float, posts: list[tuple[float, float]]
+) -> None:
+    """A stair *gap* in from a corner of *edge* (front: X 0 or 192; left: the
+    house's Y 0 or the front's 144): the run to the corner is the corner post
+    alone under two posts' 7 in, and its two posts alone up to 4 in of clear
+    span (IRC R312.1.3's sphere passes no narrower gap); the guard beyond the
+    stair starts on its far stringer's face."""
+    length = EDGES[edge]
+    centre = gap + 18 if end == "low" else length - gap - 18
+    members = deck(GUARD, [hosted({"edge": edge, "position_mm": centre * IN})])
+    assert _near(members, ("guard_post",), edge, end, gap) == posts
+    infill = _near(members, ("rail", "baluster"), edge, end, gap)
+    if gap == 11.5:
+        assert infill == [(8.0 - 4.5, 8.0)] * 2 + [(5.0, 6.5)]
+    else:
+        assert infill == []
+    far = gap + 36
+    beyond = _near(members, ("guard_post",), edge, end, length)
+    assert (far, far + 3.5) in [(pytest.approx(a), pytest.approx(b)) for a, b in beyond]
+    # Nothing stands in the opening but a corner post on the deck.
+    inside = [
+        a
+        for a in _near(members, GUARD_ROLES, edge, end, length)
+        if a[1] > gap + 1e-6 and a[0] < far - 1e-6
     ]
-    assert min(b[0] for b in front(boxes(members, "rail"))) >= 43.0
+    assert inside == ([(0.0, 3.5)] if gap < 3.5 else [])
+
+
+def test_a_run_between_two_stairs_too_short_for_its_posts_is_refused() -> None:
     two = [
         hosted({"position_mm": 60 * IN}),
         hosted({"position_mm": 100 * IN}, SECOND_ID),
     ]
     with pytest.raises(PluginError) as caught:
         deck(GUARD, two)
+    assert caught.value.code == PLUGIN_INPUT_UNSUPPORTED
     assert caught.value.message.startswith("Stair 1 and Stair 2: only 4 in")
+
+
+def test_a_stair_past_the_side_is_refused() -> None:
+    """The deck narrowed under its stair (DECK-RESIZE-STAIR-REFUSAL)."""
+    with pytest.raises(PluginError) as caught:
+        deck({**GUARD, "width_mm": 100 * IN}, [hosted({})])
+    assert caught.value.message.startswith("Stair 1 runs past the front side's end")
 
 
 # --- The stair's warning --------------------------------------------------------------
@@ -457,10 +542,11 @@ def test_new_decks_are_1_3_0() -> None:
 
 
 if __name__ == "__main__":
-    request, metadata = golden()
-    (GOLDENS / GOLDEN).mkdir(parents=True, exist_ok=True)
-    (GOLDENS / GOLDEN / "model.json").write_text(
-        request.model_dump_json(indent=2) + "\n"
-    )
-    (GOLDENS / GOLDEN / "members.json").write_text(_members_json(metadata))
-    sys.stdout.write(f"{GOLDEN}: {len(request.features)} features\n")
+    for name in sorted(GOLDEN_STAIRS):
+        request, metadata = golden(name)
+        (GOLDENS / name).mkdir(parents=True, exist_ok=True)
+        (GOLDENS / name / "model.json").write_text(
+            request.model_dump_json(indent=2) + "\n"
+        )
+        (GOLDENS / name / "members.json").write_text(_members_json(metadata))
+        sys.stdout.write(f"{name}: {len(request.features)} features\n")

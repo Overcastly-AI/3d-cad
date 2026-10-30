@@ -178,9 +178,38 @@ def test_a_stair_opens_the_guard_and_stops_warning(client: TestClient) -> None:
     assert _front_posts(part) == CLOSED
 
 
-def test_a_stair_that_leaves_no_room_for_a_post_is_refused(client: TestClient) -> None:
+def test_a_stair_flush_with_the_corner_ends_the_guard_on_the_corner_post(
+    client: TestClient,
+) -> None:
+    """At X 18 the stair's left stringer is flush with the deck's corner:
+    the front keeps only the corner post there, and opens from X 0 to 36."""
     part = _Part(client)
     deck = part.add("Deck", _custom("loft.deck", "1.3.0", **GUARD))
+    part.add(
+        "Stair", _custom("loft.stair", "1.0.0", deck=_ref(deck), position_mm=18 * IN)
+    )
+    assert _front_posts(part) == [
+        "front/end",
+        "front/run/1/0",
+        "front/run/1/1",
+        "front/run/1/2",
+    ]
+    names = {m["name"] for m in _expansion(part) if m["role"] == "guard_post"}
+    assert "left/end" in names  # the corner post, the opening's on that side
+    assert part.rows()["Stair"].get("plugin_warnings") is None
+
+
+def test_stairs_too_close_together_are_refused_and_say_why_in_the_update(
+    client: TestClient,
+) -> None:
+    """Two stairs 4 in apart leave no room for a post each: 1.3.0 refuses
+    the second on write, and a 1.2.0 deck's update offer says why it cannot
+    preview."""
+    part = _Part(client)
+    deck = part.add("Deck", _custom("loft.deck", "1.3.0", **GUARD))
+    part.add(
+        "Stair", _custom("loft.stair", "1.0.0", deck=_ref(deck), position_mm=60 * IN)
+    )
     before = part.rows()["Deck"]["feature"]
     response = _write(
         client,
@@ -188,9 +217,9 @@ def test_a_stair_that_leaves_no_room_for_a_post_is_refused(client: TestClient) -
         "POST",
         "",
         {
-            "name": "Stair",
+            "name": "Stair 2",
             "feature": _custom(
-                "loft.stair", "1.0.0", deck=_ref(deck), position_mm=20 * IN
+                "loft.stair", "1.0.0", deck=_ref(deck), position_mm=100 * IN
             ),
         },
     )
@@ -198,9 +227,24 @@ def test_a_stair_that_leaves_no_room_for_a_post_is_refused(client: TestClient) -
     error = response.json()["error"]
     assert error["code"] == "plugin_input_unsupported"
     assert error["message"].startswith(
-        "Stair: only 2 in of the front guard is left to the deck's corner"
+        "Stair and Stair 2: only 4 in of the front guard is left between them"
     )
     assert part.rows()["Deck"]["feature"] == before
+
+    old = _Part(client)
+    deck = old.add("Deck", _custom("loft.deck", "1.2.0", **GUARD))
+    for name, at in (("Stair", 60), ("Stair 2", 100)):
+        old.add(
+            name,
+            _custom("loft.stair", "1.0.0", deck=_ref(deck), position_mm=at * IN),
+        )
+    offer = old.rows()["Deck"]["plugin_update"]
+    assert offer is not None and offer["separate"]
+    assert offer["summary"].startswith(
+        "Can't preview this update: Stair and Stair 2: only 4 in of the front "
+        "guard is left between them"
+    )
+    assert "Update it on its own." in offer["summary"]
 
 
 def test_a_1_2_deck_keeps_its_guard_and_its_update_is_separate(

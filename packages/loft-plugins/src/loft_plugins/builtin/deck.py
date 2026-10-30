@@ -71,7 +71,11 @@ practice; noted in RESEARCH §23):
   width). Each run either side is laid out as a whole side is, a post at
   both ends (so one each side of the stair, its face on the stringer's
   face) and no more than 6 ft apart; its rails and balusters fill its bays.
-  A run too short for its two posts is refused. The deck reads only the
+  A run from a corner too short for two posts (under 7 in, a stair flush
+  with the corner included) is the corner post alone, which is then the
+  opening's post on that side; one between two stairs is refused. A bay no
+  wider than 4 in (IRC R312.1.3's sphere) is closed by its posts and takes
+  no rail. The deck reads only the
   stair's inputs, and the stair only the deck's, so neither expansion
   depends on the other's. With no stair, 1.3.0 is 1.2.0 member for member.
 
@@ -131,6 +135,9 @@ GUARD_HEIGHT = 36.0
 GUARD_POST_SPACING = 72.0
 GUARD_BOTTOM_GAP = 3.5
 BALUSTER_MAX_GAP = 4.0
+#: 1.3.0: the least clear span between guard posts that takes rails; a
+#: narrower gap passes no 4 in sphere (IRC R312.1.3), so its posts close it.
+MIN_RAIL_CLEAR = BALUSTER_MAX_GAP
 #: Rounding of an input's inch value (see the module docstring).
 _INCH_DIGITS = 9
 #: Float slack when counting bays and boards (in): far below a real length.
@@ -929,19 +936,28 @@ def _run_centres(
 ) -> list[list[float]]:
     """Post centres of each run of a side broken at *cuts*, low to high: a
     post at both ends of a run (its faces on the stair's stringer faces or
-    the side's ends), equally spaced, no more than 6 ft apart. A run too
-    short for its two posts is refused, naming the stair."""
+    the side's ends), equally spaced, no more than 6 ft apart.
+
+    A run from the deck's corner to a stair too short for two posts (under
+    2 x 3.5 in, a stair flush with the corner included) is the corner post
+    alone: the side's guard ends there, and that post is the opening's post
+    on that side. A run between two stairs too short for its two posts is
+    refused, naming both."""
     out: list[list[float]] = []
     start, after = 0.0, ""
     for lo, hi, name in [*cuts, (length, length, "")]:
         run = lo - start
+        corner = not after or not name  # from a corner of the side
         if run < 2 * post - _EPS:
+            if corner and run >= -_EPS:
+                out.append([post / 2 if not after else length - post / 2])
+                start, after = hi, name
+                continue
             where = (
                 f"{after} and {name}: only {max(run, 0.0):g} in of the {side} "
                 "guard is left between them"
                 if after and name
-                else f"{name or after}: only {max(run, 0.0):g} in of the {side} "
-                "guard is left to the deck's corner"
+                else f"{name or after} runs past the {side} side's end"
             )
             raise _unsupported(
                 f"{where}, and the guard needs a {post:g} in post at each side "
@@ -1028,8 +1044,10 @@ def _guard(
                 add_post(*((s, line) if axis == "x" else (line, s)), name)
             for bay, (s0, s1) in enumerate(itertools.pairwise(along)):
                 lo, hi = min(s0, s1), max(s0, s1)
-                if hi - lo - ps <= _EPS:
-                    continue  # two posts face to face: no rail between
+                if cuts and hi - lo - ps <= MIN_RAIL_CLEAR + _EPS:
+                    # A gap no wider than the 4 in sphere (IRC R312.1.3) is
+                    # closed by its posts alone: no sliver of rail.
+                    continue
                 bay_name = _ordinal(bay, len(along) - 1)
                 bays.append((prefix, bay_name, axis, line, lo + half, hi - half))
 

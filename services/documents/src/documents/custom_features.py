@@ -26,6 +26,7 @@ edge is materialised to the custom feature's row.
 import uuid
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 from fastapi import APIRouter
@@ -1231,29 +1232,48 @@ def declared_update(row: db.Feature) -> PluginUpdate | None:
     return update_for(plugin_id, version, PLUGINS)
 
 
-#: What each out-of-date row's update would do, by (part, tree version,
-#: row): a dry run re-expands the row and its host, so the tree's every read
-#: does not repeat it. Every write bumps the tree version, so an entry can
-#: never outlive the tree it was read from.
-_EFFECTS: OrderedDict[tuple[uuid.UUID, int, uuid.UUID], UpdateEffect | None] = (
-    OrderedDict()
-)
-_EFFECTS_MAX = 2048
-
 #: The summary of an update whose effect cannot be read (PLUGIN-UPDATE-ALL).
 CANNOT_PREVIEW = (
     "Can't preview this update (suppressed or refused); update it on its own."
 )
 
 
+@dataclass(frozen=True)
+class _Refused:
+    """An update's dry run refused, with the refusal's message: the offer
+    says why it cannot preview (two stairs too close for the guard's posts)."""
+
+    reason: str
+
+
+#: What each out-of-date row's update would do, by (part, tree version,
+#: row): a dry run re-expands the row and its host, so the tree's every read
+#: does not repeat it. Every write bumps the tree version, so an entry can
+#: never outlive the tree it was read from.
+_EFFECTS: OrderedDict[
+    tuple[uuid.UUID, int, uuid.UUID], UpdateEffect | _Refused | None
+] = OrderedDict()
+_EFFECTS_MAX = 2048
+
+
+def _cannot_preview(refused: _Refused | None) -> str:
+    """:data:`CANNOT_PREVIEW`, or with the dry run's refusal as its reason."""
+    if refused is None:
+        return CANNOT_PREVIEW
+    reason = refused.reason.strip()
+    if reason and reason[-1] not in ".!?":
+        reason += "."
+    return f"Can't preview this update: {reason[:600]} Update it on its own."
+
+
 def _update_effect(
     part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
-) -> UpdateEffect | None:
+) -> UpdateEffect | _Refused | None:
     """What updating *row* would add and whether it changes any member, read
     by a dry run on the tree as stored: the row re-expanded at its update's
     release, and a hosted row's host (a door's wall) with it. None when the
-    row is suppressed (it builds nothing) or the dry run is refused: the
-    update itself reports why."""
+    row is suppressed (it builds nothing); :class:`_Refused`, with the
+    refusal's message, when the dry run is refused."""
     key = (part.id, part.tree_version, row.id)
     if key in _EFFECTS:
         _EFFECTS.move_to_end(key)
@@ -1267,7 +1287,7 @@ def _update_effect(
 
 def _dry_run(
     part: db.Part, row: db.Feature, rows: Sequence[db.Feature]
-) -> UpdateEffect | None:
+) -> UpdateEffect | _Refused:
     parameters = parameter_values(part.parameters)
     try:
         envelope = updated_envelope(part, row, rows)
@@ -1308,8 +1328,10 @@ def _dry_run(
                     reframed.params.expansion or [],
                 )
             )
-    except (PluginError, FeatureExpressionError, ValidationApiError, ValidationError):
-        return None
+    except (PluginError, FeatureExpressionError, ValidationApiError) as exc:
+        return _Refused(exc.message)
+    except ValidationError as exc:
+        return _Refused(str(exc.errors()[0]["msg"]))
     update = declared_update(row)
     reason = "" if update is None else update.relay_reason
     return update_effect(changed, PLUGINS, reason)
@@ -1329,12 +1351,12 @@ def plugin_update_of(
     if update is None:
         return None
     effect = _update_effect(part, row, rows)
-    if effect is None:
-        # Suppressed, or its dry run refused: what it would move is unknown,
-        # so it is never taken by Update all unseen.
+    if effect is None or isinstance(effect, _Refused):
+        # Suppressed, or its dry run refused (saying why): what it would
+        # move is unknown, so it is never taken by Update all unseen.
         return PluginUpdateOffer(
             to_version=update.to_version,
-            summary=f"{CANNOT_PREVIEW} {update.summary}",
+            summary=f"{_cannot_preview(effect)} {update.summary}",
             separate=True,
         )
     return PluginUpdateOffer(
