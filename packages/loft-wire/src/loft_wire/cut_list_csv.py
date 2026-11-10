@@ -20,6 +20,7 @@ from loft_wire.foundation import volume_yd3
 from loft_wire.lumber import MM_PER_INCH
 from loft_wire.materials import MATERIALS_BY_KEY
 from loft_wire.price_book import Currency, PriceUnit
+from loft_wire.roofing import ROOFING_ITEMS_BY_KEY
 from loft_wire.units import LengthUnit
 
 # --- CSV ----------------------------------------------------------------------------
@@ -137,6 +138,14 @@ def format_yd3(value: float) -> str:
 
 
 def _stock(line: CutListLine) -> str:
+    if line.roofing is not None:
+        item = ROOFING_ITEMS_BY_KEY[line.roofing]
+        if item.sale == "area":
+            what = "bundles" if item.key == "shingle_architectural" else "rolls"
+            return f"{what} + {line.waste_percent or 0}% waste"
+        if item.sale == "stick":
+            return f"{item.stock_length_ft} ft sticks, lapped 2 in"
+        return f"{line.stock_quantity or 0} ft"
     if line.siding is not None:
         what = (
             "squares"

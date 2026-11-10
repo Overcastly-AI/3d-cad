@@ -8,7 +8,14 @@ is not its length. The member's own frame is read off its B-rep:
    product (along the member). A square post's equal sides are told apart by
    face order, which is deterministic for a given B-rep;
 2. a body with fewer than two perpendicular planar faces (a tube, a turned
-   part) uses its principal axes of inertia instead.
+   part) uses its principal axes of inertia instead;
+3. a PANEL (GABLE-SHEET-NESTING, ROOFING): a right prism of its largest face
+   no thicker than :data:`PANEL_MAX_MM` (a sheet good, a 1x or 5/4 board)
+   takes, of the normals of its edge faces, the one whose frame boxes the
+   face in the least area, as a framer lays a piece on a sheet: a gable's
+   trapezoid by its plan rectangle (its bottom and plumb sides), not along
+   its sloped top. The largest edge face keeps the frame on a tie, so a
+   rectangle, a board and a mitred casing piece measure as before.
 
 The body is then measured in that frame with OCCT's OPTIMAL bounding box on
 the exact B-rep (no triangulation, no tolerance padding), so a straight
@@ -65,6 +72,66 @@ def _planar_frame(body: BodyShape) -> tuple[Vec, Vec] | None:
     return None
 
 
+#: The thickest body measured as a panel (mm): 1-1/4 in, past every sheet
+#: good and trim board, short of 2x lumber, whose frame stays its faces'.
+PANEL_MAX_MM = 1.25 * 25.4
+
+#: A panel's frame moves off its largest edge face only to box it in less
+#: area by more than this (relative).
+_PANEL_GAIN = 1e-6
+
+
+def _boxed(body: BodyShape, x_dir: Vec, z_dir: Vec) -> tuple[float, float, float]:
+    """The body's extents along (x, z x x, z) of a frame."""
+    axes = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(*z_dir), gp_Dir(*x_dir))
+    to_local = gp_Trsf()
+    to_local.SetTransformation(axes)
+    local = body.wrapped.Moved(TopLoc_Location(to_local))
+    box = Bnd_Box()
+    BRepBndLib.AddOptimal_s(local, box, False, False)
+    x0, y0, z0, x1, y1, z1 = box.Get()
+    return float(x1 - x0), float(y1 - y0), float(z1 - z0)
+
+
+def _panel_frame(body: BodyShape, frame: tuple[Vec, Vec]) -> tuple[Vec, Vec]:
+    """A panel's frame (module docstring, 3): *frame* (its largest face's
+    normal and its largest edge face's) unless another edge face's normal
+    boxes the face in less area."""
+    face_normal, edge_normal = frame
+    largest = max(
+        (f for f in body.faces() if f.geom_type == GeomType.PLANE),
+        key=lambda f: f.area,
+    )
+    extents = _boxed(body, face_normal, edge_normal)
+    thickness = extents[0]
+    if thickness > PANEL_MAX_MM:
+        return frame
+    volume = body_volume(body)
+    if abs(volume - largest.area * thickness) > 1e-6 * volume:
+        return frame  # not a right prism of its face
+    best, best_area = edge_normal, extents[1] * extents[2]
+    seen = [edge_normal]
+    for face in body.faces():
+        if face.geom_type != GeomType.PLANE:
+            continue
+        n = face.normal_at()
+        normal = _canonical((n.X, n.Y, n.Z))
+        if abs(sum(a * b for a, b in zip(face_normal, normal, strict=True))) >= (
+            _PERPENDICULAR
+        ):
+            continue
+        if any(
+            abs(sum(a * b for a, b in zip(normal, other, strict=True))) > 1 - 1e-12
+            for other in seen
+        ):
+            continue
+        seen.append(normal)
+        _, along, across = _boxed(body, face_normal, normal)
+        if along * across < best_area * (1 - _PANEL_GAIN):
+            best, best_area = normal, along * across
+    return face_normal, best
+
+
 def _inertia_frame(body: BodyShape) -> tuple[Vec, Vec]:
     props = GProp_GProps()
     BRepGProp.VolumeProperties_s(body.wrapped, props)
@@ -94,7 +161,8 @@ def body_extents_and_axes(
     world direction of each (sign-free unit vectors, :func:`_canonical`), so
     the cut list can tell which way a panel runs (SUBFLOOR-GRAIN). Ties in
     extent keep the frame's order (x, y, z), deterministically."""
-    frame = _planar_frame(body) or _inertia_frame(body)
+    planar = _planar_frame(body)
+    frame = _inertia_frame(body) if planar is None else _panel_frame(body, planar)
     x_dir, z_dir = frame
     y_dir = _canonical(_cross(z_dir, x_dir))
     axes = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(*z_dir), gp_Dir(*x_dir))

@@ -16,7 +16,7 @@ import { SCREENSHOT_DIR, seedSession } from "./support";
  * in a gable; the left wall lays out from the front, the right from the
  * back, mirror images). The Sheathing group gains a 4x8 line: the 12 gable
  * panels, carried up to the rafters' top plane over the end rafters, cut
- * from 6 sheets. The house is 211 bodies (177 with 1.6.0's roof, plus 22
+ * from 4 sheets (GABLE-SHEET-NESTING: each by its plan rectangle). The house is 211 bodies (177 with 1.6.0's roof, plus 22
  * studs and 12 panels). 8/12 re-cuts the studs (2d / 3 - 29/12: 5.0833 ..
  * 58.4167). Golden `b7-gable-ends` pins the geometry.
  */
@@ -248,7 +248,7 @@ test.describe("Gable ends — B7's gables framed and sheathed", () => {
       .filter({ hasText: "OSB" });
     await expect(gableOsb).toHaveCount(1, { timeout: 90_000 });
     await expect(gableOsb.getByTestId("cut-list-qty")).toHaveText("12");
-    await expect(gableOsb.getByTestId("cut-list-stock")).toHaveText("6 × 4x8");
+    await expect(gableOsb.getByTestId("cut-list-stock")).toHaveText("4 × 4x8");
     await page
       .getByTestId("cut-list-panel")
       .locator('[data-testid="cut-list-row"][data-member="Gable stud"]')
@@ -268,7 +268,7 @@ test.describe("Gable ends — B7's gables framed and sheathed", () => {
     await openCutList(page);
     await expectStuds(page, AT_8_12);
 
-    // Stored at 1.8.0 with the default kept.
+    // Stored at 1.9.0 with the default kept.
     const tree = await page.request.get(`/api/v1/parts/${partId}/features`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });
@@ -284,7 +284,7 @@ test.describe("Gable ends — B7's gables framed and sheathed", () => {
         }[];
       }
     ).features;
-    expect(features[3]?.feature.params.plugin_version).toBe("1.8.0");
+    expect(features[3]?.feature.params.plugin_version).toBe("1.9.0");
     expect(features[3]?.feature.params.inputs?.gable_ends).toBe(
       "studs_sheathing",
     );

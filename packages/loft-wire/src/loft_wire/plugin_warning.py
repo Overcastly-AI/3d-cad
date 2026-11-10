@@ -32,6 +32,10 @@ instead, never warned.
 ``loft.wall`` 1.5.0 (SIDING-TRIM) carries ``wall_finish_no_sheathing`` when
 it asks for an Exterior finish but has no exterior sheathing to hang it on:
 the wall builds bare, and the message says to turn sheathing on.
+``loft.roof`` 1.9.0 (ROOFING) carries ``roof_roofing_no_overhang`` when a
+gable on its walls asks for Roofing with no eave overhang: there are no
+rafter tails to hang the fascia on, so it builds unroofed, and the message
+says to give the eaves an overhang.
 """
 
 from typing import Any, Final, Literal
@@ -59,6 +63,9 @@ STAIR_GUARD_REQUIRED: Final = "stair_guard_required"
 STAIR_DECK_GUARD: Final = "stair_deck_guard"
 #: SIDING-TRIM: a wall with an Exterior finish but no sheathing: no siding.
 WALL_FINISH_NO_SHEATHING: Final = "wall_finish_no_sheathing"
+#: ROOFING: a gable on its walls with Roofing picked but no eave overhang:
+#: no tails to hang the fascia on, so no roofing.
+ROOF_ROOFING_NO_OVERHANG: Final = "roof_roofing_no_overhang"
 
 
 class PluginWarning(BaseModel):
@@ -73,6 +80,7 @@ class PluginWarning(BaseModel):
         "stair_guard_required",
         "stair_deck_guard",
         "wall_finish_no_sheathing",
+        "roof_roofing_no_overhang",
     ] = Field(
         description="'roof_through_sheathing': the roof's tails pass through "
         "wall sheathing, so the two share volume; 'crawl_height_low': a "
@@ -86,7 +94,9 @@ class PluginWarning(BaseModel):
         "30 in up and its open sides have no guard (IRC R312.1.1); "
         "'stair_deck_guard': the deck's guard runs across the stair's head; "
         "'wall_finish_no_sheathing': a wall has an Exterior finish but no "
-        "sheathing, so it is built without siding"
+        "sheathing, so it is built without siding; "
+        "'roof_roofing_no_overhang': a gable has Roofing picked but no eave "
+        "overhang, so it is built without roofing"
     )
     message: str = Field(description="Names the problem and what fixes it")
     overlap_in3: float = Field(
@@ -117,7 +127,8 @@ PLUGIN_WARNINGS_FIELD: Any = Field(
     "(`roof_through_sheathing`), each with the release that fixes it, or a "
     "warning on its inputs (`crawl_height_low`, `ceiling_joists_omitted`, "
     "`stair_throat_thin`, `stair_stringer_span`, `stair_guard_required`, "
-    "`stair_deck_guard`, `wall_finish_no_sheathing`). "
+    "`stair_deck_guard`, `wall_finish_no_sheathing`, "
+    "`roof_roofing_no_overhang`). "
     "Omitted when there are none.",
 )
 
@@ -126,6 +137,7 @@ __all__ = [
     "CEILING_JOISTS_OMITTED",
     "CRAWL_HEIGHT_LOW",
     "PLUGIN_WARNINGS_FIELD",
+    "ROOF_ROOFING_NO_OVERHANG",
     "ROOF_THROUGH_SHEATHING",
     "STAIR_DECK_GUARD",
     "STAIR_GUARD_REQUIRED",

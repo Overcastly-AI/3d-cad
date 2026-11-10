@@ -34,7 +34,7 @@ const UPDATED = {
   Floor: "1.4.0",
   Walls: "1.5.0",
   ...Object.fromEntries(OPENING_NAMES.map((n) => [n, "1.5.0"])),
-  Roof: "1.8.0",
+  Roof: "1.9.0",
 };
 
 test.describe("Updating B7's out-of-date Build features", () => {

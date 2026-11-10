@@ -189,6 +189,17 @@ vi.mock("../api/materials", () => ({
           price_unit: "square",
         },
       ],
+      roofing_items: [
+        {
+          key: "drip_edge",
+          name: "Drip edge",
+          material: "aluminium_3105",
+          sale: "stick",
+          coverage_in2: null,
+          stock_length_ft: 10,
+          price_unit: "each",
+        },
+      ],
       foundation_items: [
         {
           key: "ready_mix",
@@ -850,6 +861,127 @@ describe("CutListPanel", () => {
     expect(seeded).toHaveAttribute("data-profile", "vinyl_d4");
     expect(seeded).toHaveAttribute("data-kind", "item");
     expect(seeded).toHaveAttribute("data-unit", "square");
+  });
+
+  it("buys B7's roofing by the bundle, roll, stick and foot, and nests its trim", async () => {
+    // ROOFING: 70 246.42 in² x 1.10 x 3 / 14 400 = 16.10, 17 bundles; drip
+    // edge 14 sticks; ridge cap 25 ft; casing's 23 cuts on 14 8 ft sticks.
+    const none = { stock_pieces_ft: null, waste_mm: null };
+    const lines: CutListLine[] = [
+      {
+        ...none,
+        system: "roof",
+        member: "Shingles",
+        profile: "Architectural shingles",
+        material: "asphalt_shingle",
+        classification: "member",
+        quantity: 17,
+        length_mm: 0,
+        total_length_mm: 0,
+        section_mm: [0, 0],
+        area_mm2: 70246.42 * IN ** 2,
+        stock_length_ft: null,
+        stock_quantity: 17,
+        unit_price_cents: 3998,
+        price_unit: "each",
+        extended_price_cents: 17 * 3998,
+        waste_percent: 10,
+        roofing: "shingle_architectural",
+      },
+      {
+        ...none,
+        system: "roof",
+        member: "Drip edge",
+        profile: "Drip edge",
+        material: "aluminium_3105",
+        classification: "member",
+        quantity: 6,
+        length_mm: 288.875 * IN,
+        total_length_mm: 1064.09 * IN,
+        section_mm: [0, 0],
+        stock_length_ft: 10,
+        stock_quantity: 14,
+        unit_price_cents: null,
+        price_unit: null,
+        extended_price_cents: null,
+        roofing: "drip_edge",
+      },
+      {
+        ...none,
+        system: "roof",
+        member: "Ridge cap",
+        profile: "Ridge cap",
+        material: "asphalt_shingle",
+        classification: "member",
+        quantity: 1,
+        length_mm: 288.875 * IN,
+        total_length_mm: 288.875 * IN,
+        section_mm: [0, 0],
+        stock_length_ft: null,
+        stock_quantity: 25,
+        unit_price_cents: 325,
+        price_unit: "linear_foot",
+        extended_price_cents: 25 * 325,
+        roofing: "ridge_cap",
+      },
+      {
+        system: "siding",
+        member: "Casing",
+        profile: "5/4x4",
+        material: "fibre_cement",
+        classification: "member",
+        quantity: 23,
+        length_mm: 85.5 * IN,
+        total_length_mm: 1099.5 * IN,
+        section_mm: [1 * IN, 3.5 * IN],
+        stock_length_ft: 8,
+        stock_pieces_ft: [8],
+        waste_mm: (14 * 96 - 1099.5) * IN,
+        stock_quantity: 14,
+        unit_price_cents: 1198,
+        price_unit: "each",
+        extended_price_cents: 14 * 1198,
+        nested: true,
+        cuts_mm: [85.5 * IN, 85.5 * IN, 55 * IN],
+      },
+    ];
+    vi.mocked(fetchCutList).mockResolvedValueOnce({
+      ...RESPONSE,
+      total_quantity: 47,
+      unclassified: 0,
+      missing: [],
+      total_price_cents: 17 * 3998 + 25 * 325 + 14 * 1198,
+      unpriced_lines: 1,
+      lines,
+    });
+    renderPanel();
+    const [shingles, drip, ridge, casing] =
+      await screen.findAllByTestId("cut-list-row");
+    expect(within(shingles!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "17 bundles",
+    );
+    expect(within(shingles!).getByTestId("cut-list-stock")).toHaveAttribute(
+      "title",
+      "70,246.42 in² net + 10% waste, 3 bundles a square, rounded up",
+    );
+    expect(
+      within(shingles!).getByTestId("cut-list-unit-price"),
+    ).toHaveAttribute("title", "Each, per bundle");
+    expect(within(drip!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "14 × 10 ft",
+    );
+    expect(within(ridge!).getByTestId("cut-list-stock")).toHaveTextContent(
+      "25 ft",
+    );
+    const cut = within(casing!);
+    expect(cut.getByTestId("cut-list-qty")).toHaveTextContent("23");
+    expect(cut.getByTestId("cut-list-stock")).toHaveTextContent("14 × 8 ft");
+    expect(cut.getByTestId("cut-list-ext-price")).toHaveTextContent("$167.72");
+    // The drip edge's blank opens the book on its key, Each per 10 ft stick.
+    fireEvent.click(within(drip!).getByTestId("cut-list-price-blank"));
+    const seeded = await screen.findByTestId("price-book-row");
+    expect(seeded).toHaveAttribute("data-profile", "drip_edge");
+    expect(seeded).toHaveAttribute("data-kind", "item");
   });
 
   it("shows a long member's splice and prices it per member", async () => {

@@ -34,6 +34,8 @@ EXPECTED_PROFILES: dict[str, tuple[str, float, float]] = {
     "us_1x4": ("1x4", 0.75, 3.5),
     "us_1x6": ("1x6", 0.75, 5.5),
     "us_1x8": ("1x8", 0.75, 7.25),
+    "us_1x10": ("1x10", 0.75, 9.25),
+    "us_1x12": ("1x12", 0.75, 11.25),
     "us_5_4x4": ("5/4x4", 1.0, 3.5),
     "us_5_4x6": ("5/4x6", 1.0, 5.5),
     "us_2x2": ("2x2", 1.5, 1.5),
@@ -84,6 +86,9 @@ EXPECTED_DENSITIES: dict[str, float] = {
     "xps_foam": 23.2,
     "fibre_cement": 1200.0,
     "western_red_cedar": 388.0,
+    "asphalt_shingle": 1300.0,
+    "polypropylene": 905.0,
+    "aluminium_3105": 2720.0,
 }
 
 KG_M3_PER_PCF = 16.018463373960138  # 0.45359237 kg / 0.3048^3 m^3
@@ -164,6 +169,7 @@ def test_wood_density_follows_from_nds_specific_gravity(
         ("melamine", 45),
         ("xps_foam", 1.45),
         ("fibre_cement", 75),
+        ("asphalt_shingle", 81),
     ],
 )
 def test_unit_weight_densities(key: str, pcf: float) -> None:

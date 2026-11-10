@@ -50,7 +50,7 @@ from loft_plugins import expand as _expand
 from loft_plugins.builtin.crawl_space import MIN_UNTREATED_CRAWL_IN
 from loft_plugins.builtin.house import stored_inputs
 from loft_plugins.builtin.roof_ceiling import CEILING_BESIDE
-from loft_plugins.builtin.roof_outline import ceiling_joist_note
+from loft_plugins.builtin.roof_outline import ceiling_joist_note, roofing_notes
 from loft_plugins.builtin.roof_sheathing import MIN_OVERLAP_IN3, through_sheathing
 from loft_plugins.builtin.stair import STAIR, stair_notes
 from loft_plugins.builtin.wall_finish import finish_notes
@@ -1118,7 +1118,23 @@ def plugin_warnings(
         )
         if w is not None
     ]
+    if "roofing" in envelope.params.inputs:  # 1.9.0: roof_roofing_no_overhang
+        out += _noted(roofing_notes(stored_inputs(row.id, envelope, earlier, values)))
     return out or None
+
+
+def _noted(notes: Sequence[tuple[str, str]]) -> list[PluginWarning]:
+    """Input advice, (code, message) notes, as warnings: no overlap, no fix."""
+    return [
+        PluginWarning(
+            code=code,  # pyright: ignore[reportArgumentType]
+            message=message,
+            overlap_in3=0.0,
+            pairs=0,
+            update_to=None,
+        )
+        for code, message in notes
+    ]
 
 
 def _through_sheathing_warning(
@@ -1211,17 +1227,7 @@ def _input_warnings(
         parameters=values,
     )
     inputs = stored_inputs(row.id, envelope, earlier, values)
-    notes = _NOTES[envelope.params.plugin_id](inputs)
-    return [
-        PluginWarning(
-            code=code,  # pyright: ignore[reportArgumentType]
-            message=message,
-            overlap_in3=0.0,
-            pairs=0,
-            update_to=None,
-        )
-        for code, message in notes
-    ] or None
+    return _noted(_NOTES[envelope.params.plugin_id](inputs)) or None
 
 
 def declared_update(row: db.Feature) -> PluginUpdate | None:

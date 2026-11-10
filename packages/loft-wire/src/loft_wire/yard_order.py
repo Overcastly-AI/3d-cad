@@ -54,6 +54,12 @@ def display_length(value_mm: float, unit: LengthUnit) -> str:
 def _qty_size_length(line: CutListLine, unit: LengthUnit) -> tuple[str, str, str]:
     """What the yard loads for *line*: (Qty, Size, Length)."""
     profile = line.profile or ""
+    if line.roofing is not None and line.stock_length_ft is None:
+        # Shingles and underlayment by the bundle or roll; starter and ridge
+        # cap by the foot (ROOFING). Drip edge, by the stick, is below.
+        if line.area_mm2 is not None:
+            return str(line.stock_quantity or 0), profile, DASH
+        return f"{line.stock_quantity or 0} ft", profile, DASH
     if line.casework is not None:
         if line.casework == "edge_banding":
             return f"{line.stock_quantity or 0} ft", profile, DASH

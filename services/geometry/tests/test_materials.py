@@ -215,7 +215,13 @@ class TestResolution:
         # (75 pcf, 1 200 kg/m^3) and western red cedar, G_0 0.36 (388 kg/m^3).
         assert MATERIALS_BY_KEY["fibre_cement"].density_kg_m3 == 1200.0
         assert MATERIALS_BY_KEY["western_red_cedar"].density_kg_m3 == 388.0
-        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 26
+        # Roofing (ROOFING), listed not drawn: asphalt shingle by ASCE 7's
+        # asphaltum, 81 pcf = 1 297.5 kg/m^3 to 3 figures; polypropylene
+        # underlayment 905; 3105 aluminium drip edge 2.72 g/cm^3.
+        assert MATERIALS_BY_KEY["asphalt_shingle"].density_kg_m3 == 1300.0
+        assert MATERIALS_BY_KEY["polypropylene"].density_kg_m3 == 905.0
+        assert MATERIALS_BY_KEY["aluminium_3105"].density_kg_m3 == 2720.0
+        assert len(MATERIALS) == len(MATERIALS_BY_KEY) == 29
 
     def test_a_2x10_x_12ft_spf_member_weighs_the_hand_calculation(self) -> None:
         """LUMBER-MATERIALS: the kernel measures the member, the library weighs it.

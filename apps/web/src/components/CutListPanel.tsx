@@ -161,6 +161,45 @@ function isEachItem(line: CutListLine): boolean {
   );
 }
 
+/** A roofing line (ROOFING): bought by the bundle, roll, stick or foot. */
+function isRoofing(line: CutListLine): boolean {
+  return line.roofing !== null && line.roofing !== undefined;
+}
+
+/** Trim cut from sticks with its line's other pieces (ROOFING). */
+function isNested(line: CutListLine): boolean {
+  return line.nested === true;
+}
+
+/** What one roofing line buys: "17 bundles", "1 roll", "14 × 10 ft", "49 ft". */
+function roofingStock(line: CutListLine): string {
+  const n = line.stock_quantity ?? 0;
+  if (line.roofing === "shingle_architectural") {
+    return `${formatCount(n)} ${n === 1 ? "bundle" : "bundles"}`;
+  }
+  if (line.roofing === "underlayment_synthetic") {
+    return `${formatCount(n)} ${n === 1 ? "roll" : "rolls"}`;
+  }
+  if (line.roofing === "drip_edge") {
+    return `${formatCount(n)} × ${line.stock_length_ft ?? 10} ft`;
+  }
+  return `${formatCount(n)} ft`;
+}
+
+/** How a roofing line's order is reached, for its stock tooltip. */
+function roofingTitle(line: CutListLine, area: string): string {
+  if (line.roofing === "shingle_architectural") {
+    return `${area} net + ${line.waste_percent ?? 0}% waste, 3 bundles a square, rounded up`;
+  }
+  if (line.roofing === "underlayment_synthetic") {
+    return `${area} net + ${line.waste_percent ?? 0}% waste, 10 squares a roll, rounded up`;
+  }
+  if (line.roofing === "drip_edge") {
+    return "10 ft sticks, lapped 2 in at each joint, each run on its own";
+  }
+  return "Bought in whole feet";
+}
+
 /** What a blank price would be priced as, or null when no entry could. */
 function seedFor(line: CutListLine): PriceBookSeed | null {
   if (
@@ -173,7 +212,8 @@ function seedFor(line: CutListLine): PriceBookSeed | null {
   if (
     (line.item !== null && line.item !== undefined) ||
     (line.casework !== null && line.casework !== undefined) ||
-    (line.siding !== null && line.siding !== undefined)
+    (line.siding !== null && line.siding !== undefined) ||
+    isRoofing(line)
   ) {
     // A foundation, casework or siding item: the book resolves its name to
     // its key.
@@ -243,6 +283,10 @@ function splice(line: CutListLine): readonly number[] | null {
 /** What the line buys: "12 ft" of lumber, "9 × 4x9" sheets, a "3040
  * window", or a dash. */
 function stockLabel(line: CutListLine): string {
+  if (isRoofing(line)) return roofingStock(line);
+  if (isNested(line) && line.stock_length_ft != null) {
+    return `${formatCount(line.stock_quantity ?? 0)} × ${line.stock_length_ft} ft`;
+  }
   if (line.siding !== null && line.siding !== undefined) {
     // Bought by its net area plus waste (SIDING-TRIM).
     const n = line.stock_quantity ?? 0;
@@ -306,6 +350,17 @@ function sheetsTitle(
 /** How the line's unit price was reached, for its tooltip. */
 function priceBasis(line: CutListLine): string | undefined {
   if (line.price_unit === null) return undefined;
+  if (isRoofing(line)) {
+    if (line.roofing === "shingle_architectural") return "Each, per bundle";
+    if (line.roofing === "underlayment_synthetic") return "Each, per roll";
+    if (line.roofing === "drip_edge") return "Each, per 10 ft stick";
+    return "Per ft, on the whole feet bought";
+  }
+  if (isNested(line)) {
+    return line.price_unit === "each"
+      ? `Each at ${line.stock_length_ft} ft: one stick of the nested cuts`
+      : `${PRICE_UNIT_LABEL[line.price_unit]}, ${line.stock_length_ft} ft sticks`;
+  }
   if (line.siding !== null && line.siding !== undefined) {
     if (line.price_unit === "square") return "Per square, 100 ft² of wall";
     return line.price_unit === "each"
@@ -657,9 +712,15 @@ export function CutListPanel({
                     title={
                       volume !== null
                         ? "Net volume, measured"
-                        : area === null
-                          ? undefined
-                          : "Net area, openings cut out"
+                        : isNested(line)
+                          ? `Longest of ${formatCount(line.quantity)} cuts: ${(
+                              line.cuts_mm ?? []
+                            )
+                              .map((c) => formatLength(c, unit))
+                              .join(", ")} ${unitLabel}`
+                          : area === null
+                            ? undefined
+                            : "Net area, openings cut out"
                     }
                   >
                     {volume !== null ? (
@@ -698,21 +759,28 @@ export function CutListPanel({
                               ? "in 80 lb bags of 0.60 ft³, rounded up to whole bags"
                               : "rounded up to 1/4 yd³"
                           }`
-                        : line.siding !== null && line.siding !== undefined
-                          ? `${formatArea(area ?? 0, unit)} ${unitLabel}² net + ${line.waste_percent ?? 0}% waste, rounded up to whole ${
-                              line.stock_length_ft === null ||
-                              line.stock_length_ft === undefined
-                                ? "squares"
-                                : `${line.stock_length_ft} ft boards`
-                            }`
-                          : line.item === "rebar"
-                            ? "20 ft sticks, lapped 24 in at each joint"
-                            : sheet !== null
-                              ? sheetsTitle(line, sheet, unit, unitLabel)
-                              : line.waste_mm === null
-                                ? // Why a joist past 24 ft has no stock (NO-SPLICE-SPANS).
-                                  (line.stock_note ?? undefined)
-                                : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
+                        : isRoofing(line)
+                          ? roofingTitle(
+                              line,
+                              `${formatArea(area ?? 0, unit)} ${unitLabel}²`,
+                            )
+                          : isNested(line) && line.waste_mm != null
+                            ? `${formatCount(line.quantity)} cuts nested on ${line.stock_length_ft} ft sticks, a 1/8 in kerf each; ${formatLength(line.waste_mm, unit)} ${unitLabel} offcut in all`
+                            : line.siding !== null && line.siding !== undefined
+                              ? `${formatArea(area ?? 0, unit)} ${unitLabel}² net + ${line.waste_percent ?? 0}% waste, rounded up to whole ${
+                                  line.stock_length_ft === null ||
+                                  line.stock_length_ft === undefined
+                                    ? "squares"
+                                    : `${line.stock_length_ft} ft boards`
+                                }`
+                              : line.item === "rebar"
+                                ? "20 ft sticks, lapped 24 in at each joint"
+                                : sheet !== null
+                                  ? sheetsTitle(line, sheet, unit, unitLabel)
+                                  : line.waste_mm === null
+                                    ? // Why a joist past 24 ft has no stock (NO-SPLICE-SPANS).
+                                      (line.stock_note ?? undefined)
+                                    : `${formatLength(line.waste_mm, unit)} ${unitLabel} offcut each`
                     }
                   >
                     {stockLabel(line)}

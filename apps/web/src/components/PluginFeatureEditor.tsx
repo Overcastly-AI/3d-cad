@@ -138,6 +138,7 @@ const WARNING_LABELS: Record<string, string> = {
   stair_guard_required: "Stair guard",
   stair_deck_guard: "Deck guard",
   wall_finish_no_sheathing: "Exterior finish",
+  roof_roofing_no_overhang: "Roofing",
 };
 
 /** A segmented control reads cleanly for a few short options, else a select. */

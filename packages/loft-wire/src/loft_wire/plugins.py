@@ -56,6 +56,7 @@ from loft_wire.foundation import (
 from loft_wire.materials import MaterialKey
 from loft_wire.opening_units import OpeningUnitPart
 from loft_wire.refs import FeatureRef
+from loft_wire.roofing import RoofingTakeoff
 from loft_wire.sheet_goods import SheetSizeKey
 from loft_wire.siding import SidingTakeoff
 from loft_wire.twist import is_none
@@ -689,6 +690,14 @@ class MemberMetadata(BaseModel):
         "was told to hang it (GYPSUM-SHEETS: gypsum hung from 4x12s): the cut "
         "list nests every such panel on that sheet when it covers the panel. "
         "Absent: the shortest sheet its product is sold in that covers it.",
+    )
+    roofing: RoofingTakeoff | None = Field(
+        default=None,
+        exclude_if=is_none,
+        description="Set on a roof deck panel (ROOFING): the cut list buys the "
+        "shingles and underlayment over its measured net area with the roof's "
+        "waste allowance, and lists the drip edge, starter and ridge cap of "
+        "the edges it carries. Absent otherwise.",
     )
 
     @field_validator("grain")

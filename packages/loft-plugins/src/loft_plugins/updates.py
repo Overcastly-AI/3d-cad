@@ -49,11 +49,18 @@ taken by Update all, which lists it as needing its own decision.
   up to the roof (B7's 22 and 12). A ceiling joist that would lie on an end
   wall's plate is no longer framed (the end wall carries the ceiling there),
   which is a re-lay, so that update is offered on its own. Since 1.8.0
-  (SIDING-TRIM) every roof 1.2.0-1.6.0 goes straight to 1.8.0.
+  (SIDING-TRIM) every roof 1.2.0-1.6.0 goes straight to the newest.
 * ``loft.roof`` 1.7.0 -> 1.8.0, every input as it is: a gable on outline
   walls with an Exterior finish (``loft.wall`` 1.5.0) carries the finish up
   each gable over the sheathing (2 gable siding layers on B7 sided); on
   walls with none, as every updated wall is, it is 1.7.0 member for member.
+* ``loft.roof`` 1.8.0 -> 1.9.0 (ROOFING), every input as it is, so Roofing
+  takes 1.9.0's default, None: the update adds no member (1.8.0's member
+  for member), so it wears no badge and rides in Update all; every older
+  roof goes straight to 1.9.0 too. Roofing, like siding, is a material the
+  user picks, so no update adds a deck or shingles nobody asked for
+  (VISION, 2026-10-30): an update adds by default what a new release FRAMES
+  (ceiling joists, gable studs), never a finish or covering.
 * ``loft.floor`` 1.2.0 -> 1.3.0: Joist direction becomes the Joists bear on
   (Long walls first, then Front and back, then Left and right) whose
   expansion frames 1.2.0's joists, rims and sills member for member. 1.2.0
@@ -281,19 +288,29 @@ _GABLE_ENDS = (
     "frames its end walls up to the roof with gable studs on their layout and "
     "carries their sheathing (and any siding) up the gables"
 )
-_ROOF_1_7 = "A gable on its walls carries their exterior finish up the gables."
+#: Every roof update ends with this: Roofing is offered, never added.
+_ROOFING = " Offers Roofing, None until you pick Asphalt shingles."
+_ROOF_1_7 = (
+    "A gable on its walls carries their exterior finish up the gables." + _ROOFING
+)
+_ROOF_1_8 = (
+    "Offers Roofing, None until you pick Asphalt shingles to deck a gable in "
+    "OSB with fascia and rake boards and list its shingles, underlayment and "
+    "drip edge; nothing is rebuilt."
+)
 _ROOF = (
     "Notches the wall sheathing round the rafter tails, as framers do, ties a "
     "gable with a ceiling joist beside each common (one that cannot fit under "
-    f"the ridge is left out, with a warning) and {_GABLE_ENDS}."
+    f"the ridge is left out, with a warning) and {_GABLE_ENDS}.{_ROOFING}"
 )
 _ROOF_1_5 = (
     "Ties a gable with a ceiling joist beside each common (one that cannot "
     f"fit under the ridge is left out, with a warning) and {_GABLE_ENDS}; a "
-    "hip or a typed bearing is unchanged."
+    f"hip or a typed bearing is unchanged.{_ROOFING}"
 )
 _ROOF_1_6 = (
-    f"A gable on its walls {_GABLE_ENDS}; a hip or a typed bearing is unchanged."
+    f"A gable on its walls {_GABLE_ENDS}; a hip or a typed bearing is "
+    f"unchanged.{_ROOFING}"
 )
 _FLOOR = (
     "Joists bear on replaces Joist direction, set to the span this floor "
@@ -349,10 +366,11 @@ _TABLE: tuple[tuple[str, tuple[str, ...], str, str, InputMap, str], ...] = (
     ("loft.door", ("1.4.0",), "1.5.0", _OPENING_INFILL, _opening_to_1_5, ""),
     ("loft.wall", ("1.2.0", "1.3.0"), "1.5.0", _WALL, _same, ""),
     ("loft.wall", ("1.4.0",), "1.5.0", _WALL_1_4, _same, ""),
-    ("loft.roof", ("1.2.0", "1.3.0", "1.4.0"), "1.8.0", _ROOF, _same, ""),
-    ("loft.roof", ("1.5.0",), "1.8.0", _ROOF_1_5, _same, ""),
-    ("loft.roof", ("1.6.0",), "1.8.0", _ROOF_1_6, _same, ""),
-    ("loft.roof", ("1.7.0",), "1.8.0", _ROOF_1_7, _same, ""),
+    ("loft.roof", ("1.2.0", "1.3.0", "1.4.0"), "1.9.0", _ROOF, _same, ""),
+    ("loft.roof", ("1.5.0",), "1.9.0", _ROOF_1_5, _same, ""),
+    ("loft.roof", ("1.6.0",), "1.9.0", _ROOF_1_6, _same, ""),
+    ("loft.roof", ("1.7.0",), "1.9.0", _ROOF_1_7, _same, ""),
+    ("loft.roof", ("1.8.0",), "1.9.0", _ROOF_1_8, _same, ""),
     (
         "loft.floor",
         ("1.2.0",),
@@ -473,6 +491,8 @@ _NOUNS: Mapping[tuple[str, str], str] = {
     ("loft.wall", "siding"): "siding layer",
     ("loft.wall", "casing"): "casing piece",
     ("loft.roof", "gable_siding"): "gable siding layer",
+    ("loft.roof", "deck"): "roof deck panel",
+    ("loft.roof", "fascia"): "fascia board",
 }
 
 #: What a long list of re-laid nouns is summed as, by plugin ("75 panels").

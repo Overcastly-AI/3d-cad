@@ -3565,6 +3565,82 @@ and reframe it, a material per member, and a cut list that is always current.
     would pass the gateway's 90 s timeout). Golden `b7-second-floor`: 470 bodies,
     solid for solid against an independent build123d script on STEP,
     nothing interfering, probed exactly.
+- **Decided while roofing the house** (ROOFING, 2026-10-30; Chief
+  Architect's roof planes carry a sheathing layer and a roofing layer, with
+  fascia and rake boards, and its Materials List counts roofing in squares
+  and drip edge by length; Revit's roof type is a compound of layers):
+  - *A roof option, the deck drawn, the covering listed.* `loft.roof` 1.9.0
+    adds Roofing (None, the default; Asphalt shingles) and Roofing waste
+    (10 %, 0-30) to a gable on picked walls. Roofing is a material the user
+    picks, as the wall's Exterior finish is, so a new roof and every roof
+    update (1.2-1.8 -> 1.9.0) take None and are 1.8.0 member for member: no
+    update adds a covering nobody asked for (VISION, 2026-10-30). The deck
+    (7/16 OSB, `deck`), the fascia and the rake boards are DRAWN; shingles,
+    synthetic underlayment, drip edge, starter and ridge cap are LISTED from
+    the deck panels' metadata (`loft_wire.roofing`), as rebar is from a
+    pour: a shingle course is thinner than any section a builder reads and
+    what is bought is the deck's measured area. A hip, a typed bearing and a
+    gable with no eave overhang (no tails to hang a fascia on) take none.
+  - *The deck.* Square to the plane on the rafters' top plane, from the
+    fascia's outer face up to the ridge line, so the two planes meet on
+    that line with the vee a ridge vent leaves (a plumb cut would read
+    longer than its sheet). Along the ridge it is flush with the end walls'
+    sheathing face. Courses of 48 in run up from the eave, the last ripped;
+    each course's sheets are at most 8 ft and every end joint is CENTRED on
+    a rafter, staggered 4 ft (even courses start with up to 8 ft, odd ones
+    up to 4 ft, each to the farthest rafter centre it reaches, never
+    leaving a piece under 12 in). APA asks a panel end to bear on framing
+    with its nails 3/8 in in; the PM's sheets laid 96 in from the rake end
+    at X 95.5625, 5/16 in onto the rafter at 96. B7's deck nests on 21
+    sheets by the cut list's rule (the PM's layout on 19 by the same rule,
+    20 by its hand count). Listed under Roof, not with the walls' OSB (`ROLE_SYSTEMS`).
+  - *Fascia and rake boards.* The fascia is the smallest 1x whose width
+    covers the tails' plumb cut (B7: 8.106 -> 1x10; a 1x12 at most, deeper
+    is refused, a 2x fascia being a later rung), its top level with the
+    rafters' top plane at its outer face so the deck rests on its edge, in
+    the fewest pieces of 16 ft or less jointed on the rafter nearest an
+    equal division (B7: X 144, 2 x 14 ft an eave; the PM's 12 + 14 put the
+    joint 7/16 in off the rafter's centre). A 1x6 rake board runs up each
+    rake on the gable's outer face, its top in the deck's top plane,
+    plumb-cut at the fascia's face and the ridge; the end walls' corner
+    boards and siding and the gables' lap it covers are cut to it (a cut
+    of its own section, Objects To Cut listing exactly the bodies it meets,
+    found by clipping its section against each body's sketched loops), as a
+    carpenter fits them under the rake trim. Trim takes the walls' finish's
+    trim material, else SPF.
+  - *Bought as a roofer buys it.* Shingles 3 bundles a square and
+    underlayment by the 10-square roll, both ceil(net x (1 + waste) /
+    coverage) once over the line; drip edge in 10 ft sticks lapped 2 in,
+    ceil((L - 2) / 118) a run (a stick does not turn a corner); starter on
+    the eaves and ridge cap by the whole foot. Bundles and rolls are priced
+    Each with neither stock nor sheet (migration 0032 widens the two Each
+    CHECKs), drip edge Each per 10 ft stick, starter and ridge cap per foot.
+    Three library materials, listed not drawn: asphalt shingle (ASCE 7's
+    asphaltum, 81 pcf, 1 300 kg/m^3), polypropylene (905) and 3105 aluminium
+    (2.72 g/cm^3).
+  - *Trim nested on stock (TRIM-NESTING).* Casing, corner boards, fascia and
+    rake boards are one line per member, profile and material, cut from the
+    shortest stock that covers the longest piece, first fit decreasing with
+    a 1/8 in kerf: B7's 23 casing pieces take 14 8 ft sticks, not 23
+    (`cuts_mm` lists the cuts). Framing is not nested: a joist or stud is a
+    stick of its own, as framers buy them.
+  - *Gable panels by their plan rectangle (GABLE-SHEET-NESTING).* A body's
+    frame was its two largest perpendicular faces, so a gable trapezoid
+    read along its sloped top. A panel (a right prism of its largest face,
+    1 1/4 in thick or less) now takes the edge-face normal that boxes the
+    face in the least area, keeping the largest edge face on a tie: B7's
+    12 gable panels nest on 4 sheets, not 6; rectangles, boards and mitred
+    casing measure as before.
+  - *Numbers.* B7 at 6/12: each plane 108.75 in plan, 121.5862 on the
+    slope, by 288.875: 70 246.42 in^2, 4.8782 squares, 17 bundles, 1 roll;
+    drip edge 1 064.09 in, 14 sticks; starter 48.15 ft (49), ridge cap
+    24.07 ft (25); 24 deck panels on 21 sheets; 4 fascia boards on 14 ft, 4
+    rake boards on 12 ft. At 8/12, 130.7012 a plane, 75 512.64 in^2, 18
+    bundles. Golden `b7-roofing` (B7 sided in lap and roofed): 361 bodies,
+    385 860.298 in^3, solid for solid against an independent build123d
+    script on STEP; nothing interferes, probed exactly, in B7, at 8/12, 28
+    ft, in vinyl, unsided, unsheathed, with no gable ends and turned off
+    the origin.
 - **Order of work** (BACKLOG "Plugins and buildings"): registry with the
   twist as its first consumer, UI, lumber materials, cut list, then the deck,
   walls, hosted windows and doors, and roof against
