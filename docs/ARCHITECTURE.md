@@ -11,6 +11,8 @@ services/gateway    FastAPI: REST aggregation, geometry proxy, auth
 services/geometry   OCCT workers (OCP + build123d): feature evaluation, tessellation, export
 services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared service kit (config, logging, health, errors, queue)
+packages/loft-wire  Pydantic wire types
+packages/loft-plugins  Build features (plugins): kernel-free, depend on loft-wire only
 packages/contracts  Generated OpenAPI schemas (pydantic → committed)
 packages/ts-client  Generated TypeScript client (never hand-edited)
 packages/design     Design tokens + primitives + fonts (source-only workspace)
@@ -140,6 +142,63 @@ Currently shipped: `Sketch`, `Extrude`, `Revolve`, `Sweep`, `Loft`, `Fillet`,
 `Boolean` (union/subtract/intersect on multi-lump bodies), `SheetMetalBaseFlange`,
 `SheetMetalEdgeFlange`. Drawings introduce projection types: orthographic views
 (front/top/right/iso), `flat_pattern` (sheet-metal unfolded blank).
+A Build feature (`custom`) never reaches geometry: documents expands it into
+base features first (next section).
+
+## Build features (plugins)
+
+The Build tools (Wall, Floor, Roof, Deck and the rest) are plugins: custom
+features, as in Onshape. [`BUILDINGS.md`](./BUILDINGS.md) is the user guide;
+RESEARCH §23 has the decisions.
+
+- **Expand, never model.** A plugin is a pure function from typed inputs to
+  base features (sketch, extrude, cut, datum and so on). Documents expands
+  every custom feature when the tree is written and when it is evaluated, so
+  geometry receives base features only. Plugins live in
+  `packages/loft-plugins` and depend on `loft-wire` only
+  (`tests/test_import_lint.py` enforces it). They never import the kernel.
+- **Manifest.** Each release declares its id, version, title, typed inputs
+  (unit, default, bounds) and member roles. The web renders the form from
+  `GET /api/v1/plugins`, so no form is written by hand.
+- **Storage.** A custom feature is an ordinary `features` row of type
+  `custom`, with params `{plugin_id, plugin_version, inputs, expansion}`. A
+  member's id is the `uuid5` of `<feature-id>/<role>/<n>`, so a pick on a
+  generated member keeps its name across edits.
+- **Members.** Each member is its own body, with metadata (role, profile,
+  material, sheet) that the cut list and mass read. The cut list measures
+  lengths from the bodies, never from the metadata.
+- **Hosting by inputs.** A window names its host wall, and the wall receives
+  the inputs of the features it hosts (`ExpandInputs.hosted`) and frames
+  them. Only inputs cross, never expansions, so a host and its hosted
+  features cannot form a cycle.
+- **Versions.** A stored feature pins `plugin_version` and is always expanded
+  by that release. Every released version stays registered
+  (`loft_plugins.builtin.BUILTIN_PLUGINS`). A change to what existing inputs
+  build is a new release, and goldens per release keep old ones
+  byte-identical.
+- **Updates.** `loft_plugins.updates` carries an old release's inputs to the
+  newest release by an explicit map per release pair; inputs the old release
+  lacked take the new defaults. The server marks each out-of-date row with
+  `plugin_update`: what it adds, what it re-lays, `quiet` (it changes no
+  member) and `separate` (it re-lays members, so it is offered on its own).
+  `POST /api/v1/parts/{id}/features/plugin-updates` applies the named
+  updates, or every offered one but the separate ones ("Update all"), as one
+  edit: one `tree_version` bump and one undo step. A release with no map is
+  never offered an update.
+- **Warnings and refusals.** A feature's response carries `plugin_warnings`
+  (`loft_wire.plugin_warning`): advice on inputs that still build
+  (`crawl_height_low`, `stair_throat_thin` and others), or wrong geometry an
+  older release builds, with the release that fixes it. A layout that breaks
+  a rule the plugin enforces is refused instead
+  (`plugin_input_unsupported`).
+- **Missing plugin.** The last expansion is stored with the feature, so a
+  part whose plugin or pinned release this server lacks still rebuilds from
+  it. The feature can be renamed or saved unchanged; any other edit is
+  `plugin_read_only`.
+- **Caps.** An expansion gets 2 s of thread CPU time and a 10 s wall-clock
+  backstop (`plugin_expansion_timeout`). A part is capped at
+  `MAX_TREE_FEATURES` (1 500) counted after expansion; a write past it is
+  refused with `feature_limit_exceeded`.
 
 ## Golden test structure
 
@@ -160,7 +219,7 @@ via directory scan.
 ## Test coverage
 
 - **Unit tests:** pytest across geometry/documents/gateway + py-kit, vitest
-  across web/design (89 total)
+  across web/design
 - **Geometry QA:** golden-model suite (data-driven; mass properties, topology,
   determinism, bend-table structure), STEP round-trip fidelity test, sheet-metal
   unfold correctness
