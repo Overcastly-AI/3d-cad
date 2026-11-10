@@ -19,13 +19,21 @@ from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent))
-from test_building_outline import (
+from test_slab_feature import (  # pyright: ignore[reportPrivateUsage]
+    HEADERS,
     IN,
-    _custom,
-    _outline,
-    _Part,
-    _ref,
+    _custom,  # pyright: ignore[reportPrivateUsage]
+    _outline,  # pyright: ignore[reportPrivateUsage]
+    _Part,  # pyright: ignore[reportPrivateUsage]
+    _ref,  # pyright: ignore[reportPrivateUsage]
 )
+
+
+def _rows(part: _Part) -> dict[str, Any]:
+    """Each feature's response by name, its warnings with it."""
+    response = part.client.get(f"/api/v1/parts/{part.id}/features", headers=HEADERS)
+    assert response.status_code == 200, response.text
+    return {f["name"]: f for f in response.json()["features"]}
 
 
 @pytest.fixture
@@ -66,7 +74,7 @@ def _roof(client: TestClient, version: str, **inputs: Any) -> dict[str, Any]:
             **inputs,
         ),
     )
-    return part.rows()["Roof"]
+    return _rows(part)["Roof"]
 
 
 def test_roofing_on_a_flush_eave_warns_and_builds(client: TestClient) -> None:
