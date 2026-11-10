@@ -288,6 +288,12 @@ That part is `docs/screenshots/part-enclosure-1600.png`. If your numbers don't
 reconcile, that's a bug worth filing — wrong geometry is a first-class bug
 here, not a rounding complaint.
 
+### Build a house
+
+The Build tools frame houses, decks and cabinets from typed inputs and price
+them in the cut list. [`BUILDINGS.md`](./BUILDINGS.md) walks through B7, a
+24 x 16 ft house, from its outline sketch to its drawings.
+
 ### Expectations before you scale up
 
 Parts up to ~50 features feel fine, ~100 is painful cold, and a first rebuild

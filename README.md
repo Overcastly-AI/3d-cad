@@ -83,6 +83,15 @@ of truth for what phase we're in.
   body); STEP / STL / 3MF / glTF-GLB export for parts and assemblies, each
   format declaring its own length unit correctly (3MF's explicit
   `unit="millimeter"`, glTF's metres-by-spec).
+- **Buildings** — Build tools that frame a house from typed inputs: a slab
+  or crawl-space foundation, floors with a framed stairwell, stud walls with
+  windows, doors and partitions, gable and hip roofs with ceiling joists,
+  gable ends and asphalt roofing, siding, drywall, cabinets, decks and
+  stairs. Every member is a body. The cut list buys lumber by stock length,
+  sheet goods by the sheet and concrete by the 1/4 yd³ or the bag, priced
+  from your price book, and a House set drawing gives a plan, four elevations and the
+  materials list. It is a framing model, not a structural design. The guide
+  is [`docs/BUILDINGS.md`](./docs/BUILDINGS.md).
 - **Three FastAPI services** (`gateway`, `documents`, `geometry`) on a shared
   service kit (`packages/py-kit`: config, JSON logging, health/readiness,
   error envelope, metrics, rate limiting, response compression, queue client),
@@ -118,6 +127,15 @@ of truth for what phase we're in.
   bundle it names, the client-side-routing fallback, and `/api` transparently
   reaching the gateway ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
+
+![B7, a 24 x 16 ft house: the feature tree holds one outline sketch and nine
+Build features (floor, walls, a door, five windows and the roof), and the
+viewport shows the house sided and roofed, 361
+bodies](./docs/screenshots/roofing-iso.png)
+
+_B7 from [`docs/BUILDINGS.md`](./docs/BUILDINGS.md): one 288 x 192 in outline
+sketch drives the floor, walls and roof. Roofed in asphalt shingles, it buys
+17 bundles and 21 sheets of roof deck._
 
 **Known gaps.** The
 [daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) rates each
@@ -223,11 +241,12 @@ services/gateway    FastAPI: auth, REST aggregation, geometry proxy
 services/geometry   OCCT workers (OCP + build123d): evaluation, tessellation, export
 services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared service kit: config, logging, probes, errors, queue
+packages/loft-plugins  Build features (walls, floors, roofs, decks…), kernel-free
 packages/contracts  Generated OpenAPI schemas (committed; CI fails on drift)
 packages/ts-client  Generated TypeScript client (never hand-edited)
 packages/design     Design tokens + primitives + fonts — one palette, two renderers
 deploy/             Dockerfiles (the three services + the web app) + compose assets
-docs/               VISION, ROADMAP, BACKLOG, RESEARCH, QUICKSTART, OPERATIONS
+docs/               VISION, ROADMAP, BACKLOG, RESEARCH, QUICKSTART, OPERATIONS, BUILDINGS
 .claude/            The AI agent team: agents, skills, workflows
 ```
 
