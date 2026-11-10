@@ -26,7 +26,7 @@
 #
 # Jobs (all independent, run in parallel):
 #   python    — ruff (lint + format), pyright strict
-#   pytest    — pytest across the uv workspace as a 13-job matrix, packed by
+#   pytest    — pytest across the uv workspace as a 15-job matrix, packed by
 #               measured duration (scripts/pytest_shards.py); `pytest complete`
 #               then proves from the shards' ledgers that every collected test
 #               ran exactly once
@@ -64,8 +64,8 @@
 #
 # Notes:
 # - The geometry golden suite runs inside the `pytest` shards
-#   (services/geometry/tests/test_goldens.py, with its fresh-interpreter leg
-#   in test_goldens_restart_{a,b}.py), so goldens ARE per-commit.
+#   (services/geometry/tests/test_goldens_{a,b}.py, with its fresh-interpreter
+#   leg in test_goldens_restart_{a,b}.py), so goldens ARE per-commit.
 # - The uv cache is keyed on uv.lock on purpose: when OCP lands in the Python
 #   env its wheels are ~700MB, and that cache is what keeps the python and
 #   contracts jobs from re-downloading them on every run (CLAUDE.md recipe).
@@ -247,9 +247,37 @@ jobs:
     # N=13 (13.9 under the worst +10% ratio); 13.7 at N=12 (15.0 at +10%)
     # and 14.9 at N=11 (16.4) do not leave 14 min.
     #
+    # N=15 since 2026-11-10. Three runs of the 13 shards (41040156315 at
+    # 5ac73dc7, 41045307536 at 4852d210, 42731364990 at b0dabd4) ran 9.3-15.0,
+    # 9.7-18.0 and 11.0-19.1 min against 12.7 / 13.0 / 14.1 planned: the
+    # manifest was local x 0.696, and test_goldens.py (every golden built four
+    # times) took 18.0 once b7-ceiling landed unpriced. Calibrated per file
+    # from the jobs API's step times through pytest_shards.py's OWN plan for
+    # each run (same manifest, same collection, same LPT, so CI's bins exactly):
+    # each file x its shard's (step - 0.7) / planned, 0.7 min being start-up
+    # plus the full collection every shard does (run 41056847684's shards died
+    # at collection after 0.6-0.85 min). Files whose cost moved between those
+    # runs (repriced, or walking the goldens) take the newest run's ratio, the
+    # rest the mean of three. Total 173.5 CI min; the newest run's bins
+    # reprice to within 0.90-1.17 of what CI measured. test_goldens.py's
+    # per-golden gates moved to test_goldens_{a,b}.py (6.8 / 7.6 min), halved
+    # by golden in conftest.py like the restart gates; the largest file is now
+    # test_export_tree_restart_a.py at 11.7. Packing: 12.4 min worst at N=15
+    # (13.6 at +10%), 13.1 at N=14 (14.4), 14.1 at N=13 (15.5); past 15 the
+    # floor is that file, so N=16 buys nothing.
+    #
+    # Why more jobs and not a rebalance at 13: the account runs 20 jobs at
+    # once (max concurrency 20 in all four runs above), and this workflow's
+    # first wave is 7 other jobs + the shards, ahead of `full`'s jobs in the
+    # queue. At 15 the two jobs past 20 start when `commit under test` and
+    # `compose` finish (+16 s / +43 s at b0dabd4), so a lone push's slowest
+    # shard drops ~1.7 min for ~2 more runner-minutes of setup. When two
+    # pushes overlap, every job waits 15-31 min (41045307536) whatever N is,
+    # and 15 shorter jobs fill freed slots no worse than 13 longer ones.
+    #
     # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
     # a concurrency eviction — see CLAUDE.md for telling them apart.
-    name: pytest (shard ${{ matrix.shard }}/13)
+    name: pytest (shard ${{ matrix.shard }}/15)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -259,7 +287,7 @@ jobs:
         # Must be 1..N for the `/N` in the Pytest step and `--expect-shards N`
         # in `pytest complete`; `pytest_shards.py --self-test` (in `just lint`)
         # refuses any drift between the three.
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -328,7 +356,7 @@ jobs:
           LOFT_REQUIRE_PG: "1"
         run: >-
           uv run python scripts/pytest_shards.py run
-          --shard "${{ matrix.shard }}/13"
+          --shard "${{ matrix.shard }}/15"
           --ledger "$RUNNER_TEMP/pytest-ledger/shard-${{ matrix.shard }}.json"
       # The ledger is written at session finish whatever the test outcome, so a
       # red shard still hands one in. A shard killed mid-run hands in none, and
@@ -349,7 +377,7 @@ jobs:
 
   pytest-complete:
     # The check the packing cannot make about itself. It refuses unless every
-    # shard 1..13 handed in a ledger, all of them collected the same suite
+    # shard 1..15 handed in a ledger, all of them collected the same suite
     # (otherwise they packed different partitions), no test ran twice, and what
     # ran is exactly what was collected. That is the defect class sharding
     # introduces: a dropped matrix entry, or a shard that died after collection,
@@ -372,7 +400,7 @@ jobs:
         run: >-
           python3 scripts/pytest_shards.py check
           --ledgers "$RUNNER_TEMP/pytest-ledgers"
-          --expect-shards 13
+          --expect-shards 15
           --workflow .github/workflows/ci.yml
       # A red shard fails its own job. This makes the aggregate say so too, so
       # `pytest complete` alone is enough as a required check.
