@@ -483,17 +483,21 @@ _ALL_GOLDENS = sorted(
 #: and how many modules share it. The tree-export sweeps are in THIRDS
 #: (test_export_tree_{a,b,c}.py): a half had grown to 13.4 CI min with
 #: b7-second-floor's five ~70 s cases, near a shard's 16 min target alone
-#: (SECOND-FLOOR); the restart gates stay halved.
+#: (SECOND-FLOOR); the restart gates stay halved. The in-process golden gates
+#: (test_goldens_{a,b}.py) are halved too: in one module they ran ~15 CI min
+#: once b7-ceiling landed, and pushed their shard to 18 (run 41045307536).
 _SPLIT_INVENTORIES = {
     "restart_tree_model": (_TREE_GOLDENS, 2),
     "restart_golden_model": (_ALL_GOLDENS, 2),
     "export_tree_model": (_TREE_GOLDENS, 3),
+    "golden_case_model": (_ALL_GOLDENS, 2),
 }
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Parametrize ``restart_tree_model`` / ``restart_golden_model`` /
-    ``export_tree_model`` over the module's part of the goldens.
+    ``export_tree_model`` / ``golden_case_model`` over the module's part of
+    the goldens.
 
     The module's name ends in ``_a``, ``_b`` (or ``_c``, for thirds) to pick
     its part; the parts interleave by sorted index, so a new golden lands in
