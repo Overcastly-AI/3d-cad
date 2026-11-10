@@ -10,8 +10,12 @@ out." These targets drive the building generators, as the ladder drives
 part modelling. They are framing models with a cut list, **not a structural
 design**: no span table, load or code check is implied. Code sections are
 cited for the layout rules a builder expects (bolt spacing, crawl clearance,
-vents), not as a code check. Roofing, rafter ties and gable-end studs are
-later rungs. Founder, 2026-10-23: "What are we doing for foundations? Also
+vents), not as a code check (SPAN-CHECK, proposed 2026-11-10 for the
+founder, would warn against the IRC span tables, still not a design). The
+rungs once called later are built on B7: gable-end studs and ceiling joists
+as rafter ties (batch56), roofing (ROOFING), a second storey (SECOND-FLOOR)
+and a hung ceiling (GYPSUM-SHEETS); hip roofing, rake overhangs and lapped
+ceiling joists are in flight. Founder, 2026-10-23: "What are we doing for foundations? Also
 it would be nice to be able to build cabinets, vanities, internal walls
 etc." and "Slab and crawl space." (B8-B10; casework is
 `docs/reference-parts/casework.md`.)
@@ -619,3 +623,33 @@ subfloor, with 1/2 in gypsum both faces and no sheathing.
 Numbers (studs, blocks, gypsum panels and sheets, volume) come from the
 round's independent script, as B7's did. **Edit:** 24 -> 28 ft leaves P1
 at X 180 and P2 at Y 132 (P2 grows to 148.75), with no interference.
+
+## B11 Detached garage, 24 x 24 ft (stops GARAGE)
+
+The commonest permit job after a deck. One Slab feature as B8's (4 in, a
+12 x 8 thickened edge) from a 288 x 288 outline; 2x4 walls at 16 in o.c.,
+9 ft (PT bottom plate, 104 5/8 precut studs, double top plate: plate top Z
+109.125), front and back 288, the sides 281 between them; one 16 x 7
+overhead door centred on the front wall. The roof is not part of the check.
+
+- **Concrete:** slab 288 x 288 x 4 = 331 776 in³; edge (82 944 - 69 696)
+  x 8 = 105 984; 437 760 in³ = **9.38 yd³**, x 1.05 = 9.85, **10.00
+  bought** (9.50 with no allowance); one pour, continuous under the door.
+- **Rebar:** 2 #4 loops on the edge's centreline, 276 a side: 1 104 in (92
+  ft) a loop, ceil(92 / 18) = 6 sticks each, **12 sticks**.
+- **Door:** rough opening the door's size from the slab, X 48..240, Z
+  0..84; the bottom plate is cut out across it. Header 2-ply 1 3/4 x 11 7/8
+  LVL (3.5, flush with the wall), X 45..243 (**198**), Z 84..95.875; two
+  jacks a side (X 45..48 and 240..243), Z 1.5..84 (82.5); kings X
+  43.5..45 and 243..244.5, Z 1.5..106.125; cripples on the 16 in layout
+  over the header, X 48, 64, ..., 240: **13** of 10.25 (Z
+  95.875..106.125). R602.7(1)'s largest sawn header, 4-2x12, reaches 11'-8"
+  at a 24 ft width under 30 psf snow, so the 16 ft header is an LVL, listed
+  by size and not span-checked.
+- **Anchor bolts:** front plate 2 pieces of 48 (2 each), back 288 (5),
+  sides 281 (5 each): **19 bolts**.
+- **Units:** 1 overhead door 16x7, Each.
+
+**Edit:** door 16 -> 9 ft (RO X 90..198): header 114 (X 87..201), cripples
+X 96, 112, ..., 192 (**7**), front plate 2 pieces of 90 (2 each), still
+19 bolts; no interference.
